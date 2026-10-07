@@ -13,6 +13,36 @@ using Shouldly;
 
 public sealed class RegistrationTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HostedValidation_WorkerAndDashboard_IsRegisteredOnceBeforeExistingServices(bool workerFirst)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IHostedService, ExistingHostedService>();
+        services.AddSingleton<IJobStore, RecordingJobStore>();
+        services.AddSingleton<IJobRetentionStore, RecordingRetentionStore>();
+        if (workerFirst)
+        {
+            services.AddShedduellerWorker();
+            services.AddShedduellerDashboard();
+        }
+        else
+        {
+            services.AddShedduellerDashboard();
+            services.AddShedduellerWorker();
+        }
+
+        services.AddShedduellerWorker();
+        services.AddShedduellerDashboard();
+        var hosted = services.Where(descriptor => descriptor.ServiceType == typeof(IHostedService)).ToArray();
+
+        hosted[0].ImplementationType!.Name.ShouldBe("ShedduellerStartupValidationHostedService");
+        hosted.Count(descriptor => descriptor.ImplementationType!.Name == "ShedduellerStartupValidationHostedService").ShouldBe(1);
+        hosted.Count(descriptor => descriptor.ImplementationType!.Name.EndsWith("JobRetentionService", StringComparison.Ordinal)).ShouldBe(2);
+        services.Count(descriptor => descriptor.ServiceType == typeof(ShedduellerHostedStartupValidationMarker)).ShouldBe(1);
+    }
+
     [Fact]
     public void AddSheddueller_CustomProvider_RegistersCoreServices()
     {
@@ -92,4 +122,17 @@ public sealed class RegistrationTests
     }
 
     private sealed record NodeConfiguration(string NodeId);
+
+    private sealed class ExistingHostedService : IHostedService
+    {
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingRetentionStore : IJobRetentionStore
+    {
+        public ValueTask<JobRetentionCleanupResult> CleanupTerminalJobsAsync(JobRetentionCleanupRequest request, CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(new JobRetentionCleanupResult(0));
+    }
 }

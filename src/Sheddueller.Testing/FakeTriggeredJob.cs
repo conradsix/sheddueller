@@ -25,7 +25,7 @@ public sealed class FakeTriggeredJob
         this.InvocationTargetKind = schedule.InvocationTargetKind;
         this.SerializableParameterTypes = ToReadOnlyCollection(schedule.SerializableParameterTypes);
         this.SerializableArguments = ToReadOnlyCollection(schedule.SerializableArguments);
-        this.SerializedArgumentsStorage = FakeEnqueuedJob.ClonePayload(schedule.StoredSerializedArguments);
+        this.SerializedArgumentsStorage = JobPayloadSnapshot.Copy(schedule.StoredSerializedArguments);
         this.Priority = schedule.Priority;
         this.ConcurrencyGroupKeys = ToReadOnlyCollection(schedule.ConcurrencyGroupKeys);
         this.RetryPolicy = schedule.RetryPolicy;
@@ -85,7 +85,7 @@ public sealed class FakeTriggeredJob
     /// <summary>
     /// Gets a copy of the serialized argument payload.
     /// </summary>
-    public SerializedJobPayload SerializedArguments => FakeEnqueuedJob.ClonePayload(this.SerializedArgumentsStorage);
+    public SerializedJobPayload SerializedArguments => JobPayloadSnapshot.Copy(this.SerializedArgumentsStorage);
 
     /// <summary>
     /// Gets the priority cloned from the schedule template.

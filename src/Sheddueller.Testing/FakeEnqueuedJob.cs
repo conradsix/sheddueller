@@ -37,7 +37,7 @@ public sealed class FakeEnqueuedJob
         this.InvocationTargetKind = invocationTargetKind;
         this.SerializableParameterTypes = ToReadOnlyCollection(serializableParameterTypes);
         this.SerializableArguments = ToReadOnlyCollection(serializableArguments);
-        this.SerializedArgumentsStorage = ClonePayload(serializedArguments);
+        this.SerializedArgumentsStorage = JobPayloadSnapshot.Copy(serializedArguments);
         this.Submission = submission;
         this.PrerequisiteJobIds = ToReadOnlyCollection(prerequisiteJobIds);
     }
@@ -100,7 +100,7 @@ public sealed class FakeEnqueuedJob
     /// <summary>
     /// Gets a copy of the serialized argument payload.
     /// </summary>
-    public SerializedJobPayload SerializedArguments => ClonePayload(this.SerializedArgumentsStorage);
+    public SerializedJobPayload SerializedArguments => JobPayloadSnapshot.Copy(this.SerializedArgumentsStorage);
 
     /// <summary>
     /// Gets the normalized submission options captured with this job.
@@ -115,9 +115,6 @@ public sealed class FakeEnqueuedJob
     internal SerializedJobPayload StoredSerializedArguments => this.SerializedArgumentsStorage;
 
     private SerializedJobPayload SerializedArgumentsStorage { get; }
-
-    internal static SerializedJobPayload ClonePayload(SerializedJobPayload payload)
-      => new(payload.ContentType, [.. payload.Data]);
 
     private static ReadOnlyCollection<T> ToReadOnlyCollection<T>(IReadOnlyList<T> values)
       => Array.AsReadOnly([.. values]);

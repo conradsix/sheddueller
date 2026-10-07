@@ -233,35 +233,6 @@ internal sealed class JobEnqueuer(
             }
         }
 
-        var visiting = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
-        var visited = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
-        foreach (var job in jobs)
-        {
-            Visit(job, visiting, visited);
-        }
-
-        static void Visit(
-            JobEnqueueItem job,
-            HashSet<JobEnqueueItem> visiting,
-            HashSet<JobEnqueueItem> visited)
-        {
-            if (visited.Contains(job))
-            {
-                return;
-            }
-
-            if (!visiting.Add(job))
-            {
-                throw new ArgumentException("Job dependency graphs cannot contain cycles.", nameof(jobs));
-            }
-
-            foreach (var prerequisite in job.Prerequisites)
-            {
-                Visit(prerequisite, visiting, visited);
-            }
-
-            visiting.Remove(job);
-            visited.Add(job);
-        }
+        DependencyGraph.ValidateAcyclic<JobEnqueueItem>(jobs, static job => job.Prerequisites, ReferenceEqualityComparer.Instance, nameof(jobs));
     }
 }

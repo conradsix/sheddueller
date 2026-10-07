@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="$(SrcDirectory)\Sheddueller\Sheddueller.csproj" />
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller.Dashboard\Sheddueller.Dashboard.csproj" />
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller.Postgres\Sheddueller.Postgres.csproj" />
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller.Testing\Sheddueller.Testing.csproj" />
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller.Worker\Sheddueller.Worker.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>

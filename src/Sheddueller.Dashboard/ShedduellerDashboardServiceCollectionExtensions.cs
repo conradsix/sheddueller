@@ -54,23 +54,7 @@ public static class ShedduellerDashboardServiceCollectionExtensions
     }
 
     private static void TryAddStartupValidationHostedService(IServiceCollection services)
-    {
-        if (services.Any(descriptor => descriptor.ServiceType == typeof(ShedduellerHostedStartupValidationMarker)))
-        {
-            return;
-        }
-
-        services.AddSingleton<ShedduellerHostedStartupValidationMarker>();
-        var descriptor = ServiceDescriptor.Singleton<IHostedService, ShedduellerStartupValidationHostedService>();
-        for (var index = 0; index < services.Count; index++)
-        {
-            if (services[index].ServiceType == typeof(IHostedService))
-            {
-                services.Insert(index, descriptor);
-                return;
-            }
-        }
-
-        services.Add(descriptor);
-    }
+      => StartupValidationRegistration.TryAdd(
+          services,
+          ServiceDescriptor.Singleton<IHostedService, ShedduellerStartupValidationHostedService>());
 }

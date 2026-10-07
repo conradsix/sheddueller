@@ -1,0 +1,223 @@
+.settings-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sd-gutter);
+    max-width: 1120px;
+}
+
+.settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.settings-header p {
+    margin-top: 4px;
+    color: var(--sd-on-surface-variant);
+    font-size: 12px;
+    line-height: 16px;
+}
+
+.settings-message,
+.settings-inline-alert,
+.settings-panel,
+.settings-actions {
+    border: 1px solid var(--sd-outline-variant);
+    border-radius: 2px;
+    background: var(--sd-surface-lowest);
+}
+
+.settings-message,
+.settings-inline-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+}
+
+.settings-message .material-symbols-outlined,
+.settings-inline-alert .material-symbols-outlined {
+    color: var(--sd-primary);
+}
+
+.settings-message--error,
+.settings-inline-alert--error {
+    border-color: var(--sd-error);
+    background: var(--sd-error-container);
+    color: var(--sd-on-error-container);
+}
+
+.settings-message--error .material-symbols-outlined,
+.settings-inline-alert--error .material-symbols-outlined {
+    color: var(--sd-error);
+}
+
+.settings-inline-alert--success {
+    border-color: var(--sd-success);
+    background: var(--sd-success-container);
+    color: var(--sd-success);
+}
+
+.settings-inline-alert--success .material-symbols-outlined {
+    color: var(--sd-success);
+}
+
+.settings-message p,
+.settings-inline-alert {
+    color: var(--sd-on-surface-variant);
+}
+
+.settings-message--error p,
+.settings-inline-alert--error {
+    color: var(--sd-on-error-container);
+}
+
+.settings-inline-alert--success {
+    color: var(--sd-success);
+}
+
+.settings-panel {
+    padding: 16px;
+}
+
+.settings-panel__header {
+    display: flex;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--sd-outline-variant);
+    margin: -4px 0 16px;
+    padding-bottom: 12px;
+}
+
+.settings-panel h2 {
+    margin: 0;
+    font-size: 16px;
+    line-height: 20px;
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--sd-on-surface-variant);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 16px;
+}
+
+.settings-number-input {
+    width: 128px;
+    min-height: 36px;
+    border: 1px solid var(--sd-outline-variant);
+    border-radius: 2px;
+    background: var(--sd-surface-lowest);
+    color: var(--sd-on-surface);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    padding: 6px 8px;
+}
+
+.settings-number-input:focus-visible {
+    outline: 2px solid var(--sd-primary);
+    outline-offset: 1px;
+}
+
+.settings-number-input:disabled {
+    opacity: 0.55;
+}
+
+.settings-unit-row,
+.settings-retention-row,
+.settings-inline-check,
+.settings-switch,
+.settings-actions,
+.settings-button {
+    display: flex;
+    align-items: center;
+}
+
+.settings-unit-row,
+.settings-retention-row {
+    gap: 8px;
+    color: var(--sd-on-surface-variant);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.settings-retention-row {
+    flex-wrap: wrap;
+}
+
+.settings-inline-check,
+.settings-switch {
+    gap: 6px;
+    color: var(--sd-on-surface);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 16px;
+}
+
+.settings-switch {
+    white-space: nowrap;
+}
+
+.settings-inline-check input,
+.settings-switch input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--sd-primary);
+}
+
+.settings-actions {
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px;
+}
+
+.settings-button {
+    min-height: 36px;
+    gap: 6px;
+    border: 1px solid var(--sd-outline-variant);
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 16px;
+    padding: 0 12px;
+}
+
+.settings-button--secondary {
+    background: var(--sd-surface-lowest);
+    color: var(--sd-on-surface);
+}
+
+.settings-button--primary {
+    border-color: var(--sd-primary);
+    background: var(--sd-primary);
+    color: var(--sd-on-primary);
+}
+
+.settings-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+@media (max-width: 760px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-panel__header,
+    .settings-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}

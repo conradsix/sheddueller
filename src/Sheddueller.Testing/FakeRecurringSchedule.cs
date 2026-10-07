@@ -36,7 +36,7 @@ public sealed class FakeRecurringSchedule
         this.InvocationTargetKind = invocationTargetKind;
         this.SerializableParameterTypes = ToReadOnlyCollection(serializableParameterTypes);
         this.SerializableArguments = ToReadOnlyCollection(serializableArguments);
-        this.SerializedArgumentsStorage = FakeEnqueuedJob.ClonePayload(serializedArguments);
+        this.SerializedArgumentsStorage = JobPayloadSnapshot.Copy(serializedArguments);
         this.Priority = options.Priority;
         this.ConcurrencyGroupKeys = ToReadOnlyCollection(options.ConcurrencyGroupKeys ?? []);
         this.RetryPolicy = options.RetryPolicy;
@@ -102,7 +102,7 @@ public sealed class FakeRecurringSchedule
     /// <summary>
     /// Gets a copy of the serialized argument payload.
     /// </summary>
-    public SerializedJobPayload SerializedArguments => FakeEnqueuedJob.ClonePayload(this.SerializedArgumentsStorage);
+    public SerializedJobPayload SerializedArguments => JobPayloadSnapshot.Copy(this.SerializedArgumentsStorage);
 
     /// <summary>
     /// Gets the priority assigned to jobs materialized from this schedule.

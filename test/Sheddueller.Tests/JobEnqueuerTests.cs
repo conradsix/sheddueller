@@ -11,6 +11,25 @@ using Shouldly;
 public sealed class JobEnqueuerTests
 {
     [Fact]
+    public async Task EnqueueMany_CyclicIdempotentGraph_ReportsCycleBeforeIdempotency()
+    {
+        using var provider = CreateProvider();
+        var first = JobEnqueueItem.Create<EnqueueTestService>(
+          (service, ct) => service.HandleStringAsync("first", ct),
+          new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments));
+        var second = JobEnqueueItem.Create<EnqueueTestService>((service, ct) => service.HandleStringAsync("second", ct));
+        first.DependsOn(second);
+        second.DependsOn(first);
+
+        var exception = await Should.ThrowAsync<ArgumentException>(() =>
+          provider.GetRequiredService<IJobEnqueuer>().EnqueueManyAsync([first, second]).AsTask());
+
+        exception.Message.ShouldStartWith("Job dependency graphs cannot contain cycles.");
+        exception.ParamName.ShouldBe("jobs");
+        provider.GetRequiredService<RecordingJobStore>().EnqueuedRequests.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Enqueue_ServiceMethodCall_PersistsMethodIdentityAndArgumentsWithoutCancellationToken()
     {
         var timestamp = new DateTimeOffset(2026, 4, 19, 10, 30, 0, TimeSpan.Zero);

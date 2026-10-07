@@ -7,9 +7,12 @@ This repository is a .NET 10 task scheduling library. The solution file is `Shed
 Source lives under `src/`:
 
 - `src/Sheddueller/` contains the core library. App-facing API types stay in the root `Sheddueller` namespace. Infrastructure is organized by folder and namespace, such as `Sheddueller.Storage`, `Sheddueller.Serialization`, `Sheddueller.Runtime`, and `Sheddueller.Enqueueing`.
-- `src/Sheddueller.InMemory/` contains the in-memory store provider.
+- `src/Sheddueller.Postgres/` contains PostgreSQL storage, inspection, notifications, and migrations. Internal operations separate transaction orchestration from staging, queries, and result projection.
+- `src/Sheddueller.Worker/` contains hosted execution. Claiming, claimed-job lifecycle, and invocation have separate internal responsibilities.
+- `src/Sheddueller.Dashboard/` contains the embedded dashboard. Large components use `.razor` markup, `.razor.cs` code-behind, and ordinary static styles under `wwwroot/styles/`; styles retain their existing global selector reach and page/layout load order.
+- `src/Sheddueller.Testing/` contains public fakes and capture helpers.
 
-Tests live under `test/Sheddueller.Tests/`. Specs and roadmap documents live under `docs/`; image assets live in `docs/assets/`.
+Tests live under the corresponding `test/Sheddueller.*.Tests/` projects. Shared provider contracts live under `test/Sheddueller.ProviderContracts/`. Repository notes live under `docs/`; the sample host lives under `samples/`.
 
 ## Build, Test, and Development Commands
 
@@ -46,3 +49,5 @@ Pull requests should include a concise description, the affected behavior or API
 ## Agent-Specific Instructions
 
 Do not commit build artifacts, `bin/`, `obj/`, `TestResults/`, or `*.lscache`. Avoid public API renames unless the specs are updated at the same time.
+
+The public API snapshots under `test/Sheddueller.Tests/PublicApi/` cover all five packages, including generated Razor components. Refactoring must preserve these snapshots. Keep new implementation helpers internal and retain serialized payload and database compatibility. Update snapshots only for intentional API changes after reviewing the diff.

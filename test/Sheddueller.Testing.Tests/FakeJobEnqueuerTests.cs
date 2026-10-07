@@ -8,6 +8,24 @@ using Shouldly;
 public sealed class FakeJobEnqueuerTests
 {
     [Fact]
+    public async Task EnqueueMany_CyclicIdempotentGraph_ReportsIdempotencyBeforeCycle()
+    {
+        var fake = new FakeJobEnqueuer();
+        var first = JobEnqueueItem.Create<TestJobService>(
+          (service, ct) => service.HandleAsync(new SamplePayload("first", 1), ct),
+          new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments));
+        var second = JobEnqueueItem.Create<TestJobService>((service, ct) => service.HandleAsync(new SamplePayload("second", 2), ct));
+        first.DependsOn(second);
+        second.DependsOn(first);
+
+        var exception = await Should.ThrowAsync<ArgumentException>(() => fake.EnqueueManyAsync([first, second]).AsTask());
+
+        exception.Message.ShouldStartWith("Jobs in a dependency graph cannot use idempotency.");
+        exception.ParamName.ShouldBe("jobs");
+        fake.EnqueuedJobs.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Enqueue_ServiceMethodCall_RecordsJobAndMatchesByExpression()
     {
         var fake = new FakeJobEnqueuer();

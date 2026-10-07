@@ -511,7 +511,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
             .SerializeAsync(parsedJob.SerializableArguments, parsedJob.SerializableParameterTypes, cancellationToken)
             .ConfigureAwait(false);
 
-        return FakeEnqueuedJob.ClonePayload(serializedArguments);
+        return JobPayloadSnapshot.Copy(serializedArguments);
     }
 
     private static FakeRecurringSchedule CreateSchedule(
@@ -550,7 +550,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
         && schedule.InvocationTargetKind == parsedJob.InvocationTargetKind
         && schedule.MethodParameterTypes.Select(TypeNameFormatter.Format).SequenceEqual(parsedJob.MethodParameterTypeNames, StringComparer.Ordinal)
         && schedule.MethodParameterBindings.SequenceEqual(parsedJob.MethodParameterBindings)
-        && PayloadsEqual(schedule.StoredSerializedArguments, serializedArguments);
+        && JobPayloadSnapshot.AreEqual(schedule.StoredSerializedArguments, serializedArguments);
 
     private static bool MatchesDefinition(
       FakeRecurringSchedule existing,
@@ -563,16 +563,10 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
         && existing.MethodParameterTypes.Select(TypeNameFormatter.Format).SequenceEqual(candidate.ParsedJob.MethodParameterTypeNames, StringComparer.Ordinal)
         && existing.InvocationTargetKind == candidate.ParsedJob.InvocationTargetKind
         && existing.MethodParameterBindings.SequenceEqual(candidate.ParsedJob.MethodParameterBindings)
-        && PayloadsEqual(existing.StoredSerializedArguments, candidate.SerializedArguments)
+        && JobPayloadSnapshot.AreEqual(existing.StoredSerializedArguments, candidate.SerializedArguments)
         && existing.ConcurrencyGroupKeys.SequenceEqual(candidate.Options.ConcurrencyGroupKeys ?? [], StringComparer.Ordinal)
         && existing.Tags.SequenceEqual(candidate.Options.Tags ?? [])
         && existing.RetryPolicy == candidate.Options.RetryPolicy;
-
-    private static bool PayloadsEqual(
-      SerializedJobPayload left,
-      SerializedJobPayload right)
-      => string.Equals(left.ContentType, right.ContentType, StringComparison.Ordinal)
-        && left.Data.SequenceEqual(right.Data);
 
     private static RecurringScheduleOptions NormalizeOptions(RecurringScheduleOptions? options)
       => new(

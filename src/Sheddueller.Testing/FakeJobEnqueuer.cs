@@ -53,136 +53,56 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
       Expression<Func<CancellationToken, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync(
       Expression<Func<CancellationToken, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync(
       Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync(
       Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
-
-        lock (this._syncRoot)
-        {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
-            this._jobs.Add(recordedJob);
-
-            return recordedJob.JobId;
-        }
-    }
+      => await this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<Guid>> EnqueueManyAsync(
@@ -329,6 +249,22 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
         return new FakeJobMatch(matchedJobs);
     }
 
+    private async ValueTask<Guid> EnqueueCoreAsync(
+      ParsedJob parsedJob,
+      JobSubmission? submission,
+      CancellationToken cancellationToken)
+    {
+        var preparedJob = await this.PrepareJobAsync(parsedJob, submission, cancellationToken).ConfigureAwait(false);
+
+        lock (this._syncRoot)
+        {
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
+            this._jobs.Add(recordedJob);
+
+            return recordedJob.JobId;
+        }
+    }
+
     private async ValueTask<PreparedJob> PrepareJobAsync(
       ParsedJob parsedJob,
       JobSubmission? submission,
@@ -352,7 +288,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
             .SerializeAsync(parsedJob.SerializableArguments, parsedJob.SerializableParameterTypes, cancellationToken)
             .ConfigureAwait(false);
 
-        return FakeEnqueuedJob.ClonePayload(serializedArguments);
+        return JobPayloadSnapshot.Copy(serializedArguments);
     }
 
     private FakeEnqueuedJob CreateRecordedJob(
@@ -402,33 +338,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
             }
         }
 
-        var visiting = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
-        var visited = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
-        foreach (var job in jobs)
-        {
-            visit(job);
-        }
-
-        void visit(JobEnqueueItem job)
-        {
-            if (visited.Contains(job))
-            {
-                return;
-            }
-
-            if (!visiting.Add(job))
-            {
-                throw new ArgumentException("Job dependency graphs cannot contain cycles.", nameof(jobs));
-            }
-
-            foreach (var prerequisite in job.Prerequisites)
-            {
-                visit(prerequisite);
-            }
-
-            visiting.Remove(job);
-            visited.Add(job);
-        }
+        DependencyGraph.ValidateAcyclic<JobEnqueueItem>(jobs, static job => job.Prerequisites, ReferenceEqualityComparer.Instance, nameof(jobs));
     }
 
     private static bool Matches(
@@ -440,13 +350,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
         && job.InvocationTargetKind == parsedJob.InvocationTargetKind
         && job.MethodParameterTypes.Select(TypeNameFormatter.Format).SequenceEqual(parsedJob.MethodParameterTypeNames, StringComparer.Ordinal)
         && job.MethodParameterBindings.SequenceEqual(parsedJob.MethodParameterBindings)
-        && PayloadsEqual(job.StoredSerializedArguments, serializedArguments);
-
-    private static bool PayloadsEqual(
-      SerializedJobPayload left,
-      SerializedJobPayload right)
-      => string.Equals(left.ContentType, right.ContentType, StringComparison.Ordinal)
-        && left.Data.SequenceEqual(right.Data);
+        && JobPayloadSnapshot.AreEqual(job.StoredSerializedArguments, serializedArguments);
 
     private static JobSubmission NormalizeSubmission(JobSubmission? submission)
     {
