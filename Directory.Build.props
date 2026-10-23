@@ -8,10 +8,10 @@
   <PropertyGroup>
     <Product>Sheddueller</Product>
     <Authors>Brian Tyler</Authors>
-    <Company>hackf5</Company>
+    <Company>conradsix</Company>
     <Description>Task scheduling library for .NET</Description>
     <PackageTags>task-scheduling;scheduler;jobs;dotnet</PackageTags>
-    <RepositoryUrl>https://github.com/hackf5/sheddueller</RepositoryUrl>
+    <RepositoryUrl>https://github.com/conradsix/sheddueller</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>

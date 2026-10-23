@@ -4,7 +4,7 @@
 
 **Sheddueller** - someone who duels with sheds. Think _The Big Lebowski_, but with a PC instead of a White Russian, sword-fighting a small and meaner version of _Howl's Moving Castle_.
 
-![Sheddueller hero](https://raw.githubusercontent.com/hackf5/sheddueller/38186df123ce54ce1e3d476c866087a7b7333278/assets/hero.png)
+![Sheddueller hero](https://raw.githubusercontent.com/conradsix/sheddueller/38186df123ce54ce1e3d476c866087a7b7333278/assets/hero.png)
 
 ## Motivation
 
