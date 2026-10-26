@@ -56,6 +56,11 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               $"PostgreSQL schema '{this._options.SchemaName}' version {currentVersion} is newer than provider version {PostgresNames.ExpectedSchemaVersion}.");
         }
 
+        if (currentVersion == PostgresNames.ExpectedSchemaVersion)
+        {
+            return;
+        }
+
         await ExecuteAsync(connection, transaction, "create extension if not exists pg_trgm;", cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(
