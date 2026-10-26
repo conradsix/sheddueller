@@ -2,6 +2,8 @@ namespace Sheddueller.Postgres.Tests;
 
 using Microsoft.Extensions.DependencyInjection;
 
+using Npgsql;
+
 using Sheddueller.Postgres;
 using Sheddueller.Postgres.Internal;
 
@@ -21,30 +23,113 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     public async Task Migration_Reapplied_IsIdempotent()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid(), priority: 7));
+        var jobData = await ReadJobDataAsync(context);
+        var constraintIds = await ReadConstraintIdsAsync(context);
+        var appliedAt = await ReadAppliedAtAsync(context);
         var migrator = context.Provider.GetRequiredService<IPostgresMigrator>();
 
         await migrator.ApplyAsync();
 
         (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresNames.ExpectedSchemaVersion);
+        (await ReadJobDataAsync(context)).ShouldBe(jobData);
+        (await ReadConstraintIdsAsync(context)).ShouldBe(constraintIds);
+        (await ReadAppliedAtAsync(context)).ShouldBe(appliedAt);
     }
 
     [Fact]
-    public async Task Migration_Reapplied_DropsRedundantIndexes()
+    public async Task Migration_ReappliedWithActiveJobReader_DoesNotBlock()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await using var connection = await fixture.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await using var readCommand = connection.CreateCommand();
+        readCommand.Transaction = transaction;
+#pragma warning disable CA2100 // The test-generated schema identifier is quoted by PostgresTestContext.Table.
+        readCommand.CommandText = $"select job_id from {context.Table("jobs")} limit 1;";
+#pragma warning restore CA2100
+        await readCommand.ExecuteScalarAsync();
+
+        var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString)
+        {
+            CommandTimeout = 2,
+        };
+        await using var dataSource = NpgsqlDataSource.Create(connectionString.ConnectionString);
+        await using var provider = PostgresTestContext.CreateProvider(dataSource, context.SchemaName);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        await provider.GetRequiredService<IPostgresMigrator>().ApplyAsync(cancellation.Token);
+
+        await transaction.RollbackAsync();
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresNames.ExpectedSchemaVersion);
+    }
+
+    [Fact]
+    public async Task Migration_Version14Schema_UpgradesAndPreservesJobs()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid(), priority: 7));
+        var jobData = await ReadJobDataAsync(context);
         await ExecuteAsync(
           context,
           $"""
+          drop table {context.Table("job_dependencies")};
           create index idx_jobs_inspection_newest on {context.Table("jobs")} (enqueue_sequence desc);
           create index idx_job_events_job_sequence on {context.Table("job_events")} (job_id, event_sequence);
+          update {context.Table("schema_info")} set schema_version = 14 where singleton_id = 1;
           """);
         (await IndexExistsAsync(context, "idx_jobs_inspection_newest")).ShouldBeTrue();
         (await IndexExistsAsync(context, "idx_job_events_job_sequence")).ShouldBeTrue();
 
         await context.Provider.GetRequiredService<IPostgresMigrator>().ApplyAsync();
 
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresNames.ExpectedSchemaVersion);
+        (await ReadJobDataAsync(context)).ShouldBe(jobData);
+        await AssertTableExistsAsync(context, "job_dependencies");
+        (await IndexExistsAsync(context, "idx_job_dependencies_prerequisite_job_id")).ShouldBeTrue();
         (await IndexExistsAsync(context, "idx_jobs_inspection_newest")).ShouldBeFalse();
         (await IndexExistsAsync(context, "idx_job_events_job_sequence")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Migration_ConcurrentInitializations_CreatesSchemaOnce()
+    {
+        var schemaName = "sheddueller_" + Guid.NewGuid().ToString("N");
+        await using var provider = PostgresTestContext.CreateProvider(fixture.DataSource, schemaName);
+        var migrator = provider.GetRequiredService<IPostgresMigrator>();
+
+        await Task.WhenAll(migrator.ApplyAsync().AsTask(), migrator.ApplyAsync().AsTask());
+
+        await using var command = fixture.DataSource.CreateCommand(
+          $"select schema_version from {new PostgresNames(schemaName).SchemaInfo};");
+        await using var reader = await command.ExecuteReaderAsync();
+        (await reader.ReadAsync()).ShouldBeTrue();
+        (await reader.GetFieldValueAsync<int>(0)).ShouldBe(PostgresNames.ExpectedSchemaVersion);
+        (await reader.ReadAsync()).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Migration_NewerSchema_ThrowsWithoutChangingSchema()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        var newerVersion = PostgresNames.ExpectedSchemaVersion + 1;
+        await using (var command = context.DataSource.CreateCommand(
+          $"update {context.Table("schema_info")} set schema_version = @version where singleton_id = 1;"))
+        {
+            command.Parameters.AddWithValue("version", newerVersion);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var appliedAt = await ReadAppliedAtAsync(context);
+        var constraintIds = await ReadConstraintIdsAsync(context);
+        var migrator = context.Provider.GetRequiredService<IPostgresMigrator>();
+
+        var exception = await Should.ThrowAsync<InvalidOperationException>(() => migrator.ApplyAsync().AsTask());
+
+        exception.Message.ShouldContain($"version {newerVersion} is newer than provider version {PostgresNames.ExpectedSchemaVersion}");
+        (await context.ReadSchemaVersionAsync()).ShouldBe(newerVersion);
+        (await ReadAppliedAtAsync(context)).ShouldBe(appliedAt);
+        (await ReadConstraintIdsAsync(context)).ShouldBe(constraintIds);
     }
 
     [Fact]
@@ -305,6 +390,24 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
           """))
           .ShouldBeTrue();
     }
+
+    private static async ValueTask<string> ReadJobDataAsync(PostgresTestContext context)
+      => await ScalarAsync<string>(context, $"select row_to_json(job)::text from {context.Table("jobs")} job;");
+
+    private static async ValueTask<DateTime> ReadAppliedAtAsync(PostgresTestContext context)
+      => await ScalarAsync<DateTime>(
+        context,
+        $"select applied_at_utc from {context.Table("schema_info")} where singleton_id = 1;");
+
+    private static async ValueTask<long[]> ReadConstraintIdsAsync(PostgresTestContext context)
+      => await ScalarAsync<long[]>(
+        context,
+        """
+        select array_agg(constraint_info.oid::bigint order by constraint_info.oid)
+        from pg_constraint constraint_info
+        join pg_namespace schema_info on schema_info.oid = constraint_info.connamespace
+        where schema_info.nspname = @schema_name;
+        """);
 
     private static async ValueTask<T> ScalarAsync<T>(
         PostgresTestContext context,

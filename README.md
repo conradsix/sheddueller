@@ -116,6 +116,8 @@ await app.ApplyShedduellerPostgresMigrationsAsync();
 
 Run migrations during deployment or before starting workers against a new schema. Normal startup validates the configured provider; it does not silently create the schema.
 
+Reapplying migrations to an already-current schema skips schema updates and data backfills, preserving its recorded migration timestamp.
+
 Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an application needs to share or own a prebuilt `NpgsqlDataSource`; in that mode, the application also owns disposal.
 
 The operational store keeps active jobs plus a bounded searchable terminal window. By default, background retention cleanup keeps completed jobs for 24 hours and failed or canceled jobs for 7 days, then deletes those terminal job rows and their tags, concurrency groups, and events. Configure `ShedduellerOptions.JobRetention` to change the windows, set a state retention to `null` to keep that state indefinitely, or set `Enabled = false` to disable cleanup.
