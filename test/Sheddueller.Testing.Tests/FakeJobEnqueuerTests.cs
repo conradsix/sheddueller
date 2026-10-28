@@ -209,6 +209,99 @@ public sealed class FakeJobEnqueuerTests
           (s, ct) => s.HandleStringAsync("alpha", ct))).ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task Idempotency_SameMethodAndArguments_ReturnsRecordedJobWithoutRecordingDuplicate()
+    {
+        var fake = new FakeJobEnqueuer();
+        var submission = new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments);
+
+        var first = await fake.EnqueueAsync<TestJobService>(
+          (s, ct) => s.HandleAsync(new SamplePayload("alpha", 42), ct),
+          submission);
+        var second = await fake.EnqueueAsync<TestJobService>(
+          (s, ct) => s.HandleAsync(new SamplePayload("alpha", 42), ct),
+          submission with { Priority = 100 });
+
+        second.ShouldBe(first);
+        var job = fake.EnqueuedJobs.ShouldHaveSingleItem();
+        job.JobId.ShouldBe(first);
+        job.Submission.Priority.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Idempotency_DifferentArguments_RecordsBothJobs()
+    {
+        var fake = new FakeJobEnqueuer();
+        var submission = new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments);
+
+        var first = await fake.EnqueueAsync<TestJobService>((s, ct) => s.HandleStringAsync("alpha", ct), submission);
+        var second = await fake.EnqueueAsync<TestJobService>((s, ct) => s.HandleStringAsync("beta", ct), submission);
+
+        second.ShouldNotBe(first);
+        fake.EnqueuedJobs.Select(job => job.EnqueueSequence).ShouldBe([0, 1]);
+    }
+
+    [Fact]
+    public async Task Idempotency_EarlierJobNotIdempotent_RecordsNewJob()
+    {
+        var fake = new FakeJobEnqueuer();
+
+        var first = await fake.EnqueueAsync<TestJobService>((s, ct) => s.HandleStringAsync("alpha", ct));
+        var second = await fake.EnqueueAsync<TestJobService>(
+          (s, ct) => s.HandleStringAsync("alpha", ct),
+          new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments));
+
+        second.ShouldNotBe(first);
+        fake.EnqueuedJobs.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Idempotency_DuplicateWithinBatch_ReturnsRepresentativeWithoutRecordingDuplicate()
+    {
+        var fake = new FakeJobEnqueuer();
+        var submission = new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments);
+
+        var jobIds = await fake.EnqueueManyAsync([
+          JobEnqueueItem.Create<TestJobService>((s, ct) => s.HandleStringAsync("alpha", ct), submission),
+          JobEnqueueItem.Create<TestJobService>((s, ct) => s.HandleStringAsync("alpha", ct), submission),
+          JobEnqueueItem.Create<TestJobService>((s, ct) => s.HandleStringAsync("beta", ct), submission),
+        ]);
+
+        jobIds[1].ShouldBe(jobIds[0]);
+        jobIds[2].ShouldNotBe(jobIds[0]);
+        fake.EnqueuedJobs.Select(job => job.JobId).ShouldBe([jobIds[0], jobIds[2]]);
+        fake.EnqueuedJobs.Select(job => job.BatchIndex).ShouldBe([0, 2]);
+    }
+
+    [Fact]
+    public async Task Idempotency_JobRecordedByEarlierBatch_IsReusedBySingleEnqueue()
+    {
+        var fake = new FakeJobEnqueuer();
+        var submission = new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments);
+        var batchJobIds = await fake.EnqueueManyAsync([
+          JobEnqueueItem.Create(ct => TestJobService.StaticTaskAsync("alpha", ct), submission),
+        ]);
+
+        var jobId = await fake.EnqueueAsync(ct => TestJobService.StaticTaskAsync("alpha", ct), submission);
+
+        jobId.ShouldBe(batchJobIds[0]);
+        fake.EnqueuedJobs.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Idempotency_AfterClear_RecordsJobAgain()
+    {
+        var fake = new FakeJobEnqueuer();
+        var submission = new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments);
+        var first = await fake.EnqueueAsync<TestJobService>((s, ct) => s.HandleStringAsync("alpha", ct), submission);
+
+        fake.Clear();
+        var second = await fake.EnqueueAsync<TestJobService>((s, ct) => s.HandleStringAsync("alpha", ct), submission);
+
+        second.ShouldNotBe(first);
+        fake.EnqueuedJobs.ShouldHaveSingleItem().JobId.ShouldBe(second);
+    }
+
     private sealed record SamplePayload(string Name, int Count);
 
     private sealed class TestJobService

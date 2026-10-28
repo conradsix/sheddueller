@@ -13,6 +13,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
     private readonly Lock _syncRoot = new();
     private readonly IJobPayloadSerializer _serializer;
     private readonly List<FakeEnqueuedJob> _jobs = [];
+    private readonly Dictionary<string, FakeEnqueuedJob> _jobsByIdempotencyKey = new(StringComparer.Ordinal);
     private long _nextEnqueueSequence;
 
     /// <summary>
@@ -138,6 +139,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
             for (var i = 0; i < preparedJobs.Length; i++)
             {
+                // A batch with prerequisites uses no idempotency, so prerequisites are never deduplicated away.
                 var prerequisiteJobIds = jobSnapshot[i].Prerequisites
                     .Select(prerequisite => jobIdsByItem[prerequisite])
                     .ToArray();
@@ -220,6 +222,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
         lock (this._syncRoot)
         {
             this._jobs.Clear();
+            this._jobsByIdempotencyKey.Clear();
             this._nextEnqueueSequence = 0;
         }
     }
@@ -268,15 +271,27 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
         var normalizedSubmission = NormalizeSubmission(submission);
         var definition = await FakeJobDefinition.CreateAsync(parsedJob, this._serializer, cancellationToken).ConfigureAwait(false);
 
-        return new PreparedJob(Guid.NewGuid(), definition, normalizedSubmission);
+        return new PreparedJob(
+          Guid.NewGuid(),
+          definition,
+          normalizedSubmission,
+          definition.CreateIdempotencyKey(normalizedSubmission.IdempotencyKind));
     }
 
+    // Like the store, an idempotent job whose key matches a recorded job returns that job instead of recording another.
+    // The fake never runs jobs, so every recorded job counts as still queued.
     private FakeEnqueuedJob RecordJob(
       PreparedJob preparedJob,
       Guid? batchId,
       int? batchIndex,
       IReadOnlyList<Guid> prerequisiteJobIds)
     {
+        if (preparedJob.IdempotencyKey is { } idempotencyKey
+            && this._jobsByIdempotencyKey.TryGetValue(idempotencyKey, out var existingJob))
+        {
+            return existingJob;
+        }
+
         var recordedJob = new FakeEnqueuedJob(
           preparedJob.JobId,
           this._nextEnqueueSequence++,
@@ -284,8 +299,13 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
           batchIndex,
           preparedJob.Definition,
           preparedJob.Submission,
-          prerequisiteJobIds);
+          prerequisiteJobIds,
+          preparedJob.IdempotencyKey);
         this._jobs.Add(recordedJob);
+        if (recordedJob.IdempotencyKey is not null)
+        {
+            this._jobsByIdempotencyKey.Add(recordedJob.IdempotencyKey, recordedJob);
+        }
 
         return recordedJob;
     }
@@ -310,5 +330,6 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
     private sealed record PreparedJob(
       Guid JobId,
       FakeJobDefinition Definition,
-      JobSubmission Submission);
+      JobSubmission Submission,
+      string? IdempotencyKey);
 }

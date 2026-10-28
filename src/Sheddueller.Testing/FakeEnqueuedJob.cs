@@ -15,7 +15,8 @@ public sealed class FakeEnqueuedJob
       int? batchIndex,
       FakeJobDefinition definition,
       JobSubmission submission,
-      IReadOnlyList<Guid> prerequisiteJobIds)
+      IReadOnlyList<Guid> prerequisiteJobIds,
+      string? idempotencyKey)
     {
         this.JobId = jobId;
         this.EnqueueSequence = enqueueSequence;
@@ -24,6 +25,7 @@ public sealed class FakeEnqueuedJob
         this.Definition = definition;
         this.Submission = submission;
         this.PrerequisiteJobIds = FakeJobDefinition.ToReadOnlyCollection(prerequisiteJobIds);
+        this.IdempotencyKey = idempotencyKey;
     }
 
     /// <summary>
@@ -97,4 +99,9 @@ public sealed class FakeEnqueuedJob
     public IReadOnlyList<Guid> PrerequisiteJobIds { get; }
 
     internal FakeJobDefinition Definition { get; }
+
+    /// <summary>
+    /// Gets the idempotency key the real enqueuer would store, or null when the job uses no idempotency.
+    /// </summary>
+    internal string? IdempotencyKey { get; }
 }

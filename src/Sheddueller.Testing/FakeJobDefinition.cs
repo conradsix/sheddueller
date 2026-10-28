@@ -77,6 +77,16 @@ internal sealed class FakeJobDefinition
         && string.Equals(this._serializedArguments.ContentType, other._serializedArguments.ContentType, StringComparison.Ordinal)
         && this._serializedArguments.Data.AsSpan().SequenceEqual(other._serializedArguments.Data);
 
+    /// <summary>
+    /// Creates the idempotency key the real enqueuer would store for this definition, or null for none.
+    /// </summary>
+    public string? CreateIdempotencyKey(JobIdempotencyKind idempotencyKind)
+      => JobIdempotencyKeyGenerator.CreateKey(
+          idempotencyKind,
+          this._parsedJob,
+          TypeNameFormatter.Format(this.ServiceType),
+          this._serializedArguments);
+
     public static ReadOnlyCollection<T> ToReadOnlyCollection<T>(IReadOnlyList<T> values)
       => Array.AsReadOnly([.. values]);
 
