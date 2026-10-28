@@ -52,25 +52,7 @@ internal static class TryClaimNextJobOperation
               where job_id = @job_id
                 and state = 'Queued'
               returning
-                  job_id,
-                  enqueue_sequence,
-                  priority,
-                  service_type,
-                  method_name,
-                  method_parameter_types,
-                  invocation_target_kind,
-                  method_parameter_bindings,
-                  serialized_arguments_content_type,
-                  serialized_arguments,
-                  attempt_count,
-                  max_attempts,
-                  lease_token,
-                  lease_expires_at_utc,
-                  retry_backoff_kind,
-                  retry_base_delay_ms,
-                  retry_max_delay_ms,
-                  source_schedule_key,
-                  scheduled_fire_at_utc;
+                  {PostgresReaders.ClaimedJobColumnsSql};
               """;
             command.Parameters.AddWithValue("job_id", jobId);
             command.Parameters.AddWithValue("node_id", request.NodeId);

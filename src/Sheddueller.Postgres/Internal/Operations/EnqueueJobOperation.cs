@@ -375,7 +375,7 @@ internal static class EnqueueJobOperation
           connection,
           transaction,
           """
-          select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || idempotency_key, 7870834))
+          select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || idempotency_key, @idempotency_key_hash_seed))
           from (
               select distinct idempotency_key
               from sheddueller_enqueue_jobs
@@ -383,7 +383,11 @@ internal static class EnqueueJobOperation
               order by idempotency_key
           ) keys;
           """,
-          command => command.Parameters.AddWithValue("schema_name", context.Options.SchemaName),
+          command =>
+          {
+              command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
+              command.Parameters.AddWithValue("idempotency_key_hash_seed", PostgresAdvisoryLocks.IdempotencyKeyHashSeed);
+          },
           cancellationToken)
           .ConfigureAwait(false);
 

@@ -24,7 +24,7 @@ internal static class PostgresScheduleInspectionOperation
           $"""
           select count(*)
           from {context.Names.RecurringSchedules} schedule
-          {CreateFilterWhereClause(countConditions)};
+          {PostgresSql.WhereClause(countConditions)};
           """;
         var totalCount = Convert.ToInt64(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
 
@@ -249,10 +249,7 @@ internal static class PostgresScheduleInspectionOperation
          """;
 
     private static string CreateWhereClause(List<string> conditions)
-      => $"{CreateFilterWhereClause(conditions)} group by schedule.schedule_key";
-
-    private static string CreateFilterWhereClause(List<string> conditions)
-      => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
+      => $"{PostgresSql.WhereClause(conditions)} group by schedule.schedule_key";
 
     private static void ValidateQuery(ScheduleInspectionQuery query)
     {

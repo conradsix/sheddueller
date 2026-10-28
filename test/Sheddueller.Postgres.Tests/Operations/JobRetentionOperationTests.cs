@@ -1,6 +1,7 @@
 namespace Sheddueller.Postgres.Tests.Operations;
 
 using Sheddueller.Inspection.Jobs;
+using Sheddueller.Postgres.Internal;
 using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Storage;
 
@@ -132,7 +133,7 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture)
             {
                 command.Transaction = transaction;
                 command.CommandText = "select pg_advisory_xact_lock(@lock_key, hashtext(@schema_name));";
-                command.Parameters.AddWithValue("lock_key", PostgresJobRetentionOperation.RetentionAdvisoryLockKey);
+                command.Parameters.AddWithValue("lock_key", PostgresAdvisoryLocks.RetentionLockKey);
                 command.Parameters.AddWithValue("schema_name", context.SchemaName);
                 await command.ExecuteNonQueryAsync();
             }

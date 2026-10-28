@@ -2,6 +2,8 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
+using Sheddueller.Enqueueing;
+
 internal static class PostgresJobTags
 {
     public static async ValueTask ReplaceJobTagsAsync(
@@ -12,7 +14,7 @@ internal static class PostgresJobTags
         IReadOnlyList<JobTag>? tags,
         CancellationToken cancellationToken)
     {
-        var normalized = NormalizeTags(tags);
+        var normalized = SubmissionValidator.NormalizeJobTags(tags);
         await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
@@ -42,39 +44,5 @@ internal static class PostgresJobTags
               cancellationToken)
               .ConfigureAwait(false);
         }
-    }
-
-    private static List<JobTag> NormalizeTags(IReadOnlyList<JobTag>? tags)
-    {
-        if (tags is null || tags.Count == 0)
-        {
-            return [];
-        }
-
-        var seen = new HashSet<JobTag>();
-        var normalized = new List<JobTag>(tags.Count);
-        foreach (var tag in tags)
-        {
-            ArgumentNullException.ThrowIfNull(tag);
-            var name = tag.Name.Trim();
-            var value = tag.Value.Trim();
-            if (name.Length == 0)
-            {
-                throw new ArgumentException("Job tag names must be non-empty after trimming.", nameof(tags));
-            }
-
-            if (value.Length == 0)
-            {
-                throw new ArgumentException("Job tag values must be non-empty after trimming.", nameof(tags));
-            }
-
-            var normalizedTag = new JobTag(name, value);
-            if (seen.Add(normalizedTag))
-            {
-                normalized.Add(normalizedTag);
-            }
-        }
-
-        return normalized;
     }
 }

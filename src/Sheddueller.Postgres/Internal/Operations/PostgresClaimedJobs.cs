@@ -34,13 +34,7 @@ internal static class PostgresClaimedJobs
         command.CommandText =
           $"""
           select
-              job.job_id,
-              job.attempt_count,
-              job.max_attempts,
-              job.retry_backoff_kind,
-              job.retry_base_delay_ms,
-              job.retry_max_delay_ms,
-              job.idempotency_key
+              {PostgresReaders.PostgresClaimedJobColumnsSql}
           from {context.Names.Jobs} job
           where job.job_id = @job_id
             and job.state = 'Claimed'
@@ -83,13 +77,7 @@ internal static class PostgresClaimedJobs
         command.CommandText =
           $"""
           select
-              job.job_id,
-              job.attempt_count,
-              job.max_attempts,
-              job.retry_backoff_kind,
-              job.retry_base_delay_ms,
-              job.retry_max_delay_ms,
-              job.idempotency_key
+              {PostgresReaders.PostgresClaimedJobColumnsSql}
           from {context.Names.Jobs} job
           where job.state = 'Claimed'
             and job.lease_expires_at_utc <= transaction_timestamp()
@@ -234,11 +222,12 @@ internal static class PostgresClaimedJobs
       => await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
-          "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, 7870834));",
+          "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, @idempotency_key_hash_seed));",
           command =>
           {
               command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
               command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+              command.Parameters.AddWithValue("idempotency_key_hash_seed", PostgresAdvisoryLocks.IdempotencyKeyHashSeed);
           },
           cancellationToken)
           .ConfigureAwait(false);

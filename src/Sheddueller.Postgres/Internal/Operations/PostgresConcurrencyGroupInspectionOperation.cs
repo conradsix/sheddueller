@@ -8,6 +8,33 @@ using Sheddueller.Inspection.ConcurrencyGroups;
 
 internal static class PostgresConcurrencyGroupInspectionOperation
 {
+    /// <summary>
+    /// The columns that <see cref="ReadGroupSummariesAsync" /> reads, in ordinal order, from the <c>summary</c> CTE of
+    /// <see cref="GroupSummaryCteSql" />.
+    /// </summary>
+    private const string GroupSummaryColumnsSql =
+      """
+      summary.group_key,
+      summary.default_limit,
+      summary.override_limit,
+      summary.effective_limit,
+      summary.current_occupancy,
+      summary.blocked_count,
+      summary.is_saturated,
+      summary.updated_at_utc,
+      summary.default_rate_permit_count,
+      summary.default_rate_period,
+      summary.rate_limit_override_enabled,
+      summary.configured_rate_permit_count,
+      summary.configured_rate_period,
+      summary.effective_rate_permit_count,
+      summary.effective_rate_period,
+      summary.rate_theoretical_arrival_at_utc,
+      summary.is_rate_limited,
+      summary.concurrency_blocked_count,
+      summary.rate_blocked_count
+      """;
+
     public static async ValueTask<ConcurrencyGroupInspectionPage> SearchAsync(
         PostgresOperationContext context,
         ConcurrencyGroupInspectionQuery query,
@@ -77,7 +104,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
           {GroupSummaryCteSql(context)}
           select count(*)
           from summary
-          {CreateWhereClause(conditions)};
+          {PostgresSql.WhereClause(conditions)};
           """;
 
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
@@ -103,27 +130,9 @@ internal static class PostgresConcurrencyGroupInspectionOperation
           $"""
           {GroupSummaryCteSql(context)}
           select
-              summary.group_key,
-              summary.default_limit,
-              summary.override_limit,
-              summary.effective_limit,
-              summary.current_occupancy,
-              summary.blocked_count,
-              summary.is_saturated,
-              summary.updated_at_utc,
-              summary.default_rate_permit_count,
-              summary.default_rate_period,
-              summary.rate_limit_override_enabled,
-              summary.configured_rate_permit_count,
-              summary.configured_rate_period,
-              summary.effective_rate_permit_count,
-              summary.effective_rate_period,
-              summary.rate_theoretical_arrival_at_utc,
-              summary.is_rate_limited,
-              summary.concurrency_blocked_count,
-              summary.rate_blocked_count
+              {GroupSummaryColumnsSql}
           from summary
-          {CreateWhereClause(conditions)}
+          {PostgresSql.WhereClause(conditions)}
           order by summary.group_key asc
           limit @limit;
           """;
@@ -142,25 +151,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
           $"""
           {GroupSummaryCteSql(context)}
           select
-              summary.group_key,
-              summary.default_limit,
-              summary.override_limit,
-              summary.effective_limit,
-              summary.current_occupancy,
-              summary.blocked_count,
-              summary.is_saturated,
-              summary.updated_at_utc,
-              summary.default_rate_permit_count,
-              summary.default_rate_period,
-              summary.rate_limit_override_enabled,
-              summary.configured_rate_permit_count,
-              summary.configured_rate_period,
-              summary.effective_rate_permit_count,
-              summary.effective_rate_period,
-              summary.rate_theoretical_arrival_at_utc,
-              summary.is_rate_limited,
-              summary.concurrency_blocked_count,
-              summary.rate_blocked_count
+              {GroupSummaryColumnsSql}
           from summary
           where summary.group_key = @group_key;
           """;
@@ -192,10 +183,10 @@ internal static class PostgresConcurrencyGroupInspectionOperation
             {
                 DefaultLimit = defaultLimit,
                 OverrideLimit = overrideLimit,
-                DefaultRateLimit = ReadRateLimit(reader, 8, 9),
+                DefaultRateLimit = PostgresSql.ReadRateLimit(reader, 8, 9),
                 HasRateLimitOverride = reader.GetBoolean(10),
-                OverrideRateLimit = ReadRateLimit(reader, 11, 12),
-                EffectiveRateLimit = ReadRateLimit(reader, 13, 14),
+                OverrideRateLimit = PostgresSql.ReadRateLimit(reader, 11, 12),
+                EffectiveRateLimit = PostgresSql.ReadRateLimit(reader, 13, 14),
                 NextRatePermitAtUtc = reader.IsDBNull(15) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(15)),
                 IsRateLimited = reader.GetBoolean(16),
                 ConcurrencyBlockedJobCount = Convert.ToInt32(reader.GetInt64(17), CultureInfo.InvariantCulture),
@@ -235,9 +226,6 @@ internal static class PostgresConcurrencyGroupInspectionOperation
             command.Parameters.AddWithValue("is_rate_limited", isRateLimited);
         }
     }
-
-    private static string CreateWhereClause(List<string> conditions)
-      => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
 
     private static string GroupSummaryCteSql(PostgresOperationContext context)
       => $"""
@@ -337,14 +325,6 @@ internal static class PostgresConcurrencyGroupInspectionOperation
           _ => $"{PostgresSqlFragments.GroupIsSaturated("concurrency_group")} or {PostgresSqlFragments.GroupIsRateLimited("concurrency_group", PostgresSqlFragments.TransactionNow)}",
       };
 
-    private static ConcurrencyGroupRateLimit? ReadRateLimit(
-        NpgsqlDataReader reader,
-        int countOrdinal,
-        int periodOrdinal)
-      => reader.IsDBNull(countOrdinal)
-        ? null
-        : new ConcurrencyGroupRateLimit(reader.GetInt32(countOrdinal), reader.GetTimeSpan(periodOrdinal));
-
     private static async ValueTask<IReadOnlyList<Guid>> ReadJobIdsAsync(
         NpgsqlConnection connection,
         string commandText,
@@ -355,14 +335,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         command.CommandText = commandText;
         command.Parameters.AddWithValue("group_key", groupKey);
 
-        var jobIds = new List<Guid>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            jobIds.Add(reader.GetGuid(0));
-        }
-
-        return jobIds;
+        return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
     }
 
     private static void ValidateQuery(ConcurrencyGroupInspectionQuery query)

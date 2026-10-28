@@ -140,7 +140,7 @@ internal static class PostgresJobInspectionOperation
           $"""
           select count(*)
           from {context.Names.Jobs} job
-          {CreateWhereClause(countConditions)};
+          {PostgresSql.WhereClause(countConditions)};
           """;
         var totalCount = Convert.ToInt64(
           await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
@@ -150,7 +150,7 @@ internal static class PostgresJobInspectionOperation
         var conditions = new List<string>();
         configureFilters(command, conditions);
         command.Parameters.AddWithValue("limit", query.PageSize + 1);
-        var whereClause = CreateWhereClause(conditions);
+        var whereClause = PostgresSql.WhereClause(conditions);
         string? continuationToken;
 
         switch (query.Sort)
@@ -161,7 +161,7 @@ internal static class PostgresJobInspectionOperation
                     {
                         conditions.Add("job.enqueue_sequence < @after_sequence");
                         command.Parameters.AddWithValue("after_sequence", sequence);
-                        whereClause = CreateWhereClause(conditions);
+                        whereClause = PostgresSql.WhereClause(conditions);
                     }
 
                     command.CommandText =
@@ -324,9 +324,6 @@ internal static class PostgresJobInspectionOperation
         return counts;
     }
 
-    private static string CreateWhereClause(List<string> conditions)
-      => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
-
     private static async ValueTask<IReadOnlyList<PostgresJobInspectionRow>> ReadSummaryRowsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -406,24 +403,15 @@ internal static class PostgresJobInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        var afterClause = afterEventSequence is null ? string.Empty : "and event_sequence > @after_event_sequence";
+        var afterClause = afterEventSequence is null ? string.Empty : "and job_event.event_sequence > @after_event_sequence";
         command.CommandText =
           $"""
           select
-              event_id,
-              job_id,
-              event_sequence,
-              kind,
-              occurred_at_utc,
-              attempt_number,
-              log_level,
-              message,
-              progress_percent,
-              fields
-          from {context.Names.JobEvents}
-          where job_id = @job_id
+              {PostgresJobEvents.EventColumnsSql}
+          from {context.Names.JobEvents} job_event
+          where job_event.job_id = @job_id
             {afterClause}
-          order by event_sequence asc
+          order by job_event.event_sequence asc
           limit @limit;
           """;
         command.Parameters.AddWithValue("job_id", jobId);
@@ -460,7 +448,7 @@ internal static class PostgresJobInspectionOperation
           """;
         command.Parameters.AddWithValue("source_job_id", sourceJobId);
 
-        return await ReadJobIdsAsync(command, cancellationToken).ConfigureAwait(false);
+        return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
     }
 
     private static async ValueTask<IReadOnlyList<Guid>> ReadPrerequisiteJobIdsAsync(
@@ -479,7 +467,7 @@ internal static class PostgresJobInspectionOperation
           """;
         command.Parameters.AddWithValue("job_id", jobId);
 
-        return await ReadJobIdsAsync(command, cancellationToken).ConfigureAwait(false);
+        return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
     }
 
     private static async ValueTask<IReadOnlyList<Guid>> ReadDependentJobIdsAsync(
@@ -498,21 +486,7 @@ internal static class PostgresJobInspectionOperation
           """;
         command.Parameters.AddWithValue("job_id", jobId);
 
-        return await ReadJobIdsAsync(command, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async ValueTask<IReadOnlyList<Guid>> ReadJobIdsAsync(
-        NpgsqlCommand command,
-        CancellationToken cancellationToken)
-    {
-        var jobIds = new List<Guid>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            jobIds.Add(reader.GetGuid(0));
-        }
-
-        return jobIds;
+        return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
     }
 
     private static string OperationalOrderBySql(PostgresOperationContext context)

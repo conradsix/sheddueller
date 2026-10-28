@@ -120,14 +120,9 @@ internal static class PostgresConcurrencyRateLimits
 
         return new Configuration(
           reader.GetBoolean(0),
-          ReadRateLimit(reader, 1, 2),
-          ReadRateLimit(reader, 3, 4));
+          PostgresSql.ReadRateLimit(reader, 1, 2),
+          PostgresSql.ReadRateLimit(reader, 3, 4));
     }
-
-    private static ConcurrencyGroupRateLimit? ReadRateLimit(NpgsqlDataReader reader, int countOrdinal, int periodOrdinal)
-      => reader.IsDBNull(countOrdinal)
-        ? null
-        : new ConcurrencyGroupRateLimit(reader.GetInt32(countOrdinal), reader.GetTimeSpan(periodOrdinal));
 
     private static void AddNullableInteger(NpgsqlCommand command, string name, int? value)
       => command.Parameters.AddWithValue(name, NpgsqlDbType.Integer, value is null ? DBNull.Value : value.Value);

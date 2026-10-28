@@ -11,6 +11,24 @@ using Sheddueller.Storage;
 
 internal static class PostgresJobEvents
 {
+    /// <summary>
+    /// The columns that <see cref="ReadEvent" /> reads, in ordinal order, from the job events table aliased
+    /// <c>job_event</c>.
+    /// </summary>
+    public const string EventColumnsSql =
+      """
+      job_event.event_id,
+      job_event.job_id,
+      job_event.event_sequence,
+      job_event.kind,
+      job_event.occurred_at_utc,
+      job_event.attempt_number,
+      job_event.log_level,
+      job_event.message,
+      job_event.progress_percent,
+      job_event.fields
+      """;
+
     public static async ValueTask<JobEvent> AppendAsync(
         PostgresOperationContext context,
         AppendJobEventRequest request,
@@ -64,16 +82,7 @@ internal static class PostgresJobEvents
         command.CommandText =
           $"""
           select
-              job_event.event_id,
-              job_event.job_id,
-              job_event.event_sequence,
-              job_event.kind,
-              job_event.occurred_at_utc,
-              job_event.attempt_number,
-              job_event.log_level,
-              job_event.message,
-              job_event.progress_percent,
-              job_event.fields,
+              {EventColumnsSql},
               requested.ordinal
           from unnest(
               @job_ids::uuid[],

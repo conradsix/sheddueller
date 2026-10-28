@@ -20,24 +20,7 @@ internal static class PostgresSchedules
         command.CommandText =
           $"""
           select
-              schedule.schedule_key,
-              schedule.cron_expression,
-              schedule.is_paused,
-              schedule.overlap_mode,
-              schedule.priority,
-              schedule.service_type,
-              schedule.method_name,
-              schedule.method_parameter_types,
-              schedule.invocation_target_kind,
-              schedule.method_parameter_bindings,
-              schedule.serialized_arguments_content_type,
-              schedule.serialized_arguments,
-              schedule.retry_policy_configured,
-              schedule.max_attempts,
-              schedule.retry_backoff_kind,
-              schedule.retry_base_delay_ms,
-              schedule.retry_max_delay_ms,
-              schedule.next_fire_at_utc
+              {PostgresReaders.ScheduleDefinitionColumnsSql}
           from {context.Names.RecurringSchedules} schedule
           where schedule.schedule_key = @schedule_key
           for update;
@@ -255,24 +238,7 @@ internal static class PostgresSchedules
         command.CommandText =
           $"""
           select
-              schedule.schedule_key,
-              schedule.cron_expression,
-              schedule.is_paused,
-              schedule.overlap_mode,
-              schedule.priority,
-              schedule.service_type,
-              schedule.method_name,
-              schedule.method_parameter_types,
-              schedule.invocation_target_kind,
-              schedule.method_parameter_bindings,
-              schedule.serialized_arguments_content_type,
-              schedule.serialized_arguments,
-              schedule.retry_policy_configured,
-              schedule.max_attempts,
-              schedule.retry_backoff_kind,
-              schedule.retry_base_delay_ms,
-              schedule.retry_max_delay_ms,
-              schedule.next_fire_at_utc
+              {PostgresReaders.ScheduleDefinitionColumnsSql}
           from {context.Names.RecurringSchedules} schedule
           where schedule.is_paused = false
             and schedule.next_fire_at_utc <= transaction_timestamp()

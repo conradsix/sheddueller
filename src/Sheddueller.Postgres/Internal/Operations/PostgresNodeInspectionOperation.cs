@@ -67,7 +67,7 @@ internal static class PostgresNodeInspectionOperation
           $"""
           select count(*)
           from {context.Names.WorkerNodes} node
-          {CreateWhereClause(conditions)};
+          {PostgresSql.WhereClause(conditions)};
           """;
         if (query.State is not null)
         {
@@ -106,7 +106,7 @@ internal static class PostgresNodeInspectionOperation
                   node.max_concurrent_executions_per_node,
                   node.current_execution_count
               from {context.Names.WorkerNodes} node
-              {CreateWhereClause(conditions)}
+              {PostgresSql.WhereClause(conditions)}
               order by node.node_id asc
               limit @limit
           ),
@@ -225,14 +225,7 @@ internal static class PostgresNodeInspectionOperation
           """;
         command.Parameters.AddWithValue("node_id", nodeId);
 
-        var jobIds = new List<Guid>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            jobIds.Add(reader.GetGuid(0));
-        }
-
-        return jobIds;
+        return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
     }
 
     private static void ConfigureFilters(
@@ -252,9 +245,6 @@ internal static class PostgresNodeInspectionOperation
             _ => throw new ArgumentOutOfRangeException(nameof(query), query.State, "Node health state is invalid."),
         });
     }
-
-    private static string CreateWhereClause(List<string> conditions)
-      => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
 
     private static string CreateNodeStateSql(string nodeAlias)
       => $"""

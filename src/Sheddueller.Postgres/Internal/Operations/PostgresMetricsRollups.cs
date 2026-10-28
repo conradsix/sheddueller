@@ -11,8 +11,6 @@ internal static class PostgresMetricsRollups
 {
     public const int BucketSizeSeconds = 5;
 
-    private const int CleanupAdvisoryLockKey = 7870835;
-
     internal static readonly long[] DurationHistogramThresholdsMs =
     [
         1,
@@ -397,7 +395,13 @@ internal static class PostgresMetricsRollups
         }
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var acquired = await TryAcquireCleanupLockAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
+        var acquired = await PostgresAdvisoryLocks.TryAcquireTransactionLockAsync(
+          connection,
+          transaction,
+          PostgresAdvisoryLocks.MetricsCleanupLockKey,
+          context.Options.SchemaName,
+          cancellationToken)
+          .ConfigureAwait(false);
         if (!acquired)
         {
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
@@ -426,22 +430,6 @@ internal static class PostgresMetricsRollups
           .ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async ValueTask<bool> TryAcquireCleanupLockAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "select pg_try_advisory_xact_lock(@lock_key, hashtext(@schema_name));";
-        command.Parameters.AddWithValue("lock_key", CleanupAdvisoryLockKey);
-        command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
-
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-          ?? throw new InvalidOperationException("PostgreSQL did not return a metrics cleanup lock result."));
     }
 
     /// <summary>
