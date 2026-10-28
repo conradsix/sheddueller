@@ -1,7 +1,5 @@
 namespace Sheddueller.Worker.Tests;
 
-using System.Collections.Concurrent;
-
 using Microsoft.Extensions.Logging;
 
 using Sheddueller.Storage;
@@ -40,7 +38,7 @@ public sealed class JobEventQueueTests
           .SetMinimumLevel(LogLevel.Trace)
           .AddProvider(logs));
         var queue = new ShedduellerJobLogEventQueue(capacity: 1);
-        var eventSink = new CollectingJobEventSink();
+        var eventSink = new RecordingJobEventSink();
         var kept = CreateEvent(0);
         queue.TryEnqueue(kept).ShouldBeTrue();
         queue.TryEnqueue(CreateEvent(1)).ShouldBeFalse();
@@ -62,30 +60,4 @@ public sealed class JobEventQueueTests
 
     private static AppendJobEventRequest CreateEvent(int index)
       => new(Guid.NewGuid(), JobEventKind.Progress, AttemptNumber: 1, ProgressPercent: index);
-
-    private sealed class CollectingJobEventSink : IJobEventSink
-    {
-        private readonly ConcurrentQueue<AppendJobEventRequest> _requests = new();
-
-        public IReadOnlyList<AppendJobEventRequest> Requests
-          => [.. this._requests];
-
-        public ValueTask<JobEvent> AppendAsync(
-            AppendJobEventRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            this._requests.Enqueue(request);
-            return ValueTask.FromResult(new JobEvent(
-              Guid.NewGuid(),
-              request.JobId,
-              this._requests.Count,
-              request.Kind,
-              DateTimeOffset.UtcNow,
-              request.AttemptNumber,
-              request.LogLevel,
-              request.Message,
-              request.ProgressPercent,
-              request.Fields));
-        }
-    }
 }
