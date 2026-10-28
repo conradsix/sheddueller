@@ -33,16 +33,16 @@
     {
         var visibleGroups = FilteredGroups;
         <Card Flush="true" Class="@DashboardTableFormat.CardClass("groups-table-card", _groups.IsReloading)">
-            <div class="groups-table-wrap">
+            <div class="sd-table-scroll sd-table-scroll--x">
                 <table class="sd-table groups-table" data-sd-keyboard="true" aria-busy="@(_groups.IsLoading ? "true" : "false")">
                     <thead>
                         <tr>
                             <th scope="col">Group</th>
-                            <th scope="col" class="groups-table__num">Limit</th>
+                            <th scope="col" class="sd-table__num">Limit</th>
                             <th scope="col">Rate</th>
                             <th scope="col" class="groups-table__permit">Next permit</th>
-                            <th scope="col" class="groups-table__num">Running</th>
-                            <th scope="col" class="groups-table__num">Blocked</th>
+                            <th scope="col" class="sd-table__num">Running</th>
+                            <th scope="col" class="sd-table__num">Blocked</th>
                             <th scope="col">State</th>
                             <th scope="col" class="groups-table__updated">Updated</th>
                             <th scope="col" class="groups-table__actions"><span class="sd-sr-only">Actions</span></th>
@@ -64,7 +64,7 @@
                         }
                         else if (visibleGroups.Count == 0)
                         {
-                            <tr class="groups-table__empty">
+                            <tr class="sd-table__empty">
                                 <td colspan="@ColumnCount">
                                     <EmptyState Flat="true" Icon="@(HasAppliedFilters ? "search" : "layers")" Title="@EmptyTitle">
                                         <ChildContent>@EmptyText</ChildContent>
@@ -88,7 +88,7 @@
                                     <td class="groups-table__key">
                                         <a class="groups-key" href="@GroupJobsHref(group)" title="@group.GroupKey">@group.GroupKey</a>
                                     </td>
-                                    <td class="groups-table__num">
+                                    <td class="sd-table__num">
                                         <span class="groups-value">@DashboardFormat.Count(group.EffectiveLimit)</span>
                                         <span class="@SourceClass(group.OverrideLimit is not null)"
                                               title="@DashboardConcurrencyGroupFormat.LimitSourceTitle(group)">@DashboardConcurrencyGroupFormat.LimitSource(group)</span>
@@ -113,8 +113,8 @@
                                                             EmptyText="Now" AllowFutureRelative="true" />
                                         }
                                     </td>
-                                    <td class="groups-table__num" title="@DashboardConcurrencyGroupFormat.OccupancyTitle(group)">@DashboardFormat.Count(group.CurrentOccupancy)</td>
-                                    <td class="groups-table__num">
+                                    <td class="sd-table__num" title="@DashboardConcurrencyGroupFormat.OccupancyTitle(group)">@DashboardFormat.Count(group.CurrentOccupancy)</td>
+                                    <td class="sd-table__num">
                                         @if (group.BlockedJobCount > 0)
                                         {
                                             <a class="groups-blocked" href="@BlockedJobsHref(group)"
@@ -258,7 +258,7 @@
 
     // Matches the data columns, so skeleton cells hide with their column on narrow screens.
     private static readonly string?[] SkeletonColumnClasses =
-      [null, "groups-table__num", null, "groups-table__permit", "groups-table__num", "groups-table__num", null, "groups-table__updated"];
+      [null, "sd-table__num", null, "groups-table__permit", "sd-table__num", "sd-table__num", null, "groups-table__updated"];
 
     private static readonly IReadOnlyList<TabItem<bool>> RateModeItems =
     [

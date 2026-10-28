@@ -74,7 +74,7 @@ public partial class Jobs
 
     private static string? ColumnHeaderClass(ShedduellerDashboardJobColumn column)
       => column.Kind is ShedduellerDashboardJobColumnKind.Priority or ShedduellerDashboardJobColumnKind.Attempts
-        ? "jobs-table__number"
+        ? "sd-table__num"
         : null;
 
     // The browser reports drag-resizes through SetColumnWidthFromResizeAsync once this page is registered.

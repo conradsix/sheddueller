@@ -200,7 +200,7 @@
                         }
                         else if (_jobs.Rows.Count == 0)
                         {
-                            <tr class="jobs-table__empty">
+                            <tr class="sd-table__empty">
                                 <td colspan="@(_columns.Count + 3)">
                                     <EmptyState Flat="true" Icon="search" Title="@EmptyTitle">
                                         <ChildContent>@EmptyText</ChildContent>
@@ -280,10 +280,10 @@
                                                              HrefFactory="GroupFilterHref" TooltipPrefix="Show only group" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Priority:
-                                                <td class="jobs-table__number">@job.Priority</td>
+                                                <td class="sd-table__num">@job.Priority</td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Attempts:
-                                                <td class="jobs-table__number">@DashboardFormat.Attempts(job, compact: true)</td>
+                                                <td class="sd-table__num">@DashboardFormat.Attempts(job, compact: true)</td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Tag:
                                                 var values = TagValues(job, column);

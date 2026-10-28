@@ -60,7 +60,8 @@
     text-overflow: ellipsis;
   }
 
-  .jobs-table td {
+  /* Rows are a little shorter than --row-height. The empty-state row sizes to its content (sd-table__empty). */
+  .jobs-table tr:not(.sd-table__empty) > td {
     height: 44px;
   }
 
@@ -126,11 +127,6 @@
     background: color-mix(in oklab, var(--primary) 6%, var(--card));
   }
 
-  .jobs-table__number {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
   .jobs-table__resize-handle {
     position: absolute;
     inset: 0 -4px 0 auto;
@@ -161,13 +157,6 @@
 
   .jobs-table--resizing {
     user-select: none;
-  }
-
-  .jobs-table__empty td,
-  .jobs-table__empty:hover td {
-    height: auto;
-    background: none;
-    white-space: normal;
   }
 
   .jobs-table__skeleton td {

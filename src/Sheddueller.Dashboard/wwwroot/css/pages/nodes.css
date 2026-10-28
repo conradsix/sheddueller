@@ -126,20 +126,8 @@
     width: 104px;
   }
 
-  .nodes-table .nodes-table__num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
   .nodes-table__skeleton td {
     height: var(--row-height);
-  }
-
-  .nodes-table__empty td,
-  .nodes-table__empty:hover td {
-    height: auto;
-    background: none;
-    white-space: normal;
   }
 
   .nodes-id-cell {

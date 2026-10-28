@@ -157,11 +157,6 @@
     width: 52px;
   }
 
-  .overview-num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
   .overview-job-id {
     border-radius: 3px;
     color: var(--foreground);

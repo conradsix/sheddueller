@@ -144,16 +144,16 @@
                             <th colspan="3" scope="colgroup" class="metrics-compare__group">95th percentile</th>
                         </tr>
                         <tr>
-                            <th scope="col" class="metrics-compare__num metrics-compare__start">Failed</th>
-                            <th scope="col" class="metrics-compare__num">Canceled</th>
-                            <th scope="col" class="metrics-compare__num metrics-compare__start">Enqueued</th>
-                            <th scope="col" class="metrics-compare__num">Started</th>
-                            <th scope="col" class="metrics-compare__num">Completed</th>
-                            <th scope="col" class="metrics-compare__num">Failed</th>
-                            <th scope="col" class="metrics-compare__num">Retried</th>
-                            <th scope="col" class="metrics-compare__num metrics-compare__start">Queue latency</th>
-                            <th scope="col" class="metrics-compare__num">Run time</th>
-                            <th scope="col" class="metrics-compare__num">Schedule lag</th>
+                            <th scope="col" class="sd-table__num metrics-compare__start">Failed</th>
+                            <th scope="col" class="sd-table__num">Canceled</th>
+                            <th scope="col" class="sd-table__num metrics-compare__start">Enqueued</th>
+                            <th scope="col" class="sd-table__num">Started</th>
+                            <th scope="col" class="sd-table__num">Completed</th>
+                            <th scope="col" class="sd-table__num">Failed</th>
+                            <th scope="col" class="sd-table__num">Retried</th>
+                            <th scope="col" class="sd-table__num metrics-compare__start">Queue latency</th>
+                            <th scope="col" class="sd-table__num">Run time</th>
+                            <th scope="col" class="sd-table__num">Schedule lag</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -168,22 +168,22 @@
                                         <span class="sd-sr-only">(selected)</span>
                                     }
                                 </td>
-                                <td class="metrics-compare__num metrics-compare__start">
+                                <td class="sd-table__num metrics-compare__start">
                                     <span class="@DashboardMetricsFormat.AttentionValueClass(window.FailedCount)">@DashboardFormat.Count(window.FailedCount)</span>
                                 </td>
-                                <td class="metrics-compare__num">@DashboardFormat.Count(window.CanceledCount)</td>
-                                <td class="metrics-compare__num metrics-compare__start">@DashboardMetricsFormat.Rate(window.EnqueueRatePerMinute)</td>
-                                <td class="metrics-compare__num">@DashboardMetricsFormat.Rate(window.ClaimRatePerMinute)</td>
-                                <td class="metrics-compare__num">@DashboardMetricsFormat.Rate(window.SuccessRatePerMinute)</td>
-                                <td class="metrics-compare__num">
+                                <td class="sd-table__num">@DashboardFormat.Count(window.CanceledCount)</td>
+                                <td class="sd-table__num metrics-compare__start">@DashboardMetricsFormat.Rate(window.EnqueueRatePerMinute)</td>
+                                <td class="sd-table__num">@DashboardMetricsFormat.Rate(window.ClaimRatePerMinute)</td>
+                                <td class="sd-table__num">@DashboardMetricsFormat.Rate(window.SuccessRatePerMinute)</td>
+                                <td class="sd-table__num">
                                     <span class="@DashboardMetricsFormat.AttentionValueClass(window.FailureRatePerMinute)">@DashboardMetricsFormat.Rate(window.FailureRatePerMinute)</span>
                                 </td>
-                                <td class="metrics-compare__num">
+                                <td class="sd-table__num">
                                     <span class="@DashboardMetricsFormat.WarningValueClass(window.RetryRatePerMinute)">@DashboardMetricsFormat.Rate(window.RetryRatePerMinute)</span>
                                 </td>
-                                <td class="metrics-compare__num metrics-compare__start">@DashboardMetricsFormat.Duration(window.P95QueueLatency)</td>
-                                <td class="metrics-compare__num">@DashboardMetricsFormat.Duration(window.P95ExecutionDuration)</td>
-                                <td class="metrics-compare__num">@DashboardMetricsFormat.Duration(window.P95ScheduleFireLag)</td>
+                                <td class="sd-table__num metrics-compare__start">@DashboardMetricsFormat.Duration(window.P95QueueLatency)</td>
+                                <td class="sd-table__num">@DashboardMetricsFormat.Duration(window.P95ExecutionDuration)</td>
+                                <td class="sd-table__num">@DashboardMetricsFormat.Duration(window.P95ScheduleFireLag)</td>
                             </tr>
                         }
                     </tbody>

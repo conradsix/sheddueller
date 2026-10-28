@@ -5,13 +5,6 @@
     max-width: 100%;
   }
 
-  /* The page flows in the shell's scroller. The wrapper only scrolls sideways, and only when the window is too
-     narrow for the content-sized columns. */
-  .schedules-table-wrap {
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
   /* Columns size to their content; the schedule key takes what is left and truncates. */
   .schedules-table {
     white-space: nowrap;
@@ -79,13 +72,6 @@
     width: 1%;
     padding: 0 8px 0 0;
     text-align: right;
-  }
-
-  .schedules-table__empty td,
-  .schedules-table__empty:hover td {
-    height: auto;
-    background: none;
-    white-space: normal;
   }
 
   /* On narrower screens the least important columns go first, so the table keeps fitting without scrolling. */

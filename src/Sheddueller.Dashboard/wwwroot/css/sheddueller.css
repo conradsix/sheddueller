@@ -79,7 +79,6 @@
     --code-string: oklch(0.48 0.12 150);
     --code-number: oklch(0.55 0.15 50);
     --code-type: oklch(0.5 0.12 225);
-    --code-comment: var(--muted-foreground);
 
     --row-height: 48px;
     --sidebar-width: 256px;
@@ -911,10 +910,6 @@
     font-size: 12px;
   }
 
-  .sd-alert__dismiss {
-    margin: -4px -6px -4px 0;
-  }
-
   /* page header */
   .sd-page-header {
     display: flex;
@@ -1089,6 +1084,13 @@
     overflow: auto;
   }
 
+  /* For a page that flows in the shell's scroller: the table only scrolls sideways, and only when the window is too
+     narrow for its columns. */
+  .sd-table-scroll--x {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
   .sd-table {
     width: 100%;
     border-collapse: separate;
@@ -1135,7 +1137,16 @@
   }
 
   .sd-table .sd-table__num {
+    text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A row holding an empty state: it sizes to its content, doesn't highlight, and wraps. */
+  .sd-table .sd-table__empty td,
+  .sd-table .sd-table__empty:hover td {
+    height: auto;
+    background: none;
+    white-space: normal;
   }
 
   .sd-table__footer {
@@ -1491,14 +1502,11 @@
     line-height: 1.65;
   }
 
-  .token.keyword,
-  .token.boolean,
-  .token.null {
+  .token.keyword {
     color: var(--code-keyword);
   }
 
-  .token.string,
-  .token.char {
+  .token.string {
     color: var(--code-string);
   }
 
@@ -1507,18 +1515,11 @@
   }
 
   .token.class-name,
-  .token.type,
   .token.property {
     color: var(--code-type);
   }
 
-  .token.comment {
-    color: var(--code-comment);
-    font-style: italic;
-  }
-
-  .token.punctuation,
-  .token.operator {
+  .token.punctuation {
     color: var(--muted-foreground);
   }
 

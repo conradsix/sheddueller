@@ -31,7 +31,7 @@
     @if (_schedules.HasPage || _schedules.LoadError is null)
     {
         <Card Flush="true" Class="@DashboardTableFormat.CardClass("schedules-table-card", _schedules.IsReloading)">
-            <div class="schedules-table-wrap">
+            <div class="sd-table-scroll sd-table-scroll--x">
                 <table class="sd-table schedules-table" aria-busy="@(_schedules.IsLoading ? "true" : "false")">
                     <thead>
                         <tr>
@@ -60,7 +60,7 @@
                         }
                         else if (_schedules.Rows.Count == 0)
                         {
-                            <tr class="schedules-table__empty">
+                            <tr class="sd-table__empty">
                                 <td colspan="@ColumnCount">
                                     <EmptyState Flat="true" Icon="@(_filters.HasAppliedFilters ? "search" : "calendar-clock")" Title="@EmptyTitle">
                                         <ChildContent>@EmptyText</ChildContent>
