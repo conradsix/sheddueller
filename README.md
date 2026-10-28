@@ -216,6 +216,16 @@ await schedules.CreateOrUpdateAsync<EmailJobs>(
 
 Cron expressions use the standard five-field format and are evaluated in UTC.
 
+| Field        | Values                                  |
+| ------------ | --------------------------------------- |
+| minute       | `0-59`                                  |
+| hour         | `0-23`                                  |
+| day-of-month | `1-31`                                  |
+| month        | `1-12` or `JAN-DEC`                     |
+| day-of-week  | `0-7` or `SUN-SAT` (0 and 7 are Sunday) |
+
+Each field takes `*`, a value, a range (`1-5`), a step over `*` or a range (`*/15`, `0-30/10`), or a comma-separated list of those. Names are case-insensitive. As in Vixie cron, when both day-of-month and day-of-week are restricted a day matches if either does (`0 0 13 * 5` runs on the 13th and on every Friday); when either starts with `*`, both must match. Non-standard extensions such as `L`, `W`, `#`, `?`, and `@daily` macros are rejected, as are expressions that can never fire.
+
 ## Dashboard
 
 ```csharp
