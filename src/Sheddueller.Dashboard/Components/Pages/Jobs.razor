@@ -200,7 +200,7 @@
                         }
                         else if (_jobs.Rows.Count == 0)
                         {
-                            <tr class="jobs-table__empty">
+                            <tr class="sd-table__empty">
                                 <td colspan="@(_columns.Count + 3)">
                                     <EmptyState Flat="true" Icon="search" Title="@EmptyTitle">
                                         <ChildContent>@EmptyText</ChildContent>
@@ -280,10 +280,10 @@
                                                              HrefFactory="GroupFilterHref" TooltipPrefix="Show only group" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Priority:
-                                                <td class="jobs-table__number">@job.Priority</td>
+                                                <td class="sd-table__num">@job.Priority</td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Attempts:
-                                                <td class="jobs-table__number">@DashboardFormat.Attempts(job, compact: true)</td>
+                                                <td class="sd-table__num">@DashboardFormat.Attempts(job, compact: true)</td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Tag:
                                                 var values = TagValues(job, column);
@@ -557,7 +557,7 @@
         try
         {
             var payload = await JsRuntime.InvokeAsync<DashboardJobViewStoragePayload?>(
-              "shedduellerJobViews.load",
+              "sheddueller.jobViews.load",
               DashboardJobViewSession.StorageKey(Navigation.BaseUri));
             var loaded = this._viewSession.Load(payload);
             if (loaded == DashboardJobViewStorageLoad.UnsupportedVersion)
@@ -733,7 +733,7 @@
         try
         {
             await JsRuntime.InvokeVoidAsync(
-              "shedduellerJobViews.save",
+              "sheddueller.jobViews.save",
               DashboardJobViewSession.StorageKey(Navigation.BaseUri),
               this._viewSession.ToPayload());
             this.ShowToast(successMessage, tone: AlertTone.Success);

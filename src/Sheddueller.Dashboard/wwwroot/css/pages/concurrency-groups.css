@@ -9,13 +9,6 @@
     max-width: 100%;
   }
 
-  /* The page flows in the shell's scroller. The wrapper only scrolls sideways, and only when the window is too
-     narrow for the content-sized columns. */
-  .groups-table-wrap {
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
   /* Columns size to their content; the group key takes what is left and truncates. */
   .groups-table {
     white-space: nowrap;
@@ -46,11 +39,6 @@
   .groups-blocked:hover {
     text-decoration: underline;
     text-underline-offset: 3px;
-  }
-
-  .groups-table .groups-table__num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
   }
 
   /* A limit or rate with where it comes from underneath. */
@@ -94,13 +82,6 @@
     width: 1%;
     padding: 0 8px 0 0;
     text-align: right;
-  }
-
-  .groups-table__empty td,
-  .groups-table__empty:hover td {
-    height: auto;
-    background: none;
-    white-space: normal;
   }
 
   /* On narrower screens the least important columns go first, so the table keeps fitting without scrolling. */

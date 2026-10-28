@@ -64,13 +64,13 @@ public abstract class DialogBase : ComponentBase, IAsyncDisposable
         if (firstRender)
         {
             this._reference = DotNetObjectReference.Create(this);
-            await this.JS.InvokeVoidAsync("sheddueller.dialog.attach", this.Element, this._reference);
+            await this.JS.TryInvokeVoidAsync("sheddueller.dialog.attach", this.Element, this._reference);
         }
 
         if (this.Open != this._shown)
         {
             this._shown = this.Open;
-            await this.JS.InvokeVoidAsync(this.Open ? "sheddueller.dialog.show" : "sheddueller.dialog.close", this.Element);
+            await this.JS.TryInvokeVoidAsync(this.Open ? "sheddueller.dialog.show" : "sheddueller.dialog.close", this.Element);
         }
     }
 }

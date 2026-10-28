@@ -317,11 +317,6 @@
     padding-bottom: 11px;
   }
 
-  .metrics-compare__num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
   .metrics-compare__table .metrics-compare__start {
     padding-left: 20px;
   }

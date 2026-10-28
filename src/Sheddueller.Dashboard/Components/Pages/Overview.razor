@@ -259,7 +259,7 @@
                                 <tr>
                                     <th>Job</th>
                                     <th>Handler</th>
-                                    <th class="overview-num" title="Attempts so far, of the maximum">Tries</th>
+                                    <th class="sd-table__num" title="Attempts so far, of the maximum">Tries</th>
                                     <th>Next try</th>
                                 </tr>
                             </thead>
@@ -269,7 +269,7 @@
                                     <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)" title="@DashboardFormat.FailureReason(job)">
                                         <td>@JobIdLink(job)</td>
                                         <td>@HandlerLink(job)</td>
-                                        <td class="overview-num">@DashboardFormat.Attempts(job, compact: true)</td>
+                                        <td class="sd-table__num">@DashboardFormat.Attempts(job, compact: true)</td>
                                         <td><TimestampBlock BaseClass="sd-timestamp" Value="job.NotBeforeUtc" Inline EmptyText="—" /></td>
                                     </tr>
                                 }

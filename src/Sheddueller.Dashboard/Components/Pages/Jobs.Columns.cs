@@ -74,7 +74,7 @@ public partial class Jobs
 
     private static string? ColumnHeaderClass(ShedduellerDashboardJobColumn column)
       => column.Kind is ShedduellerDashboardJobColumnKind.Priority or ShedduellerDashboardJobColumnKind.Attempts
-        ? "jobs-table__number"
+        ? "sd-table__num"
         : null;
 
     // The browser reports drag-resizes through SetColumnWidthFromResizeAsync once this page is registered.
@@ -85,24 +85,18 @@ public partial class Jobs
             return;
         }
 
+        // Best-effort: without it, drag-resizing does nothing, and the next render tries again.
         this._columnResizeReceiver ??= DotNetObjectReference.Create(this);
-        await this.JsRuntime.InvokeVoidAsync(
-          "shedduellerJobViews.registerTableColumnResizing",
+        this._columnResizingRegistered = await this.JsRuntime.TryInvokeVoidAsync(
+          "sheddueller.jobViews.registerTableColumnResizing",
           this._columnResizeReceiver);
-        this._columnResizingRegistered = true;
     }
 
     private async Task UnregisterColumnResizingAsync()
     {
         if (this._columnResizingRegistered)
         {
-            try
-            {
-                await this.JsRuntime.InvokeVoidAsync("shedduellerJobViews.unregisterTableColumnResizing");
-            }
-            catch (JSDisconnectedException)
-            {
-            }
+            await this.JsRuntime.TryInvokeVoidAsync("sheddueller.jobViews.unregisterTableColumnResizing");
         }
 
         this._columnResizeReceiver?.Dispose();
@@ -241,7 +235,7 @@ public partial class Jobs
         try
         {
             var widths = await this.JsRuntime.InvokeAsync<int[]?>(
-              "shedduellerJobViews.measureJobColumnWidths",
+              "sheddueller.jobViews.measureJobColumnWidths",
               minimums,
               maximums);
             return widths is { Length: > 0 } && widths.Length == this._columns.Count && widths.All(width => DashboardJobColumnWidths.IsValid(width))

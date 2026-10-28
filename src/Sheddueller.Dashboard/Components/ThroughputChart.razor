@@ -97,8 +97,10 @@
         }
 
         var view = DashboardThroughputView.Create(this._snapshot, this.Window);
-        await Js.InvokeVoidAsync("shedduellerThroughputChart.render", this._chartElement, this.CreateModel(view));
+
+        // Set first: a render that fails part-way can still leave chart state for destroy to clean up.
         this._chartRendered = true;
+        await Js.TryInvokeVoidAsync("sheddueller.throughputChart.render", this._chartElement, this.CreateModel(view));
     }
 
     public async ValueTask DisposeAsync()
@@ -111,13 +113,7 @@
 
         if (this._chartRendered)
         {
-            try
-            {
-                await Js.InvokeVoidAsync("shedduellerThroughputChart.destroy", this._chartElement);
-            }
-            catch (JSDisconnectedException)
-            {
-            }
+            await Js.TryInvokeVoidAsync("sheddueller.throughputChart.destroy", this._chartElement);
         }
 
         GC.SuppressFinalize(this);

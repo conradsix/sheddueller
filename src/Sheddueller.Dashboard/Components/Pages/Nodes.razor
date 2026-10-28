@@ -78,8 +78,8 @@
                             <th scope="col">Health</th>
                             <th scope="col">Last heartbeat</th>
                             <th scope="col">First seen</th>
-                            <th scope="col" class="nodes-table__num" title="Jobs executing on the node now, out of its execution slots">Running</th>
-                            <th scope="col" class="nodes-table__num" title="Jobs the node has claimed">Claimed</th>
+                            <th scope="col" class="sd-table__num" title="Jobs executing on the node now, out of its execution slots">Running</th>
+                            <th scope="col" class="sd-table__num" title="Jobs the node has claimed">Claimed</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -99,7 +99,7 @@
                         }
                         else if (visibleNodes.Count == 0)
                         {
-                            <tr class="nodes-table__empty">
+                            <tr class="sd-table__empty">
                                 <td colspan="6">
                                     <EmptyState Flat="true" Icon="@(HasFilters ? "search-x" : "server")" Title="@EmptyTitle">
                                         <ChildContent>@EmptyText</ChildContent>
@@ -132,13 +132,13 @@
                                     </td>
                                     <td><TimestampBlock BaseClass="sd-timestamp" Value="node.LastHeartbeatAtUtc" AllowFutureRelative="false" Inline /></td>
                                     <td><TimestampBlock BaseClass="sd-timestamp" Value="node.FirstSeenAtUtc" AllowFutureRelative="false" Inline /></td>
-                                    <td class="nodes-table__num">
+                                    <td class="sd-table__num">
                                         <span class="nodes-load" title="@RunningTitle(node)">
                                             <Progress Value="@LoadPercent(node)" Class="@LoadBarClass(node)" Label="@RunningTitle(node)" />
                                             <span class="nodes-load__text">@RunningText(node)</span>
                                         </span>
                                     </td>
-                                    <td class="nodes-table__num">@DashboardFormat.Count(node.ClaimedJobCount)</td>
+                                    <td class="sd-table__num">@DashboardFormat.Count(node.ClaimedJobCount)</td>
                                 </tr>
                             }
                         }
