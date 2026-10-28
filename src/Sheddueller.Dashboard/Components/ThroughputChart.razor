@@ -97,7 +97,7 @@
         }
 
         var view = DashboardThroughputView.Create(this._snapshot, this.Window);
-        await Js.InvokeVoidAsync("shedduellerThroughputChart.render", this._chartElement, this.CreateModel(view));
+        await Js.InvokeVoidAsync("sheddueller.throughputChart.render", this._chartElement, this.CreateModel(view));
         this._chartRendered = true;
     }
 
@@ -113,7 +113,7 @@
         {
             try
             {
-                await Js.InvokeVoidAsync("shedduellerThroughputChart.destroy", this._chartElement);
+                await Js.InvokeVoidAsync("sheddueller.throughputChart.destroy", this._chartElement);
             }
             catch (JSDisconnectedException)
             {

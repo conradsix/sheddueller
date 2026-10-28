@@ -507,5 +507,5 @@
   document.addEventListener("sheddueller:themechange", redrawAll);
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
 
-  window.shedduellerThroughputChart = { render, destroy };
+  (window.sheddueller ??= {}).throughputChart = { render, destroy };
 })();

@@ -490,7 +490,7 @@
     {
         try
         {
-            var theme = await JsRuntime.InvokeAsync<string?>("document.documentElement.getAttribute", "data-theme");
+            var theme = await JsRuntime.InvokeAsync<string?>("sheddueller.theme");
             this._theme = theme is "light" or "dark" ? theme : "system";
             this.StateHasChanged();
         }

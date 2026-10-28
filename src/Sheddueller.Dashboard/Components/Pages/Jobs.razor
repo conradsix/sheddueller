@@ -557,7 +557,7 @@
         try
         {
             var payload = await JsRuntime.InvokeAsync<DashboardJobViewStoragePayload?>(
-              "shedduellerJobViews.load",
+              "sheddueller.jobViews.load",
               DashboardJobViewSession.StorageKey(Navigation.BaseUri));
             var loaded = this._viewSession.Load(payload);
             if (loaded == DashboardJobViewStorageLoad.UnsupportedVersion)
@@ -733,7 +733,7 @@
         try
         {
             await JsRuntime.InvokeVoidAsync(
-              "shedduellerJobViews.save",
+              "sheddueller.jobViews.save",
               DashboardJobViewSession.StorageKey(Navigation.BaseUri),
               this._viewSession.ToPayload());
             this.ShowToast(successMessage, tone: AlertTone.Success);

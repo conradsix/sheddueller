@@ -87,7 +87,7 @@ public partial class Jobs
 
         this._columnResizeReceiver ??= DotNetObjectReference.Create(this);
         await this.JsRuntime.InvokeVoidAsync(
-          "shedduellerJobViews.registerTableColumnResizing",
+          "sheddueller.jobViews.registerTableColumnResizing",
           this._columnResizeReceiver);
         this._columnResizingRegistered = true;
     }
@@ -98,7 +98,7 @@ public partial class Jobs
         {
             try
             {
-                await this.JsRuntime.InvokeVoidAsync("shedduellerJobViews.unregisterTableColumnResizing");
+                await this.JsRuntime.InvokeVoidAsync("sheddueller.jobViews.unregisterTableColumnResizing");
             }
             catch (JSDisconnectedException)
             {
@@ -241,7 +241,7 @@ public partial class Jobs
         try
         {
             var widths = await this.JsRuntime.InvokeAsync<int[]?>(
-              "shedduellerJobViews.measureJobColumnWidths",
+              "sheddueller.jobViews.measureJobColumnWidths",
               minimums,
               maximums);
             return widths is { Length: > 0 } && widths.Length == this._columns.Count && widths.All(width => DashboardJobColumnWidths.IsValid(width))

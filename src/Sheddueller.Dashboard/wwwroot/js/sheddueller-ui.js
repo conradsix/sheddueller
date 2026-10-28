@@ -1,9 +1,12 @@
 // Client-side behaviour for the Sheddueller dashboard shell and UI primitives: theme, sidebar,
 // tooltips, popover menus, dialogs, clipboard, toasts, downloads, keyboard shortcuts and the
 // command menu. Everything is attribute-driven so Blazor-rendered markup needs no per-element wiring.
+// Members called from .NET or the other dashboard scripts are added to the `sheddueller` namespace
+// (created by sheddueller-theme.js) at the end.
 (function () {
   "use strict";
 
+  const sheddueller = (window.sheddueller ??= {});
   const root = document.documentElement;
   const hasPopover = Object.prototype.hasOwnProperty.call(HTMLElement.prototype, "popover");
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -33,18 +36,6 @@
     svg.setAttribute("aria-hidden", "true");
     svg.innerHTML = icons[name] || icons.info;
     return svg;
-  }
-
-  function store(key, value) {
-    try {
-      if (value === null) {
-        localStorage.removeItem(key);
-      } else {
-        localStorage.setItem(key, value);
-      }
-    } catch {
-      // Preferences are a convenience; the dashboard works without storage.
-    }
   }
 
   function navigate(href) {
@@ -86,10 +77,10 @@
   function setTheme(theme) {
     if (theme === "light" || theme === "dark") {
       root.setAttribute("data-theme", theme);
-      store("sheddueller.theme", theme);
+      sheddueller.storage.write("sheddueller.theme", theme);
     } else {
       root.removeAttribute("data-theme");
-      store("sheddueller.theme", null);
+      sheddueller.storage.write("sheddueller.theme", null);
     }
 
     syncThemeButtons();
@@ -124,7 +115,7 @@
       root.setAttribute("data-sidebar", "collapsed");
     }
 
-    store("sheddueller.sidebar", collapsed ? null : "collapsed");
+    sheddueller.storage.write("sheddueller.sidebar", collapsed ? null : "collapsed");
   }
 
   // --------------------------------------------------------------- tooltips
@@ -804,20 +795,20 @@
     syncThemeButtons();
   }
 
-  // Blazor renders the shell after this script runs; refresh platform-specific labels when it appears.
+  // Blazor renders the shell after this script runs, and replaces it wholesale when it attaches to prerendered
+  // markup or resumes a circuit. Those renders add or remove the shell's top-level nodes, which are children of
+  // <body>, so watching body's own children (not its whole subtree) is enough to refresh the labels.
   new MutationObserver(() => {
     if (document.querySelector("[data-sd-mod-key]:empty")) {
       boot();
     }
-  }).observe(document.body, { childList: true, subtree: true });
+  }).observe(document.body, { childList: true });
 
-  window.sheddueller = {
-    setTheme,
-    toggleSidebar,
+  Object.assign(sheddueller, {
+    // The applied theme: "light", "dark" or "system".
+    theme: currentTheme,
     toast,
-    copy,
     download,
-    navigate,
     scrollIntoView(element) {
       if (element instanceof Element) {
         element.scrollIntoView({ block: "end" });
@@ -837,7 +828,7 @@
         });
       },
     },
-  };
+  });
 
   boot();
 })();
