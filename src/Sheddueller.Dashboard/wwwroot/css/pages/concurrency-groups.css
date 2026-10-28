@@ -1,3 +1,172 @@
 /* Page-specific layout for the concurrency-groups page. Shared look lives in ../sheddueller.css. */
 @layer pages {
+  .groups-toolbar {
+    column-gap: 16px;
+  }
+
+  .groups-toolbar .groups-search {
+    width: 280px;
+    max-width: 100%;
+  }
+
+  /* The page flows in the shell's scroller. The wrapper only scrolls sideways, and only when the window is too
+     narrow for the content-sized columns. */
+  .groups-table-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  /* Columns size to their content; the group key takes what is left and truncates. */
+  .groups-table {
+    white-space: nowrap;
+  }
+
+  .groups-table th:first-child {
+    min-width: 12rem;
+  }
+
+  .groups-table .groups-table__key {
+    width: 100%;
+    max-width: 0;
+  }
+
+  .groups-key {
+    display: block;
+    overflow: hidden;
+    border-radius: 3px;
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    text-decoration: none;
+    text-overflow: ellipsis;
+  }
+
+  .groups-key:hover,
+  .groups-blocked:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .groups-table .groups-table__num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A limit or rate with where it comes from underneath. */
+  .groups-value {
+    display: block;
+  }
+
+  .groups-source {
+    display: block;
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+
+  .groups-source--override {
+    color: var(--primary);
+    font-weight: 500;
+  }
+
+  .groups-blocked {
+    border-radius: 3px;
+    color: var(--destructive);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .groups-state--nominal {
+    --tone: var(--muted-foreground);
+  }
+
+  .groups-state--high,
+  .groups-state--saturated {
+    --tone: var(--warning);
+  }
+
+  .groups-state--blocked {
+    --tone: var(--destructive);
+  }
+
+  .groups-table .groups-table__actions {
+    width: 1%;
+    padding: 0 8px 0 0;
+    text-align: right;
+  }
+
+  .groups-table__empty td,
+  .groups-table__empty:hover td {
+    height: auto;
+    background: none;
+    white-space: normal;
+  }
+
+  .groups-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* On narrower screens the least important columns go first, so the table keeps fitting without scrolling. */
+  .groups-table-card {
+    container-type: inline-size;
+  }
+
+  @container (max-width: 1020px) {
+    .groups-table .groups-table__updated {
+      display: none;
+    }
+  }
+
+  @container (max-width: 860px) {
+    .groups-table .groups-table__permit {
+      display: none;
+    }
+  }
+
+  /* Edit limits dialog */
+  .groups-edit-dialog {
+    width: min(480px, calc(100vw - 32px));
+  }
+
+  .groups-edit-form {
+    display: grid;
+    gap: 18px;
+    margin: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .groups-edit-form label {
+    display: block;
+    color: var(--foreground);
+  }
+
+  .groups-edit-key {
+    color: var(--foreground);
+    overflow-wrap: anywhere;
+  }
+
+  .groups-edit-form .groups-edit-number {
+    width: 7rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .groups-edit-rate {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-weight: 400;
+  }
+
+  .groups-edit-rate select {
+    width: auto;
+  }
+
+  .groups-edit-errors {
+    display: grid;
+    gap: 2px;
+  }
 }

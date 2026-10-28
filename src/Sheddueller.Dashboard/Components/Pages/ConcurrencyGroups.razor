@@ -2,561 +2,311 @@
 @inherits DashboardPageComponent
 @inject IConcurrencyGroupInspectionReader Reader
 @inject IServiceProvider Services
+@inject IJSRuntime JsRuntime
 
-<div class="groups-page">
-    <header class="groups-header">
-        <div>
-            <h1>Concurrency Groups</h1>
-            <p>Identify saturation and blocked work across resource pools.</p>
-        </div>
-    </header>
+<div class="sd-page groups-page">
+    <PageHeader Title="Concurrency groups"
+                Description="How many jobs each group runs at once and how fast new ones start. Limits apply across every worker." />
+
+    <div class="sd-toolbar groups-toolbar">
+        <SearchInput Class="groups-search" Value="@_filters.GroupKey" ValueChanged="SetGroupKeyFilter"
+                     Placeholder="Filter loaded groups by key" Label="Filter loaded concurrency groups by key" Shortcut="true" />
+        <Switch Value="_filters.SaturatedOnly" ValueChanged="SetSaturatedOnlyAsync">Saturated only</Switch>
+        <Switch Value="_filters.RateLimitedOnly" ValueChanged="SetRateLimitedOnlyAsync">Rate-limited only</Switch>
+        <Switch Value="_filters.HasBlockedJobsOnly" ValueChanged="SetHasBlockedJobsOnlyAsync">Has blocked jobs</Switch>
+        @if (HasAppliedFilters)
+        {
+            <Button Variant="ButtonVariant.Ghost" Icon="x" OnClick="ClearFiltersAsync">Reset</Button>
+        }
+    </div>
 
     @if (_loadError is not null)
     {
-        <section class="groups-message groups-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h2>Concurrency groups failed to load</h2>
-                <p>@_loadError</p>
-            </div>
-        </section>
+        <Alert Tone="AlertTone.Destructive" Title="Concurrency groups couldn't be loaded">
+            <ChildContent>@_loadError</ChildContent>
+            <Actions>
+                <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="LoadAsync">Try again</Button>
+            </Actions>
+        </Alert>
     }
-    else if (_isLoading && _page is null)
-    {
-        <section class="groups-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h2>Loading concurrency groups</h2>
-                <p>Reading scheduler group occupancy and blocked work.</p>
-            </div>
-        </section>
-    }
-    else
+
+    @if (_page is not null || _loadError is null)
     {
         var visibleGroups = FilteredGroups;
-
-        @if (LiveRefresh.RefreshError is not null)
-        {
-            <DashboardInlineAlert CssClass="groups-inline-alert groups-inline-alert--error" Icon="warning">
-                <span>Refresh failed: @LiveRefresh.RefreshError</span>
-            </DashboardInlineAlert>
-        }
-
-        @if (_actionMessage is not null)
-        {
-            <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
-                <span>@_actionMessage</span>
-            </DashboardInlineAlert>
-        }
-
-        <DashboardTableShell Title="Group Registry" ResultText="@ResultRangeText" ShowLoadMore="@(_page?.ContinuationToken is not null)" IsLoadingMore="@_isLoadingMore" OnLoadMore="LoadMoreAsync">
-            <Toolbar>
-                <DashboardFilterSwitch Label="Saturated only" Checked="@_filters.SaturatedOnly" CheckedChanged="SetSaturatedOnlyAsync" Disabled="@_isLoading" />
-                <DashboardFilterSwitch Label="Rate-limited only" Checked="@_filters.RateLimitedOnly" CheckedChanged="SetRateLimitedOnlyAsync" Disabled="@_isLoading" />
-                <DashboardFilterSwitch Label="Has blocked jobs" Checked="@_filters.HasBlockedJobsOnly" CheckedChanged="SetHasBlockedJobsOnlyAsync" Disabled="@_isLoading" />
-                <DashboardSearchBox Value="@_filters.GroupKey" ValueChanged="SetGroupKeyFilter" Placeholder="Filter by group key..." AriaLabel="Filter by group key" />
-            </Toolbar>
-            <ChildContent>
-                <table class="groups-table">
+        <Card Flush="true" Class="@TableCardClass">
+            <div class="groups-table-wrap">
+                <table class="sd-table groups-table" data-sd-keyboard="true" aria-busy="@(_isLoading ? "true" : "false")">
                     <thead>
                         <tr>
-                            <th>Group</th>
-                            <th class="groups-table__number" title="Effective concurrency limit and where it comes from">Limit</th>
-                            <th title="Effective rate limit and where it comes from">Rate</th>
-                            <th>Next permit</th>
-                            <th class="groups-table__number" title="Jobs currently running in this group">Running</th>
-                            <th class="groups-table__number">Blocked</th>
-                            <th>State</th>
-                            <th>Updated</th>
-                            @if (CanEditLimits)
-                            {
-                                <th class="groups-table__actions"><span class="sd-sr-only">Actions</span></th>
-                            }
+                            <th scope="col">Group</th>
+                            <th scope="col" class="groups-table__num">Limit</th>
+                            <th scope="col">Rate</th>
+                            <th scope="col" class="groups-table__permit">Next permit</th>
+                            <th scope="col" class="groups-table__num">Running</th>
+                            <th scope="col" class="groups-table__num">Blocked</th>
+                            <th scope="col">State</th>
+                            <th scope="col" class="groups-table__updated">Updated</th>
+                            <th scope="col" class="groups-table__actions"><span class="sd-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
-                        @if (visibleGroups.Count == 0)
+                        @if (_page is null)
                         {
-                            <tr>
-                                <td class="groups-empty-row" colspan="@GroupTableColumnCount">@EmptyText</td>
+                            @for (var row = 0; row < SkeletonRowCount; row++)
+                            {
+                                <tr class="groups-table__skeleton" aria-hidden="true">
+                                    @for (var column = 0; column < ColumnCount - 1; column++)
+                                    {
+                                        <td class="@SkeletonColumnClasses[column]"><Skeleton Width="@SkeletonWidth(row, column)" /></td>
+                                    }
+                                    <td class="groups-table__actions"></td>
+                                </tr>
+                            }
+                        }
+                        else if (visibleGroups.Count == 0)
+                        {
+                            <tr class="groups-table__empty">
+                                <td colspan="@ColumnCount">
+                                    <EmptyState Flat="true" Icon="@(HasAppliedFilters ? "search" : "layers")" Title="@EmptyTitle">
+                                        <ChildContent>@EmptyText</ChildContent>
+                                        <Actions>
+                                            @if (HasAppliedFilters)
+                                            {
+                                                <Button OnClick="ClearFiltersAsync">Reset filters</Button>
+                                            }
+                                        </Actions>
+                                    </EmptyState>
+                                </td>
                             </tr>
                         }
                         else
                         {
                             @foreach (var group in visibleGroups)
                             {
-                                <tr class="@GroupRowClass(group)" @key="group.GroupKey">
-                                    <td>
-                                        <span class="groups-key" title="@group.GroupKey">@group.GroupKey</span>
+                                var busy = IsBusy(group.GroupKey);
+                                var state = DashboardConcurrencyGroupFormat.State(group);
+                                <tr @key="group.GroupKey" data-href="@GroupJobsHref(group)">
+                                    <td class="groups-table__key">
+                                        <a class="groups-key" href="@GroupJobsHref(group)" title="@group.GroupKey">@group.GroupKey</a>
                                     </td>
-                                    <td class="groups-table__number">
-                                        @if (IsEditing(group))
-                                        {
-                                            <input class="groups-limit-input" type="number" min="1" step="1"
-                                                   aria-label="@LimitInputLabel(group)" @bind="_limitInput" disabled="@_isActionRunning" />
-                                        }
-                                        else
-                                        {
-                                            <span class="groups-count">@DashboardFormat.Count(group.EffectiveLimit)</span>
-                                        }
-                                        <span class="@LimitSourceClass(group)" title="@LimitSourceTitle(group)">@LimitSourceText(group)</span>
+                                    <td class="groups-table__num">
+                                        <span class="groups-value">@DashboardFormat.Count(group.EffectiveLimit)</span>
+                                        <span class="@SourceClass(group.OverrideLimit is not null)"
+                                              title="@DashboardConcurrencyGroupFormat.LimitSourceTitle(group)">@DashboardConcurrencyGroupFormat.LimitSource(group)</span>
                                     </td>
                                     <td>
-                                        @if (IsEditingRate(group))
-                                        {
-                                            <div class="groups-rate-editor">
-                                                <input class="groups-rate-count-input" type="number" min="1" step="1"
-                                                       aria-label="@RatePermitInputLabel(group)" @bind="_ratePermitInput" disabled="@_isActionRunning" />
-                                                <span>per</span>
-                                                <input class="groups-rate-period-input" type="number" min="0.001" step="0.001"
-                                                       aria-label="@RatePeriodInputLabel(group)" @bind="_ratePeriodInput" disabled="@_isActionRunning" />
-                                                <select class="groups-rate-unit-input" aria-label="@RatePeriodUnitInputLabel(group)"
-                                                        @bind="_ratePeriodUnit" disabled="@_isActionRunning">
-                                                    <option value="@SecondsUnit">seconds</option>
-                                                    <option value="@MinutesUnit">minutes</option>
-                                                    <option value="@HoursUnit">hours</option>
-                                                </select>
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            <span class="groups-count">@FormatRateLimit(group.EffectiveRateLimit)</span>
-                                        }
-                                        <span class="@RateLimitSourceClass(group)" title="@RateLimitSourceTitle(group)">@RateLimitSourceText(group)</span>
+                                        <span class="groups-value">@DashboardConcurrencyGroupFormat.Rate(group.EffectiveRateLimit)</span>
+                                        <span class="@SourceClass(group.HasRateLimitOverride)"
+                                              title="@DashboardConcurrencyGroupFormat.RateSourceTitle(group)">@DashboardConcurrencyGroupFormat.RateSource(group)</span>
                                     </td>
-                                    <td>
+                                    <td class="groups-table__permit">
                                         @if (group.EffectiveRateLimit is null)
                                         {
-                                            <span class="groups-rate-available">Unlimited</span>
+                                            <span class="sd-muted" title="No start rate limit">—</span>
                                         }
                                         else if (!group.IsRateLimited)
                                         {
-                                            <span class="groups-rate-available">Available now</span>
+                                            <span title="A job can start as soon as a slot is free">Now</span>
                                         }
                                         else
                                         {
-                                            <TimestampBlock BaseClass="groups-timestamp" Value="group.NextRatePermitAtUtc" Inline="true"
-                                                            EmptyText="Available now" AllowFutureRelative="true" />
+                                            <TimestampBlock BaseClass="sd-timestamp" Value="group.NextRatePermitAtUtc" Inline="true"
+                                                            EmptyText="Now" AllowFutureRelative="true" />
                                         }
                                     </td>
-                                    <td class="groups-table__number groups-count">@DashboardFormat.Count(group.CurrentOccupancy)</td>
-                                    <td class="groups-table__number">
-                                        <span class="@BlockedCountClass(group)">@DashboardFormat.Count(group.BlockedJobCount)</span>
+                                    <td class="groups-table__num" title="@DashboardConcurrencyGroupFormat.OccupancyTitle(group)">@DashboardFormat.Count(group.CurrentOccupancy)</td>
+                                    <td class="groups-table__num">
+                                        @if (group.BlockedJobCount > 0)
+                                        {
+                                            <a class="groups-blocked" href="@BlockedJobsHref(group)"
+                                               title="@BlockedLinkTitle(group)">@DashboardFormat.Count(group.BlockedJobCount)</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="sd-muted">0</span>
+                                        }
                                     </td>
                                     <td>
-                                        <span class="@SaturationStateClass(group)">
-                                            <span aria-hidden="true"></span>
-                                            @SaturationStateText(group)
-                                        </span>
+                                        <Badge Class="@StateBadgeClass(state)" title="@DashboardConcurrencyGroupFormat.StateTitle(group)">
+                                            <span class="sd-status__dot" aria-hidden="true"></span>@StateLabel(state)
+                                        </Badge>
                                     </td>
-                                    <td><TimestampBlock BaseClass="groups-timestamp" Value="group.UpdatedAtUtc" Inline="true"
-                                                        EmptyText="No updates" AllowFutureRelative="false" /></td>
-                                    @if (CanEditLimits)
-                                    {
-                                        <td class="groups-table__actions">
-                                            <div class="groups-actions">
-                                                @if (IsEditing(group))
-                                                {
-                                                    <button class="groups-icon-button groups-icon-button--primary" type="button" title="Save Limit"
-                                                            aria-label="@SaveLimitLabel(group)" @onclick="@(() => SaveLimitAsync(group))" disabled="@IsActionDisabled">
-                                                        <Icon Name="save" />
-                                                    </button>
-                                                    <button class="groups-icon-button" type="button" title="Cancel Edit"
-                                                            aria-label="@CancelEditLabel(group)" @onclick="CancelEdit" disabled="@_isActionRunning">
-                                                        <Icon Name="close" />
-                                                    </button>
-                                                }
-                                                else if (IsEditingRate(group))
-                                                {
-                                                    <button class="groups-icon-button groups-icon-button--primary" type="button" title="Save Rate Limit"
-                                                            aria-label="@SaveRateLimitLabel(group)" @onclick="@(() => SaveRateLimitAsync(group))" disabled="@IsActionDisabled">
-                                                        <Icon Name="save" />
-                                                    </button>
-                                                    <button class="groups-icon-button" type="button" title="Cancel Rate Edit"
-                                                            aria-label="@CancelRateEditLabel(group)" @onclick="CancelEdit" disabled="@_isActionRunning">
-                                                        <Icon Name="close" />
-                                                    </button>
-                                                }
-                                                else
-                                                {
-                                                    <DropdownMenu Label="@($"Actions for {group.GroupKey}")" Icon="ellipsis" Size="ButtonSize.Small"
-                                                                  Disabled="@_isActionRunning">
-                                                        <MenuItem Icon="pencil" OnClick="@(() => StartEdit(group))">Edit limit</MenuItem>
-                                                        <MenuItem Icon="rotate-ccw" Disabled="@(group.OverrideLimit is null)"
-                                                                  OnClick="@(() => ResetLimitAsync(group))">Reset limit to default</MenuItem>
-                                                        <MenuSeparator />
-                                                        <MenuItem Icon="gauge" OnClick="@(() => StartRateEdit(group))">Edit rate limit</MenuItem>
-                                                        <MenuItem Icon="infinity" OnClick="@(() => SetUnlimitedRateLimitAsync(group))">Remove rate limit</MenuItem>
-                                                        <MenuItem Icon="rotate-ccw" Disabled="@(!group.HasRateLimitOverride)"
-                                                                  OnClick="@(() => ResetRateLimitAsync(group))">Reset rate to default</MenuItem>
-                                                    </DropdownMenu>
-                                                }
-                                            </div>
-                                        </td>
-                                    }
+                                    <td class="groups-table__updated">
+                                        <TimestampBlock BaseClass="sd-timestamp" Value="group.UpdatedAtUtc" Inline="true"
+                                                        EmptyText="—" AllowFutureRelative="false" />
+                                    </td>
+                                    <td class="groups-table__actions">
+                                        <DropdownMenu Label="@($"Actions for {group.GroupKey}")" Icon="@(busy ? "loader-circle" : "ellipsis")"
+                                                      Size="ButtonSize.Small" Disabled="busy">
+                                            @if (CanEditLimits)
+                                            {
+                                                <MenuItem Icon="pencil" OnClick="() => OpenEditDialog(group)">Edit limits…</MenuItem>
+                                                <MenuSeparator />
+                                                <MenuItem Icon="rotate-ccw" Disabled="@(group.OverrideLimit is null)"
+                                                          OnClick="() => OpenConfirmDialog(GroupAction.ResetLimit, group)">Reset limit to default…</MenuItem>
+                                                <MenuItem Icon="rotate-ccw" Disabled="@(!group.HasRateLimitOverride)"
+                                                          OnClick="() => OpenConfirmDialog(GroupAction.ResetRate, group)">Reset rate to default…</MenuItem>
+                                                <MenuItem Icon="infinity" Destructive="true" Disabled="@(group.EffectiveRateLimit is null)"
+                                                          OnClick="() => OpenConfirmDialog(GroupAction.RemoveRate, group)">Remove rate limit…</MenuItem>
+                                                <MenuSeparator />
+                                            }
+                                            <MenuItem Icon="list-filter" Href="@GroupJobsHref(group)">Jobs in this group</MenuItem>
+                                            <MenuItem Icon="copy" data-sd-copy="@group.GroupKey" data-sd-copy-label="group key">Copy group key</MenuItem>
+                                        </DropdownMenu>
+                                    </td>
                                 </tr>
                             }
                         }
                     </tbody>
                 </table>
-            </ChildContent>
-        </DashboardTableShell>
+            </div>
+            <footer class="sd-table__footer">
+                <span class="sd-num">@FooterText</span>
+                <span class="groups-footer-actions">
+                    @if (_loadMoreError is not null)
+                    {
+                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
+                    }
+                    @if (_page?.ContinuationToken is not null)
+                    {
+                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
+                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
+                    }
+                </span>
+            </footer>
+        </Card>
     }
 </div>
 
-<style>
-    .groups-page {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sd-gutter);
-    }
-
-    .groups-header {
-        display: flex;
-        align-items: center;
-    }
-
-    .groups-header {
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .groups-header p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .groups-message,
-    .groups-inline-alert {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .groups-message .sd-icon,
-    .groups-inline-alert .sd-icon {
-        color: var(--sd-primary);
-    }
-
-    .groups-message--error,
-    .groups-inline-alert--error {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .groups-message--error .sd-icon,
-    .groups-inline-alert--error .sd-icon {
-        color: var(--sd-error);
-    }
-
-    .groups-message p,
-    .groups-inline-alert {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .groups-inline-alert--error {
-        color: var(--sd-on-error-container);
-    }
-
-    .groups-inline-alert--success {
-        border-color: var(--sd-success);
-        background: var(--sd-success-container);
-        color: var(--sd-success);
-    }
-
-    .groups-inline-alert--success .sd-icon {
-        color: var(--sd-success);
-    }
-
-    /* Columns size to their content; the group key takes what is left and truncates. */
-    .groups-table {
-        white-space: nowrap;
-    }
-
-    .groups-table th:first-child {
-        min-width: 12rem;
-    }
-
-    .groups-table td:first-child {
-        width: 100%;
-        max-width: 0;
-    }
-
-    .groups-table__actions {
-        width: 1%;
-        text-align: right;
-    }
-
-    .groups-table thead {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background: var(--sd-surface-low);
-    }
-
-    .groups-table th,
-    .groups-table td {
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 6px 8px;
-        text-align: left;
-        vertical-align: middle;
-    }
-
-    .groups-table th {
-        color: var(--sd-on-surface-variant);
-        font-size: 12.5px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .groups-table td {
-        height: 40px;
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .groups-table tbody tr:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .groups-row--saturated {
-        background: color-mix(in srgb, var(--sd-error) 8%, transparent);
-    }
-
-    .groups-row--rate-limited {
-        background: color-mix(in srgb, var(--sd-warning) 10%, transparent);
-    }
-
-    .groups-table__number {
-        text-align: right;
-    }
-
-    .groups-key,
-    .groups-count,
-    .groups-blocked-count,
-    .groups-rate-available,
-    .groups-timestamp__absolute {
-        font-family: var(--font-mono);
-    }
-
-    .groups-key {
-        display: block;
-        overflow: hidden;
-        color: var(--sd-primary);
-        font-size: 13px;
-        line-height: 18px;
-        text-overflow: ellipsis;
-    }
-
-    .groups-blocked-count--attention {
-        color: var(--sd-error);
-        font-weight: 700;
-    }
-
-    .groups-rate-editor {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    .groups-rate-count-input {
-        width: 60px;
-    }
-
-    .groups-rate-period-input {
-        width: 76px;
-    }
-
-    .groups-rate-unit-input {
-        width: 88px;
-    }
-
-    .groups-state {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        padding: 2px 8px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .groups-state span {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    .groups-state--saturated {
-        border-color: var(--sd-error);
-        background: color-mix(in srgb, var(--sd-error) 14%, var(--sd-surface-lowest));
-        color: var(--sd-error);
-    }
-
-    .groups-state--saturated span,
-    .groups-state--blocked span {
-        background: var(--sd-error);
-    }
-
-    .groups-state--blocked {
-        border-color: var(--sd-error-container);
-        background: var(--sd-surface-variant);
-        color: var(--sd-error);
-    }
-
-    .groups-state--high {
-        border-color: var(--sd-warning-container);
-        background: var(--sd-warning-container);
-        color: var(--sd-warning);
-    }
-
-    .groups-state--high span {
-        background: var(--sd-warning);
-    }
-
-    .groups-state--nominal {
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface-variant);
-    }
-
-    /* Where a limit comes from, shown under its value. */
-    .groups-source {
-        display: block;
-        color: var(--sd-on-surface-variant);
-        font-size: 11.5px;
-        line-height: 15px;
-    }
-
-    .groups-source--override {
-        color: var(--sd-primary);
-        font-weight: 500;
-    }
-
-    .groups-actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 4px;
-    }
-
-    .groups-icon-button {
-        display: inline-flex;
-        width: 30px;
-        height: 30px;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface-variant);
-        cursor: pointer;
-    }
-
-    .groups-icon-button--primary {
-        border-color: var(--sd-primary);
-        background: var(--sd-primary);
-        color: var(--sd-on-primary);
-    }
-
-    .groups-icon-button .sd-icon {
-        font-size: 18px;
-        line-height: 18px;
-    }
-
-    .groups-icon-button:disabled {
-        cursor: not-allowed;
-        opacity: 0.5;
-    }
-
-    .groups-limit-input {
-        width: 92px;
-        min-height: 30px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        font-family: var(--font-mono);
-        padding: 4px 6px;
-        text-align: right;
-    }
-
-    .groups-limit-input:focus-visible,
-    .groups-icon-button:focus-visible {
-        outline: 2px solid var(--sd-primary);
-        outline-offset: 1px;
-    }
-
-    .groups-timestamp {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-    }
-
-    .groups-timestamp--inline {
-        flex-direction: row;
-        align-items: baseline;
-        gap: 4px;
-    }
-
-    .groups-timestamp__relative {
-        color: var(--sd-on-surface);
-    }
-
-    .groups-timestamp__absolute,
-    .groups-empty-row {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .groups-empty-row {
-        height: 96px;
-        text-align: center;
-    }
-
-    @@media (max-width: 1120px) {
-        .groups-header {
-            align-items: stretch;
-            flex-direction: column;
+<Dialog @bind-Open="_editDialogOpen" Title="Edit limits" Class="groups-edit-dialog">
+    <ChildContent>
+        @if (_editForm is { } form && _editGroup is { } editGroup)
+        {
+            <form id="@EditFormId" class="groups-edit-form" novalidate @onsubmit="SaveEditAsync" @onsubmit:preventDefault="true">
+                <p>
+                    For <span class="sd-mono groups-edit-key">@form.GroupKey</span>. Saved values are overrides and apply on
+                    every worker straight away.
+                </p>
+                <div class="sd-field">
+                    <label for="groups-edit-limit">Concurrency limit</label>
+                    <input id="groups-edit-limit" class="sd-input groups-edit-number" type="number" inputmode="numeric" min="1"
+                           step="1" autocomplete="off" value="@form.Limit" disabled="@_isSaving"
+                           aria-invalid="@(form.LimitError is null ? null : "true")"
+                           aria-describedby="groups-edit-limit-hint groups-edit-limit-error"
+                           @oninput="args => form.Limit = args.Value as string ?? string.Empty" />
+                    @if (form.LimitError is not null)
+                    {
+                        <span id="groups-edit-limit-error" class="sd-field__error" role="alert">@form.LimitError</span>
+                    }
+                    <span id="groups-edit-limit-hint" class="sd-field__hint">@LimitHint(editGroup)</span>
+                </div>
+                <div class="sd-field" role="group" aria-labelledby="groups-edit-rate-label">
+                    <span id="groups-edit-rate-label">Start rate</span>
+                    <Tabs TValue="bool" Items="RateModeItems" Value="form.RateUnlimited" ValueChanged="SetRateUnlimited"
+                          Label="Start rate" Small="true" />
+                    @if (!form.RateUnlimited)
+                    {
+                        <div class="groups-edit-rate">
+                            <input class="sd-input groups-edit-number" type="number" inputmode="numeric" min="1" step="1"
+                                   autocomplete="off" value="@form.RatePermits" disabled="@_isSaving"
+                                   aria-label="Jobs that may start in each period"
+                                   aria-invalid="@(form.RatePermitsError is null ? null : "true")"
+                                   aria-describedby="groups-edit-rate-error"
+                                   @oninput="args => form.RatePermits = args.Value as string ?? string.Empty" />
+                            <span>jobs per</span>
+                            <input class="sd-input groups-edit-number" type="number" inputmode="decimal" min="0" step="any"
+                                   autocomplete="off" value="@form.RatePeriod" disabled="@_isSaving"
+                                   aria-label="Period length"
+                                   aria-invalid="@(form.RatePeriodError is null ? null : "true")"
+                                   aria-describedby="groups-edit-rate-error"
+                                   @oninput="args => form.RatePeriod = args.Value as string ?? string.Empty" />
+                            <span class="sd-select">
+                                <select aria-label="Period unit" value="@form.RatePeriodUnit" disabled="@_isSaving"
+                                        @onchange="args => SetRatePeriodUnit(form, args)">
+                                    <option value="@DashboardRatePeriodUnit.Seconds">seconds</option>
+                                    <option value="@DashboardRatePeriodUnit.Minutes">minutes</option>
+                                    <option value="@DashboardRatePeriodUnit.Hours">hours</option>
+                                </select>
+                                <Icon Name="chevron-down" />
+                            </span>
+                        </div>
+                        @if (form.RatePermitsError is not null || form.RatePeriodError is not null)
+                        {
+                            <span id="groups-edit-rate-error" class="sd-field__error groups-edit-errors" role="alert">
+                                @if (form.RatePermitsError is not null)
+                                {
+                                    <span>@form.RatePermitsError</span>
+                                }
+                                @if (form.RatePeriodError is not null)
+                                {
+                                    <span>@form.RatePeriodError</span>
+                                }
+                            </span>
+                        }
+                    }
+                    <span class="sd-field__hint">@RateHint(form, editGroup)</span>
+                </div>
+            </form>
         }
-    }
-</style>
+    </ChildContent>
+    <Footer>
+        <Button Variant="ButtonVariant.Outline" Disabled="_isSaving" OnClick="CloseEditDialog">Cancel</Button>
+        <Button Type="submit" form="@EditFormId" Variant="ButtonVariant.Primary" Disabled="_isSaving"
+                Icon="@(_isSaving ? "loader-circle" : null)">Save</Button>
+    </Footer>
+</Dialog>
+
+<ConfirmDialog @bind-Open="_confirmDialogOpen" Title="@ConfirmTitle" ConfirmLabel="@ConfirmLabel"
+               Destructive="@(_confirmAction == GroupAction.RemoveRate)" Busy="@(_confirmGroup is not null && IsBusy(_confirmGroup.GroupKey))"
+               OnConfirm="ConfirmGroupActionAsync">
+    <p>@ConfirmDescription</p>
+</ConfirmDialog>
 
 @code {
     private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(5);
     private const int DefaultPageSize = 25;
-    private const string SecondsUnit = "seconds";
-    private const string MinutesUnit = "minutes";
-    private const string HoursUnit = "hours";
+    private const int SkeletonRowCount = 5;
+    private const int ColumnCount = 9;
+    private const string EditFormId = "groups-edit-form";
+
+    // Matches the data columns, so skeleton cells hide with their column on narrow screens.
+    private static readonly string?[] SkeletonColumnClasses =
+      [null, "groups-table__num", null, "groups-table__permit", "groups-table__num", "groups-table__num", null, "groups-table__updated"];
+
+    private static readonly IReadOnlyList<TabItem<bool>> RateModeItems =
+    [
+        new(false, "Limit starts"),
+        new(true, "Unlimited"),
+    ];
 
     private readonly List<ConcurrencyGroupInspectionSummary> _groups = [];
     private readonly DashboardConcurrencyGroupFilters _filters = new();
+    private readonly HashSet<string> _busyKeys = new(StringComparer.Ordinal);
+    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private IConcurrencyGroupManager? _manager;
     private ConcurrencyGroupInspectionPage? _page;
+    private ConcurrencyGroupInspectionSummary? _editGroup;
+    private DashboardConcurrencyGroupLimitForm? _editForm;
+    private ConcurrencyGroupInspectionSummary? _confirmGroup;
+    private GroupAction _confirmAction;
     private string? _loadError;
-    private string? _actionMessage;
-    private string? _editingGroupKey;
-    private string? _editingRateGroupKey;
-    private int _limitInput = 1;
-    private int _ratePermitInput = 1;
-    private decimal _ratePeriodInput = 1;
-    private string _ratePeriodUnit = SecondsUnit;
+    private string? _loadMoreError;
+    private int _queryVersion;
     private bool _isLoading;
     private bool _isLoadingMore;
-    private bool _isActionRunning;
-    private bool _isActionError;
+    private bool _isSaving;
+    private bool _editDialogOpen;
+    private bool _confirmDialogOpen;
+
+    private enum GroupAction
+    {
+        ResetLimit,
+        ResetRate,
+        RemoveRate,
+    }
+
+    [Inject]
+    private NavigationManager Navigation { get; set; } = null!;
 
     private IReadOnlyList<ConcurrencyGroupInspectionSummary> FilteredGroups
       => this._filters.ApplyClientFilter(this._groups);
@@ -564,45 +314,105 @@
     private bool CanEditLimits
       => this._manager is not null;
 
-    private int GroupTableColumnCount
-      => this.CanEditLimits ? 9 : 8;
+    private bool HasServerFilters
+      => this._filters.SaturatedOnly || this._filters.RateLimitedOnly || this._filters.HasBlockedJobsOnly;
 
-    private string ActionAlertClass
-      => this._isActionError
-        ? "groups-inline-alert groups-inline-alert--error"
-        : "groups-inline-alert groups-inline-alert--success";
+    private bool HasKeyFilter
+      => !string.IsNullOrWhiteSpace(this._filters.GroupKey);
 
-    private string ActionAlertIcon
-      => this._isActionError ? "warning" : "check_circle";
+    private bool HasAppliedFilters
+      => this.HasServerFilters || this.HasKeyFilter;
 
-    private bool IsActionDisabled
-      => this._isActionRunning || this._isLoading || this._isLoadingMore;
+    private string TableCardClass
+      => this._isLoading && this._page is not null
+        ? "sd-table-card groups-table-card sd-table-card--loading"
+        : "sd-table-card groups-table-card";
+
+    private string EmptyTitle
+      => this._groups.Count > 0
+        ? "No loaded group matches that key"
+        : this.HasServerFilters ? "No groups match" : "No concurrency groups yet";
 
     private string EmptyText
-      => this._groups.Count == 0
-        ? "No concurrency groups matched the current query."
-        : "No loaded concurrency groups matched the group key filter.";
+      => this._groups.Count > 0
+        ? this._page?.ContinuationToken is null
+          ? "Try a shorter part of the key, or clear the search."
+          : "Only loaded groups are searched. Load more groups, or clear the search."
+        : this.HasServerFilters
+          ? "No group is in that condition right now. Try removing a filter."
+          : "Groups appear here once a job that uses one is enqueued, or a limit is set for one.";
 
-    private string ResultRangeText
+    private string FooterText
     {
         get
         {
-            var loadedCount = this._groups.Count;
-            var visibleCount = this.FilteredGroups.Count;
-            var totalCount = this._page?.TotalCount ?? loadedCount;
-            var filteredText = visibleCount == loadedCount
-              ? string.Empty
-              : string.Create(CultureInfo.InvariantCulture, $" ({DashboardFormat.Count(visibleCount)} visible after group key filter)");
-            var moreText = this._page?.ContinuationToken is null ? string.Empty : " with more available";
+            var loaded = this._groups.Count;
+            var text = string.Concat(
+              "Showing ",
+              DashboardFormat.Count(loaded),
+              " of ",
+              DashboardFormat.Count(this._page?.TotalCount ?? loaded),
+              this._page?.TotalCount == 1 ? " group" : " groups");
+            if (!this.HasKeyFilter)
+            {
+                return text;
+            }
 
-            return loadedCount == 0
-              ? string.Create(CultureInfo.InvariantCulture, $"Showing 0 of {DashboardFormat.Count(totalCount)} groups{filteredText}")
-              : string.Create(CultureInfo.InvariantCulture, $"Showing 1-{DashboardFormat.Count(loadedCount)} of {DashboardFormat.Count(totalCount)} groups{filteredText}{moreText}");
+            var visible = this.FilteredGroups.Count;
+            return string.Concat(text, " · ", DashboardFormat.Count(visible), visible == 1 ? " matches the key" : " match the key");
         }
     }
 
-    [Inject]
-    private NavigationManager Navigation { get; set; } = null!;
+    private string ConfirmTitle
+      => this._confirmGroup is not { } group
+        ? string.Empty
+        : this._confirmAction switch
+        {
+            GroupAction.ResetLimit => string.Concat("Reset the limit for ", group.GroupKey, "?"),
+            GroupAction.ResetRate => string.Concat("Reset the start rate for ", group.GroupKey, "?"),
+            _ => string.Concat("Remove the start rate limit for ", group.GroupKey, "?"),
+        };
+
+    private string ConfirmLabel
+      => this._confirmAction switch
+      {
+          GroupAction.ResetLimit => "Reset limit",
+          GroupAction.ResetRate => "Reset rate",
+          _ => "Remove rate limit",
+      };
+
+    private string ConfirmDescription
+    {
+        get
+        {
+            if (this._confirmGroup is not { } group)
+            {
+                return string.Empty;
+            }
+
+            return this._confirmAction switch
+            {
+                GroupAction.ResetLimit => string.Concat(
+                  "The override of ",
+                  DashboardFormat.Count(group.OverrideLimit ?? group.EffectiveLimit),
+                  " is removed and the limit goes back to ",
+                  DashboardConcurrencyGroupFormat.DefaultLimitText(group),
+                  ". Jobs that are already running keep running."),
+                GroupAction.ResetRate => string.Concat(
+                  "The override (",
+                  DashboardConcurrencyGroupFormat.Rate(group.OverrideRateLimit).ToLowerInvariant(),
+                  ") is removed and the start rate goes back to ",
+                  DashboardConcurrencyGroupFormat.DefaultRateText(group),
+                  "."),
+                _ => group.DefaultRateLimit is { } defaultRate
+                  ? string.Concat(
+                    "Jobs in this group start as soon as a slot is free. This is saved as an override, so it also replaces the code default of ",
+                    DashboardConcurrencyGroupFormat.Rate(defaultRate),
+                    " until you reset the rate.")
+                  : "Jobs in this group start as soon as a slot is free. You can set a start rate again from Edit limits.",
+            };
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -618,11 +428,37 @@
         this.StartPeriodicRefresh(PageRefreshInterval);
     }
 
+    protected override Task OnAfterRenderAsync(bool firstRender)
+      => this.FlushToastsAsync();
+
+    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
+    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
+      => this._pendingToasts.Add((title, description, tone));
+
+    private async Task FlushToastsAsync()
+    {
+        if (this._pendingToasts.Count == 0)
+        {
+            return;
+        }
+
+        var toasts = this._pendingToasts.ToArray();
+        this._pendingToasts.Clear();
+        foreach (var (title, description, tone) in toasts)
+        {
+            try
+            {
+                await JsRuntime.ToastAsync(title, description, tone);
+            }
+            catch (JSException)
+            {
+            }
+        }
+    }
+
     private async Task SetSaturatedOnlyAsync(bool value)
     {
         this._filters.SaturatedOnly = value;
-        this.ClearActionAlert();
-        this.CancelEdit();
         this.WriteFiltersToLocation(replace: false);
 
         await this.LoadAsync();
@@ -631,8 +467,6 @@
     private async Task SetHasBlockedJobsOnlyAsync(bool value)
     {
         this._filters.HasBlockedJobsOnly = value;
-        this.ClearActionAlert();
-        this.CancelEdit();
         this.WriteFiltersToLocation(replace: false);
 
         await this.LoadAsync();
@@ -641,18 +475,27 @@
     private async Task SetRateLimitedOnlyAsync(bool value)
     {
         this._filters.RateLimitedOnly = value;
-        this.ClearActionAlert();
-        this.CancelEdit();
         this.WriteFiltersToLocation(replace: false);
 
         await this.LoadAsync();
     }
 
+    // The key filter narrows the loaded groups in the browser, so typing only rewrites the URL.
     private void SetGroupKeyFilter(string value)
     {
         this._filters.GroupKey = value;
-        this.ClearActionAlert();
         this.WriteFiltersToLocation(replace: true);
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        var reload = this.HasServerFilters;
+        _ = this._filters.CopyFrom(new DashboardConcurrencyGroupFilters());
+        this.WriteFiltersToLocation(replace: false);
+        if (reload)
+        {
+            await this.LoadAsync();
+        }
     }
 
     private void WriteFiltersToLocation(bool replace)
@@ -669,57 +512,78 @@
             return;
         }
 
-        this.ClearActionAlert();
         if (queryChanged)
         {
-            this.CancelEdit();
             await this.LoadAsync();
         }
     }
 
     private async Task LoadAsync()
     {
+        var queryVersion = ++this._queryVersion;
         this._loadError = null;
+        this._loadMoreError = null;
         this.LiveRefresh.ClearError();
         this._isLoading = true;
 
         try
         {
             var page = await Reader.SearchConcurrencyGroupsAsync(this._filters.ToQuery(DefaultPageSize, continuationToken: null));
+            if (queryVersion != this._queryVersion)
+            {
+                return;
+            }
+
             this.ReplaceGroups(page);
             this.LiveRefresh.MarkUpdated();
         }
         catch (Exception exception)
         {
-            this._loadError = exception.Message;
+            if (queryVersion == this._queryVersion)
+            {
+                this._loadError = exception.Message;
+            }
         }
         finally
         {
-            this._isLoading = false;
-            this.NotifyShellRefreshChanged();
+            if (queryVersion == this._queryVersion)
+            {
+                this._isLoading = false;
+                this.NotifyShellRefreshChanged();
+            }
         }
     }
 
     private async Task LoadMoreAsync()
     {
-        if (this._page?.ContinuationToken is null || this._isLoadingMore)
+        if (this._page?.ContinuationToken is null || this._isLoading || this._isLoadingMore)
         {
             return;
         }
 
-        this._loadError = null;
+        var queryVersion = this._queryVersion;
+        this._loadMoreError = null;
         this._isLoadingMore = true;
 
         try
         {
             var page = await Reader.SearchConcurrencyGroupsAsync(this._filters.ToQuery(DefaultPageSize, this._page.ContinuationToken));
+            if (queryVersion != this._queryVersion)
+            {
+                return;
+            }
+
             this._groups.AddRange(page.Groups);
             this._page = page;
             this.LiveRefresh.MarkUpdated();
         }
         catch (Exception exception)
         {
-            this._loadError = exception.Message;
+            // Keep the loaded rows; the failure is shown next to the Load more control.
+            if (queryVersion == this._queryVersion)
+            {
+                this._loadMoreError = exception.Message;
+            }
         }
         finally
         {
@@ -730,13 +594,19 @@
 
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
+        var queryVersion = this._queryVersion;
         var visiblePageSize = Math.Max(DefaultPageSize, this._groups.Count);
         var page = await Reader.SearchConcurrencyGroupsAsync(
           this._filters.ToQuery(visiblePageSize, continuationToken: null),
-          cancellationToken)
-          ;
+          cancellationToken);
 
-        await this.ApplyPageStateAsync(() => this.ReplaceGroups(page));
+        await this.ApplyPageStateAsync(() =>
+        {
+            if (queryVersion == this._queryVersion)
+            {
+                this.ReplaceGroups(page);
+            }
+        });
     }
 
     private void ReplaceGroups(ConcurrencyGroupInspectionPage page)
@@ -745,420 +615,221 @@
         this._groups.AddRange(page.Groups);
         this._page = page;
         this._loadError = null;
-        if (this._editingGroupKey is not null && page.Groups.All(group => !string.Equals(group.GroupKey, this._editingGroupKey, StringComparison.Ordinal)))
-        {
-            this.CancelEdit();
-        }
+        this._loadMoreError = null;
+    }
 
-        if (this._editingRateGroupKey is not null && page.Groups.All(group => !string.Equals(group.GroupKey, this._editingRateGroupKey, StringComparison.Ordinal)))
+    private bool IsBusy(string groupKey)
+      => this._busyKeys.Contains(groupKey);
+
+    private void OpenEditDialog(ConcurrencyGroupInspectionSummary group)
+    {
+        this._editGroup = group;
+        this._editForm = DashboardConcurrencyGroupLimitForm.For(group);
+        this._editDialogOpen = true;
+    }
+
+    private void CloseEditDialog()
+      => this._editDialogOpen = false;
+
+    private void SetRateUnlimited(bool unlimited)
+    {
+        if (this._editForm is { } form)
         {
-            this.CancelEdit();
+            form.RateUnlimited = unlimited;
         }
     }
 
-    private void StartEdit(ConcurrencyGroupInspectionSummary group)
+    private static void SetRatePeriodUnit(DashboardConcurrencyGroupLimitForm form, ChangeEventArgs args)
     {
-        if (this.IsActionDisabled)
+        if (Enum.TryParse<DashboardRatePeriodUnit>(args.Value as string, out var unit))
+        {
+            form.RatePeriodUnit = unit;
+        }
+    }
+
+    // Saves the concurrency limit and then the start rate, each only when it changed. Field errors keep the dialog
+    // open; so does a failed save, with the saved part recorded so a retry doesn't repeat it.
+    private async Task SaveEditAsync()
+    {
+        if (this._manager is null || this._editForm is not { } form || this._isSaving)
         {
             return;
         }
 
-        this.ClearActionAlert();
-        this._editingRateGroupKey = null;
-        this._editingGroupKey = group.GroupKey;
-        this._limitInput = group.OverrideLimit ?? group.EffectiveLimit;
-    }
-
-    private void CancelEdit()
-    {
-        this._editingGroupKey = null;
-        this._editingRateGroupKey = null;
-    }
-
-    private void StartRateEdit(ConcurrencyGroupInspectionSummary group)
-    {
-        if (this.IsActionDisabled)
+        if (!form.TryGetChanges(out var changes))
         {
             return;
         }
 
-        this.ClearActionAlert();
-        this._editingGroupKey = null;
-        this._editingRateGroupKey = group.GroupKey;
-        var rateLimit = group.OverrideRateLimit ?? group.EffectiveRateLimit ?? new ConcurrencyGroupRateLimit(1, TimeSpan.FromSeconds(1));
-        this._ratePermitInput = rateLimit.PermitCount;
-        (this._ratePeriodInput, this._ratePeriodUnit) = ToRatePeriodInput(rateLimit.Period);
-    }
-
-    private async Task SaveLimitAsync(ConcurrencyGroupInspectionSummary group)
-    {
-        if (this._manager is null || this.IsActionDisabled || !this.IsEditing(group))
+        if (changes.IsEmpty)
         {
+            this._editDialogOpen = false;
+            this.ShowToast(string.Concat("No changes to save for ", form.GroupKey));
             return;
         }
 
-        if (this._limitInput <= 0)
-        {
-            this.SetActionFailure("Limit save failed: Limit must be positive.");
-            return;
-        }
-
-        this._isActionRunning = true;
-        this.ClearActionAlert();
+        var groupKey = form.GroupKey;
+        var saved = new List<string>(2);
+        this._isSaving = true;
+        _ = this._busyKeys.Add(groupKey);
 
         try
         {
-            await this._manager.SetLimitAsync(group.GroupKey, this._limitInput);
-            this.CancelEdit();
-            this.SetActionSuccess(string.Create(CultureInfo.InvariantCulture, $"Concurrency group {group.GroupKey} override set to {DashboardFormat.Count(this._limitInput)}."));
-            await this.LiveRefresh.RefreshNowAsync();
-        }
-        catch (Exception exception)
-        {
-            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Limit save failed: {exception.Message}"));
-        }
-        finally
-        {
-            this._isActionRunning = false;
-        }
-    }
-
-    private async Task ResetLimitAsync(ConcurrencyGroupInspectionSummary group)
-    {
-        if (this._manager is null || this.IsActionDisabled)
-        {
-            return;
-        }
-
-        this._isActionRunning = true;
-        this.ClearActionAlert();
-
-        try
-        {
-            await this._manager.ClearLimitOverrideAsync(group.GroupKey);
-            if (this.IsEditing(group))
+            if (changes.Limit is { } limit)
             {
-                this.CancelEdit();
+                await this._manager.SetLimitAsync(groupKey, limit);
+                form.MarkLimitSaved(limit);
+                saved.Add(string.Concat("Concurrency limit: ", DashboardFormat.Count(limit), "."));
             }
 
-            this.SetActionSuccess(string.Create(CultureInfo.InvariantCulture, $"Concurrency group {group.GroupKey} override reset."));
-            await this.LiveRefresh.RefreshNowAsync();
-        }
-        catch (Exception exception)
-        {
-            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Limit reset failed: {exception.Message}"));
-        }
-        finally
-        {
-            this._isActionRunning = false;
-        }
-    }
-
-    private async Task SaveRateLimitAsync(ConcurrencyGroupInspectionSummary group)
-    {
-        if (this._manager is null || this.IsActionDisabled || !this.IsEditingRate(group))
-        {
-            return;
-        }
-
-        if (!this.TryCreateRateLimit(out var rateLimit, out var validationMessage))
-        {
-            this.SetActionFailure(string.Concat("Rate-limit save failed: ", validationMessage));
-            return;
-        }
-
-        this._isActionRunning = true;
-        this.ClearActionAlert();
-
-        try
-        {
-            await this._manager.SetRateLimitAsync(group.GroupKey, rateLimit);
-            this.CancelEdit();
-            this.SetActionSuccess(string.Create(
-              CultureInfo.InvariantCulture,
-              $"Concurrency group {group.GroupKey} rate override set to {FormatRateLimit(rateLimit)}."));
-            await this.LiveRefresh.RefreshNowAsync();
-        }
-        catch (Exception exception)
-        {
-            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Rate-limit save failed: {exception.Message}"));
-        }
-        finally
-        {
-            this._isActionRunning = false;
-        }
-    }
-
-    private async Task SetUnlimitedRateLimitAsync(ConcurrencyGroupInspectionSummary group)
-    {
-        if (this._manager is null || this.IsActionDisabled)
-        {
-            return;
-        }
-
-        this._isActionRunning = true;
-        this.ClearActionAlert();
-
-        try
-        {
-            await this._manager.SetUnlimitedRateLimitAsync(group.GroupKey);
-            this.CancelEdit();
-            this.SetActionSuccess(string.Create(
-              CultureInfo.InvariantCulture,
-              $"Concurrency group {group.GroupKey} rate override set to unlimited."));
-            await this.LiveRefresh.RefreshNowAsync();
-        }
-        catch (Exception exception)
-        {
-            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Unlimited rate override failed: {exception.Message}"));
-        }
-        finally
-        {
-            this._isActionRunning = false;
-        }
-    }
-
-    private async Task ResetRateLimitAsync(ConcurrencyGroupInspectionSummary group)
-    {
-        if (this._manager is null || this.IsActionDisabled)
-        {
-            return;
-        }
-
-        this._isActionRunning = true;
-        this.ClearActionAlert();
-
-        try
-        {
-            await this._manager.ClearRateLimitOverrideAsync(group.GroupKey);
-            this.CancelEdit();
-            this.SetActionSuccess(string.Create(
-              CultureInfo.InvariantCulture,
-              $"Concurrency group {group.GroupKey} rate override reset."));
-            await this.LiveRefresh.RefreshNowAsync();
-        }
-        catch (Exception exception)
-        {
-            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Rate-limit reset failed: {exception.Message}"));
-        }
-        finally
-        {
-            this._isActionRunning = false;
-        }
-    }
-
-    private bool IsEditing(ConcurrencyGroupInspectionSummary group)
-      => string.Equals(this._editingGroupKey, group.GroupKey, StringComparison.Ordinal);
-
-    private bool IsEditingRate(ConcurrencyGroupInspectionSummary group)
-      => string.Equals(this._editingRateGroupKey, group.GroupKey, StringComparison.Ordinal);
-
-    private void ClearActionAlert()
-    {
-        this._actionMessage = null;
-        this._isActionError = false;
-    }
-
-    private void SetActionSuccess(string message)
-    {
-        this._isActionError = false;
-        this._actionMessage = message;
-    }
-
-    private void SetActionFailure(string message)
-    {
-        this._isActionError = true;
-        this._actionMessage = message;
-    }
-
-    private static string GroupRowClass(ConcurrencyGroupInspectionSummary group)
-      => group.IsSaturated
-        ? "groups-row--saturated"
-        : group.IsRateLimited ? "groups-row--rate-limited" : string.Empty;
-
-    private static string BlockedCountClass(ConcurrencyGroupInspectionSummary group)
-      => group.BlockedJobCount > 0 ? "groups-blocked-count groups-blocked-count--attention" : "groups-blocked-count";
-
-    private static string SaturationStateText(ConcurrencyGroupInspectionSummary group)
-    {
-        if (group.IsSaturated)
-        {
-            return "Saturated";
-        }
-
-        if (group.IsRateLimited)
-        {
-            return "Rate Limited";
-        }
-
-        if (group.BlockedJobCount > 0)
-        {
-            return "Blocked Work";
-        }
-
-        return GetOccupancyRatio(group) >= 0.8 ? "High Load" : "Nominal";
-    }
-
-    private static string SaturationStateClass(ConcurrencyGroupInspectionSummary group)
-    {
-        var modifier = group.IsSaturated
-          ? "saturated"
-          : group.IsRateLimited
-            ? "blocked"
-            : group.BlockedJobCount > 0
-              ? "blocked"
-              : GetOccupancyRatio(group) >= 0.8
-                ? "high"
-                : "nominal";
-
-        return string.Concat("groups-state groups-state--", modifier);
-    }
-
-    private static double GetOccupancyRatio(ConcurrencyGroupInspectionSummary group)
-      => group.EffectiveLimit <= 0 ? 0 : (double)group.CurrentOccupancy / group.EffectiveLimit;
-
-    private static string LimitSourceText(ConcurrencyGroupInspectionSummary group)
-      => group.OverrideLimit is not null
-        ? "Override"
-        : group.DefaultLimit is not null ? "Code default" : "Built-in default";
-
-    private static string LimitSourceTitle(ConcurrencyGroupInspectionSummary group)
-      => group.OverrideLimit is not null
-        ? string.Create(CultureInfo.InvariantCulture, $"Override limit {DashboardFormat.Count(group.OverrideLimit.Value)}.")
-        : group.DefaultLimit is not null
-          ? string.Create(CultureInfo.InvariantCulture, $"Code default limit {DashboardFormat.Count(group.DefaultLimit.Value)}.")
-          : "Built-in default limit 1.";
-
-    private static string LimitSourceClass(ConcurrencyGroupInspectionSummary group)
-      => group.OverrideLimit is not null
-        ? "groups-source groups-source--override"
-        : group.DefaultLimit is not null
-          ? "groups-source groups-source--default"
-          : "groups-source";
-
-    private static string LimitInputLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Limit for concurrency group {group.GroupKey}");
-
-
-    private static string SaveLimitLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Save limit for concurrency group {group.GroupKey}");
-
-    private static string CancelEditLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Cancel limit edit for concurrency group {group.GroupKey}");
-
-
-    private static string FormatRateLimit(ConcurrencyGroupRateLimit? rateLimit)
-      => rateLimit is null
-        ? "Unlimited"
-        : string.Create(
-          CultureInfo.InvariantCulture,
-          $"{DashboardFormat.Count(rateLimit.PermitCount)} / {FormatRatePeriod(rateLimit.Period)}");
-
-    private static string FormatRatePeriod(TimeSpan period)
-    {
-        if (period.Ticks % TimeSpan.TicksPerHour == 0)
-        {
-            return string.Create(CultureInfo.InvariantCulture, $"{period.TotalHours:0.###} h");
-        }
-
-        if (period.Ticks % TimeSpan.TicksPerMinute == 0)
-        {
-            return string.Create(CultureInfo.InvariantCulture, $"{period.TotalMinutes:0.###} m");
-        }
-
-        return string.Create(CultureInfo.InvariantCulture, $"{period.TotalSeconds:0.###} s");
-    }
-
-    private static string RateLimitSourceText(ConcurrencyGroupInspectionSummary group)
-      => group.HasRateLimitOverride
-        ? group.OverrideRateLimit is null ? "Override: unlimited" : "Override"
-        : group.DefaultRateLimit is null ? "Built-in unlimited" : "Code default";
-
-    private static string RateLimitSourceTitle(ConcurrencyGroupInspectionSummary group)
-      => group.HasRateLimitOverride
-        ? group.OverrideRateLimit is null
-          ? "Live override disables the code-defined rate limit."
-          : string.Create(CultureInfo.InvariantCulture, $"Live rate override {FormatRateLimit(group.OverrideRateLimit)}.")
-        : group.DefaultRateLimit is null
-          ? "No start-rate limit is configured."
-          : string.Create(CultureInfo.InvariantCulture, $"Code default rate {FormatRateLimit(group.DefaultRateLimit)}.");
-
-    private static string RateLimitSourceClass(ConcurrencyGroupInspectionSummary group)
-      => group.HasRateLimitOverride
-        ? "groups-source groups-source--override"
-        : group.DefaultRateLimit is not null
-          ? "groups-source groups-source--default"
-          : "groups-source";
-
-    private bool TryCreateRateLimit(
-        [NotNullWhen(true)] out ConcurrencyGroupRateLimit? rateLimit,
-        [NotNullWhen(false)] out string? validationMessage)
-    {
-        if (this._ratePermitInput <= 0)
-        {
-            rateLimit = null;
-            validationMessage = "Permit count must be positive.";
-            return false;
-        }
-
-        if (this._ratePeriodInput <= 0)
-        {
-            rateLimit = null;
-            validationMessage = "Period must be positive.";
-            return false;
-        }
-
-        try
-        {
-            var ticksPerUnit = this._ratePeriodUnit switch
+            if (changes.RateChanged)
             {
-                HoursUnit => TimeSpan.TicksPerHour,
-                MinutesUnit => TimeSpan.TicksPerMinute,
-                _ => TimeSpan.TicksPerSecond,
-            };
-            var periodTicks = decimal.ToInt64(this._ratePeriodInput * ticksPerUnit);
-            rateLimit = new ConcurrencyGroupRateLimit(this._ratePermitInput, TimeSpan.FromTicks(periodTicks));
-            validationMessage = null;
-            return true;
+                if (changes.Rate is { } rate)
+                {
+                    await this._manager.SetRateLimitAsync(groupKey, rate);
+                }
+                else
+                {
+                    await this._manager.SetUnlimitedRateLimitAsync(groupKey);
+                }
+
+                form.MarkRateSaved(changes.Rate);
+                saved.Add(string.Concat("Start rate: ", DashboardConcurrencyGroupFormat.Rate(changes.Rate).ToLowerInvariant(), "."));
+            }
+
+            this._editDialogOpen = false;
+            this.ShowToast(string.Concat("Saved limits for ", groupKey), string.Join(" ", saved), AlertTone.Success);
+            await this.LiveRefresh.RefreshNowAsync();
         }
-        catch (OverflowException)
+        catch (Exception exception)
         {
-            rateLimit = null;
-            validationMessage = "Period is outside the supported range.";
-            return false;
+            this.ShowToast(
+              saved.Count == 0
+                ? string.Concat("Couldn't save limits for ", groupKey)
+                : string.Concat("Couldn't save the start rate for ", groupKey),
+              saved.Count == 0 ? exception.Message : string.Concat(exception.Message, " The concurrency limit was saved."),
+              AlertTone.Destructive);
+            if (saved.Count > 0)
+            {
+                await this.LiveRefresh.RefreshNowAsync();
+            }
+        }
+        finally
+        {
+            this._isSaving = false;
+            _ = this._busyKeys.Remove(groupKey);
         }
     }
 
-    private static (decimal Value, string Unit) ToRatePeriodInput(TimeSpan period)
+    private void OpenConfirmDialog(GroupAction action, ConcurrencyGroupInspectionSummary group)
     {
-        if (period.Ticks % TimeSpan.TicksPerHour == 0)
-        {
-            return ((decimal)period.Ticks / TimeSpan.TicksPerHour, HoursUnit);
-        }
-
-        if (period.Ticks % TimeSpan.TicksPerMinute == 0)
-        {
-            return ((decimal)period.Ticks / TimeSpan.TicksPerMinute, MinutesUnit);
-        }
-
-        return ((decimal)period.Ticks / TimeSpan.TicksPerSecond, SecondsUnit);
+        this._confirmAction = action;
+        this._confirmGroup = group;
+        this._confirmDialogOpen = true;
     }
 
-    private static string RatePermitInputLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Rate permit count for concurrency group {group.GroupKey}");
+    private async Task ConfirmGroupActionAsync()
+    {
+        if (this._manager is null || this._confirmGroup is not { } group || !this._busyKeys.Add(group.GroupKey))
+        {
+            return;
+        }
 
-    private static string RatePeriodInputLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Rate period for concurrency group {group.GroupKey}");
+        var groupKey = group.GroupKey;
+        var action = this._confirmAction;
 
-    private static string RatePeriodUnitInputLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Rate period unit for concurrency group {group.GroupKey}");
+        // The row stays busy until the list has refreshed, so it never shows the old values as actionable.
+        try
+        {
+            switch (action)
+            {
+                case GroupAction.ResetLimit:
+                    await this._manager.ClearLimitOverrideAsync(groupKey);
+                    this.ShowToast(
+                      string.Concat("Reset the limit for ", groupKey),
+                      string.Concat("It's back to ", DashboardConcurrencyGroupFormat.DefaultLimitText(group), "."),
+                      AlertTone.Success);
+                    break;
+                case GroupAction.ResetRate:
+                    await this._manager.ClearRateLimitOverrideAsync(groupKey);
+                    this.ShowToast(
+                      string.Concat("Reset the start rate for ", groupKey),
+                      string.Concat("It's back to ", DashboardConcurrencyGroupFormat.DefaultRateText(group), "."),
+                      AlertTone.Success);
+                    break;
+                default:
+                    await this._manager.SetUnlimitedRateLimitAsync(groupKey);
+                    this.ShowToast(
+                      string.Concat("Removed the start rate limit for ", groupKey),
+                      "Jobs in this group start as soon as a slot is free.",
+                      AlertTone.Success);
+                    break;
+            }
 
+            await this.LiveRefresh.RefreshNowAsync();
+        }
+        catch (Exception exception)
+        {
+            var title = action switch
+            {
+                GroupAction.ResetLimit => "Couldn't reset the limit for ",
+                GroupAction.ResetRate => "Couldn't reset the start rate for ",
+                _ => "Couldn't remove the start rate limit for ",
+            };
+            this.ShowToast(string.Concat(title, groupKey), exception.Message, AlertTone.Destructive);
+        }
+        finally
+        {
+            _ = this._busyKeys.Remove(groupKey);
+        }
+    }
 
-    private static string SaveRateLimitLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Save rate limit for concurrency group {group.GroupKey}");
+    private static string LimitHint(ConcurrencyGroupInspectionSummary group)
+      => string.Concat(
+        "The most jobs in this group that run at the same time. Without an override it is ",
+        DashboardConcurrencyGroupFormat.DefaultLimitText(group),
+        ".");
 
-    private static string CancelRateEditLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Cancel rate-limit edit for concurrency group {group.GroupKey}");
+    private static string RateHint(
+        DashboardConcurrencyGroupLimitForm form,
+        ConcurrencyGroupInspectionSummary group)
+      => string.Concat(
+        form.RateUnlimited
+          ? "Jobs start as soon as a slot is free."
+          : "Starts are spaced evenly across the period.",
+        " Without an override the rate is ",
+        DashboardConcurrencyGroupFormat.DefaultRateText(group),
+        ".");
 
+    private static string BlockedLinkTitle(ConcurrencyGroupInspectionSummary group)
+      => string.Concat(DashboardConcurrencyGroupFormat.BlockedTitle(group), " Show queued jobs in this group.");
 
+    private static string SourceClass(bool isOverride)
+      => isOverride ? "groups-source groups-source--override" : "groups-source";
+
+    private static string StateLabel(DashboardConcurrencyGroupState state)
+      => state switch
+      {
+          DashboardConcurrencyGroupState.Blocked => "Blocked",
+          DashboardConcurrencyGroupState.Saturated => "Saturated",
+          DashboardConcurrencyGroupState.High => "High",
+          _ => "Nominal",
+      };
+
+    private static string StateBadgeClass(DashboardConcurrencyGroupState state)
+      => string.Concat("sd-status groups-state groups-state--", state.ToString().ToLowerInvariant());
+
+    private static string GroupJobsHref(ConcurrencyGroupInspectionSummary group)
+      => DashboardJobFilterQuery.GroupHref(group.GroupKey);
+
+    private static string BlockedJobsHref(ConcurrencyGroupInspectionSummary group)
+    {
+        var filters = new DashboardJobFilters();
+        _ = filters.SetConcurrencyGroupContains(group.GroupKey);
+        _ = filters.SetStateSelected(JobState.Queued, selected: true);
+        return DashboardJobFilterQuery.ToHref(filters);
+    }
+
+    private static string SkeletonWidth(int row, int column)
+      => string.Create(CultureInfo.InvariantCulture, $"{45 + (((row * 7) + (column * 13)) % 45)}%");
 }

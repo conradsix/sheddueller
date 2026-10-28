@@ -1,3 +1,113 @@
 /* Page-specific layout for the schedules page. Shared look lives in ../sheddueller.css. */
 @layer pages {
+  .schedules-toolbar .schedules-search {
+    width: 320px;
+    max-width: 100%;
+  }
+
+  /* The page flows in the shell's scroller. The wrapper only scrolls sideways, and only when the window is too
+     narrow for the content-sized columns. */
+  .schedules-table-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  /* Columns size to their content; the schedule key takes what is left and truncates. */
+  .schedules-table {
+    white-space: nowrap;
+  }
+
+  .schedules-table th:first-child {
+    min-width: 12rem;
+  }
+
+  .schedules-table .schedules-table__key {
+    width: 100%;
+    max-width: 0;
+  }
+
+  .schedules-key {
+    display: block;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+  }
+
+  .schedules-handler,
+  .schedules-secondary {
+    display: block;
+    max-width: 15rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .schedules-secondary {
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+
+  .schedules-cron {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+
+  .schedules-state--active {
+    --tone: var(--success);
+  }
+
+  .schedules-state--paused {
+    --tone: var(--muted-foreground);
+  }
+
+  .schedules-state .schedules-state__icon {
+    font-size: 11px;
+    stroke-width: 3;
+  }
+
+  .schedules-table .sd-tags {
+    max-width: 11rem;
+  }
+
+  .schedules-table .sd-tag {
+    max-width: 8rem;
+  }
+
+  .schedules-table .schedules-table__actions {
+    width: 1%;
+    padding: 0 8px 0 0;
+    text-align: right;
+  }
+
+  .schedules-table__empty td,
+  .schedules-table__empty:hover td {
+    height: auto;
+    background: none;
+    white-space: normal;
+  }
+
+  .schedules-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* On narrower screens the least important columns go first, so the table keeps fitting without scrolling. */
+  .schedules-table-card {
+    container-type: inline-size;
+  }
+
+  @container (max-width: 1080px) {
+    .schedules-table .schedules-table__tags {
+      display: none;
+    }
+  }
+
+  @container (max-width: 880px) {
+    .schedules-table .schedules-table__cron {
+      display: none;
+    }
+  }
 }

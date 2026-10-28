@@ -2,585 +2,279 @@
 @inherits DashboardPageComponent
 @inject IScheduleInspectionReader Reader
 @inject IRecurringScheduleManager ScheduleManager
+@inject IJSRuntime JsRuntime
 
-<div class="schedules-page">
-    <header class="schedules-header">
-        <div>
-            <h1>Schedules</h1>
-            <p>Manage recurring operational tasks and cron triggers.</p>
-        </div>
-    </header>
+<div class="sd-page schedules-page">
+    <PageHeader Title="Schedules"
+                Description="Recurring jobs your app registers. Cron expressions run in UTC. Run, pause, or resume a schedule from its row menu." />
+
+    <div class="sd-toolbar schedules-toolbar">
+        <SearchInput Class="schedules-search" Value="@_filters.ScheduleKey" ValueChanged="SetScheduleKeyFilter"
+                     Placeholder="Filter by schedule key" Label="Filter schedules by key" Shortcut="true" />
+        <Tabs TValue="string" Items="StateTabs" Value="_filters.PauseState" ValueChanged="SetPauseStateFilterAsync"
+              Label="Filter schedules by state" />
+        @if (_filters.HasAppliedFilters)
+        {
+            <Button Variant="ButtonVariant.Ghost" Icon="x" OnClick="ClearFiltersAsync">Reset</Button>
+        }
+    </div>
 
     @if (_loadError is not null)
     {
-        <section class="schedules-message schedules-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h2>Schedules failed to load</h2>
-                <p>@_loadError</p>
-            </div>
-        </section>
+        <Alert Tone="AlertTone.Destructive" Title="Schedules couldn't be loaded">
+            <ChildContent>@_loadError</ChildContent>
+            <Actions>
+                <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="LoadAsync">Try again</Button>
+            </Actions>
+        </Alert>
     }
-    else if (_isLoading && _page is null)
-    {
-        <section class="schedules-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h2>Loading schedules</h2>
-                <p>Reading recurring schedule definitions.</p>
-            </div>
-        </section>
-    }
-    else
-    {
-        @if (LiveRefresh.RefreshError is not null)
-        {
-            <DashboardInlineAlert CssClass="schedules-inline-alert schedules-inline-alert--error" Icon="warning">
-                <span>Refresh failed: @LiveRefresh.RefreshError</span>
-            </DashboardInlineAlert>
-        }
 
-        @if (_actionMessage is not null)
-        {
-            <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
-                <span>@_actionMessage</span>
-                @if (_triggeredJobId is { } triggeredJobId)
-                {
-                    <a class="schedules-action-alert__job" href="@JobHref(triggeredJobId)">@triggeredJobId.ToString("D")</a>
-                }
-            </DashboardInlineAlert>
-        }
-
-        <DashboardTableShell Title="Schedule Registry" ResultText="@ResultRangeText"
-                             ShowLoadMore="@(_page?.ContinuationToken is not null)" IsLoadingMore="@_isLoadingMore"
-                             OnLoadMore="LoadMoreAsync">
-            <Toolbar>
-                <select class="sd-table-select schedules-state-filter" aria-label="Filter by pause state"
-                        value="@_filters.PauseState" @onchange="SetPauseStateFilterAsync">
-                    <option value="">All States</option>
-                    <option value="@DashboardScheduleFilters.ActiveStateFilter">Active</option>
-                    <option value="@DashboardScheduleFilters.PausedStateFilter">Paused</option>
-                </select>
-                <DashboardSearchBox Value="@_filters.ScheduleKey" ValueChanged="SetScheduleKeyFilterAsync"
-                                    Placeholder="Schedule key..." AriaLabel="Filter by exact schedule key" />
-            </Toolbar>
-            <ChildContent>
-                <table class="schedules-table">
-                    <colgroup>
-                        <col class="schedules-table__col--key" />
-                        <col class="schedules-table__col--state" />
-                        <col class="schedules-table__col--handler" />
-                        <col class="schedules-table__col--cron" />
-                        <col class="schedules-table__col--timestamp" />
-                        <col class="schedules-table__col--overlap" />
-                        <col class="schedules-table__col--priority" />
-                        <col class="schedules-table__col--metadata" />
-                        <col class="schedules-table__col--timestamp" />
-                        <col class="schedules-table__col--actions" />
-                    </colgroup>
+    @if (_page is not null || _loadError is null)
+    {
+        <Card Flush="true" Class="@TableCardClass">
+            <div class="schedules-table-wrap">
+                <table class="sd-table schedules-table" aria-busy="@(_isLoading ? "true" : "false")">
                     <thead>
                         <tr>
-                            <th>Schedule Key</th>
-                            <th>State</th>
-                            <th>Handler</th>
-                            <th>Cron Exp.</th>
-                            <th>Next Fire UTC</th>
-                            <th>Overlap Mode</th>
-                            <th class="schedules-table__number">Pri</th>
-                            <th>Concurrency / Tags</th>
-                            <th>Updated</th>
-                            <th class="schedules-table__actions">Actions</th>
+                            <th scope="col">Schedule</th>
+                            <th scope="col">Handler</th>
+                            <th scope="col" class="schedules-table__cron">Cron (UTC)</th>
+                            <th scope="col">Next run</th>
+                            <th scope="col">State</th>
+                            <th scope="col" class="schedules-table__tags">Tags</th>
+                            <th scope="col" class="schedules-table__actions"><span class="sd-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
-                        @if (_schedules.Count == 0)
+                        @if (_page is null)
                         {
-                            <tr>
-                                <td class="schedules-empty-row" colspan="10">@EmptyText</td>
+                            @for (var row = 0; row < SkeletonRowCount; row++)
+                            {
+                                <tr class="schedules-table__skeleton" aria-hidden="true">
+                                    @for (var column = 0; column < ColumnCount - 1; column++)
+                                    {
+                                        <td class="@SkeletonColumnClasses[column]"><Skeleton Width="@SkeletonWidth(row, column)" /></td>
+                                    }
+                                    <td class="schedules-table__actions"></td>
+                                </tr>
+                            }
+                        }
+                        else if (_schedules.Count == 0)
+                        {
+                            <tr class="schedules-table__empty">
+                                <td colspan="@ColumnCount">
+                                    <EmptyState Flat="true" Icon="@(_filters.HasAppliedFilters ? "search" : "calendar-clock")" Title="@EmptyTitle">
+                                        <ChildContent>@EmptyText</ChildContent>
+                                        <Actions>
+                                            @if (_filters.HasAppliedFilters)
+                                            {
+                                                <Button OnClick="ClearFiltersAsync">Reset filters</Button>
+                                            }
+                                        </Actions>
+                                    </EmptyState>
+                                </td>
                             </tr>
                         }
                         else
                         {
                             @foreach (var schedule in _schedules)
                             {
-                                <tr class="@ScheduleRowClass(schedule)" @key="schedule.ScheduleKey">
-                                    <td>
+                                var busy = IsBusy(schedule.ScheduleKey);
+                                var details = ExecutionDetails(schedule);
+                                <tr @key="schedule.ScheduleKey">
+                                    <td class="schedules-table__key">
                                         <span class="schedules-key" title="@schedule.ScheduleKey">@schedule.ScheduleKey</span>
                                     </td>
                                     <td>
-                                        <span class="@ScheduleStateClass(schedule)">
-                                            <span aria-hidden="true"></span>
-                                            @ScheduleStateText(schedule)
-                                        </span>
+                                        <span class="schedules-handler" title="@FullHandler(schedule)">@ShortHandler(schedule)</span>
+                                        @if (details is not null)
+                                        {
+                                            <span class="schedules-secondary" title="@details">@details</span>
+                                        }
+                                    </td>
+                                    <td class="schedules-table__cron">
+                                        <span class="schedules-cron" title="Cron expression, evaluated in UTC">@schedule.CronExpression</span>
                                     </td>
                                     <td>
-                                        <span class="schedules-handler"
-                                              title="@FullHandler(schedule)">@ShortHandler(schedule)</span>
+                                        <TimestampBlock BaseClass="sd-timestamp" Value="schedule.NextFireAtUtc"
+                                                        EmptyText="@NextRunEmptyText(schedule)" />
                                     </td>
                                     <td>
-                                        <span class="schedules-cron"
-                                              title="@schedule.CronExpression">@schedule.CronExpression</span>
+                                        @if (schedule.IsPaused)
+                                        {
+                                            <Badge Class="sd-status schedules-state schedules-state--paused" title="No jobs are enqueued until it is resumed">
+                                                <Icon Name="pause" Class="schedules-state__icon" />Paused
+                                            </Badge>
+                                        }
+                                        else
+                                        {
+                                            <Badge Class="sd-status schedules-state schedules-state--active" title="Enqueues a job at each cron time">
+                                                <span class="sd-status__dot" aria-hidden="true"></span>Active
+                                            </Badge>
+                                        }
                                     </td>
-                                    <td>
-                                        <TimestampBlock BaseClass="schedules-timestamp" Value="schedule.NextFireAtUtc"
-                                                        EmptyText="@NextFireEmptyText(schedule)" />
+                                    <td class="schedules-table__tags">
+                                        <TagList Values="@DashboardFormat.Tags(schedule.Tags)" Title="@DashboardFormat.TagsTitle(schedule.Tags)"
+                                                 HrefFactory="DashboardJobFilterQuery.TagHref" TooltipPrefix="Show jobs tagged" />
                                     </td>
-                                    <td>
-                                        <span class="@OverlapClass(schedule)">@schedule.OverlapMode</span>
-                                    </td>
-                                    <td class="schedules-table__number schedules-priority">@schedule.Priority</td>
-                                    <td>
-                                        <div class="schedules-metadata">
-                                            <ChipList ClassPrefix="schedules-chip" Values="schedule.ConcurrencyGroupKeys"
-                                                      Title="@DashboardFormat.GroupKeysTitle(schedule.ConcurrencyGroupKeys)"
-                                                      EmptyText="No groups" />
-                                            <TagChipList ClassPrefix="schedules-chip" Tags="schedule.Tags"
-                                                         EmptyText="No tags" MaxVisible="2" />
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <TimestampBlock BaseClass="schedules-timestamp" Value="schedule.UpdatedAtUtc"
-                                                        AllowFutureRelative="false" />
-                                    </td>
-                                    <td>
-                                        <div class="schedules-actions">
-                                            <button class="schedules-icon-button" type="button" title="Trigger Now"
-                                                    aria-label="@TriggerLabel(schedule)"
-                                                    @onclick="@(() => TriggerNowAsync(schedule))" disabled="@IsActionDisabled">
-                                                <Icon Name="play_arrow" />
-                                            </button>
-                                            <button class="schedules-icon-button" type="button" title="@PauseResumeTitle(schedule)"
-                                                    aria-label="@PauseResumeLabel(schedule)"
-                                                    @onclick="@(() => PauseOrResumeAsync(schedule))" disabled="@IsActionDisabled">
-                                                <Icon Name="@PauseResumeIcon(schedule)" />
-                                            </button>
-                                        </div>
+                                    <td class="schedules-table__actions">
+                                        <DropdownMenu Label="@($"Actions for {schedule.ScheduleKey}")" Icon="@(busy ? "loader-circle" : "ellipsis")"
+                                                      Size="ButtonSize.Small" Disabled="busy">
+                                            <MenuItem Icon="play" OnClick="() => OpenConfirmDialog(ScheduleAction.Trigger, schedule)">Trigger now…</MenuItem>
+                                            @if (schedule.IsPaused)
+                                            {
+                                                <MenuItem Icon="circle-play" OnClick="() => ResumeAsync(schedule)">Resume</MenuItem>
+                                            }
+                                            else
+                                            {
+                                                <MenuItem Icon="pause" OnClick="() => OpenConfirmDialog(ScheduleAction.Pause, schedule)">Pause…</MenuItem>
+                                            }
+                                            <MenuSeparator />
+                                            <MenuItem Icon="list-filter" Href="@HandlerJobsHref(schedule)">Jobs with this handler</MenuItem>
+                                            <MenuItem Icon="copy" data-sd-copy="@schedule.ScheduleKey" data-sd-copy-label="schedule key">Copy schedule key</MenuItem>
+                                        </DropdownMenu>
                                     </td>
                                 </tr>
                             }
                         }
                     </tbody>
                 </table>
-            </ChildContent>
-        </DashboardTableShell>
+            </div>
+            <footer class="sd-table__footer">
+                <span class="sd-num">@FooterText</span>
+                <span class="schedules-footer-actions">
+                    @if (_loadMoreError is not null)
+                    {
+                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
+                    }
+                    @if (_page?.ContinuationToken is not null)
+                    {
+                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
+                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
+                    }
+                </span>
+            </footer>
+        </Card>
     }
 </div>
 
-<style>
-    .schedules-page {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sd-gutter);
+<ConfirmDialog @bind-Open="_confirmDialogOpen" Title="@ConfirmTitle" ConfirmLabel="@ConfirmLabel"
+               Busy="@(_confirmSchedule is not null && IsBusy(_confirmSchedule.ScheduleKey))" OnConfirm="ConfirmScheduleActionAsync">
+    @foreach (var paragraph in ConfirmParagraphs)
+    {
+        <p>@paragraph</p>
     }
-
-    .schedules-header,
-    .schedules-actions {
-        display: flex;
-        align-items: center;
-    }
-
-    .schedules-actions {
-        gap: 4px;
-    }
-
-    .schedules-header {
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .schedules-header p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .schedules-message,
-    .schedules-inline-alert {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .schedules-message .sd-icon,
-    .schedules-inline-alert .sd-icon {
-        color: var(--sd-primary);
-    }
-
-    .schedules-message--error,
-    .schedules-inline-alert--error {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .schedules-message--error .sd-icon,
-    .schedules-inline-alert--error .sd-icon {
-        color: var(--sd-error);
-    }
-
-    .schedules-inline-alert--success {
-        border-color: var(--sd-success);
-        background: var(--sd-success-container);
-        color: var(--sd-success);
-    }
-
-    .schedules-inline-alert--success .sd-icon {
-        color: var(--sd-success);
-    }
-
-    .schedules-message p,
-    .schedules-inline-alert {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .schedules-inline-alert--error {
-        color: var(--sd-on-error-container);
-    }
-
-    .schedules-inline-alert--success {
-        color: var(--sd-success);
-    }
-
-    .schedules-inline-alert--warning {
-        border-color: var(--sd-warning);
-        background: var(--sd-warning-container);
-        color: var(--sd-warning);
-    }
-
-    .schedules-inline-alert--warning .sd-icon {
-        color: var(--sd-warning);
-    }
-
-    .schedules-action-alert__job {
-        color: inherit;
-        font-family: var(--font-mono);
-        text-decoration: underline;
-        text-underline-offset: 2px;
-    }
-
-    .schedules-key,
-    .schedules-handler,
-    .schedules-cron,
-    .schedules-priority,
-    .schedules-timestamp__absolute,
-    .schedules-chip,
-    .schedules-chip-empty {
-        font-family: var(--font-mono);
-    }
-
-    .schedules-state-filter {
-        width: 136px;
-    }
-
-    button.schedules-icon-button {
-        display: inline-flex;
-        width: 28px;
-        height: 28px;
-        align-items: center;
-        justify-content: center;
-        border: 0;
-        border-radius: var(--radius-md);
-        background: transparent;
-        color: var(--sd-on-surface-variant);
-        padding: 0;
-    }
-
-    button.schedules-icon-button:hover {
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface);
-    }
-
-    .schedules-table {
-        min-width: 1360px;
-        table-layout: fixed;
-        white-space: nowrap;
-    }
-
-    .schedules-table__col--key {
-        width: 220px;
-    }
-
-    .schedules-table__col--state {
-        width: 112px;
-    }
-
-    .schedules-table__col--handler {
-        width: 260px;
-    }
-
-    .schedules-table__col--cron {
-        width: 132px;
-    }
-
-    .schedules-table__col--timestamp {
-        width: 176px;
-    }
-
-    .schedules-table__col--overlap {
-        width: 116px;
-    }
-
-    .schedules-table__col--priority {
-        width: 72px;
-    }
-
-    .schedules-table__col--metadata {
-        width: 312px;
-    }
-
-    .schedules-table__col--actions {
-        width: 112px;
-    }
-
-    .schedules-table thead {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background: var(--sd-surface-low);
-    }
-
-    .schedules-table th,
-    .schedules-table td {
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 6px 8px;
-        text-align: left;
-        vertical-align: middle;
-    }
-
-    .schedules-table th {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .schedules-table td {
-        height: 48px;
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .schedules-table tbody tr:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .schedules-row--paused {
-        background: color-mix(in srgb, var(--sd-surface-variant) 28%, transparent);
-    }
-
-    .schedules-table__number {
-        text-align: right;
-    }
-
-    .schedules-table__actions,
-    .schedules-actions {
-        justify-content: flex-end;
-        text-align: right;
-    }
-
-    .schedules-key,
-    .schedules-handler,
-    .schedules-cron {
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .schedules-key {
-        color: var(--sd-primary);
-        font-size: 13px;
-        line-height: 18px;
-    }
-
-    .schedules-handler,
-    .schedules-cron {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-    }
-
-    .schedules-state,
-    .schedules-overlap {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        padding: 2px 8px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .schedules-state span {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    .schedules-state--active {
-        border-color: var(--sd-secondary-container);
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .schedules-state--active span {
-        background: var(--sd-secondary);
-    }
-
-    .schedules-state--paused {
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface-variant);
-    }
-
-    .schedules-state--paused span {
-        background: var(--sd-outline);
-    }
-
-    .schedules-overlap {
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface-variant);
-    }
-
-    .schedules-overlap--allow {
-        border-color: var(--sd-warning-container);
-        background: var(--sd-warning-container);
-        color: var(--sd-warning);
-    }
-
-    .schedules-timestamp {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-    }
-
-    .schedules-timestamp__relative {
-        color: var(--sd-on-surface);
-    }
-
-    .schedules-timestamp__absolute,
-    .schedules-empty-row {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .schedules-metadata {
-        display: flex;
-        min-width: 0;
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .schedules-chip-list {
-        display: flex;
-        min-width: 0;
-        gap: 4px;
-        overflow: visible;
-    }
-
-    .schedules-chip {
-        display: inline-flex;
-        min-width: 0;
-        max-width: 148px;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        background: var(--sd-surface);
-        color: var(--sd-on-surface-variant);
-        padding: 1px 5px;
-        font-size: 10px;
-        line-height: 14px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .schedules-chip-empty {
-        color: var(--sd-outline);
-        font-size: 10px;
-        line-height: 14px;
-    }
-
-    .schedules-empty-row {
-        height: 96px;
-        text-align: center;
-    }
-
-    @@media (max-width: 780px) {
-        .schedules-header {
-            align-items: stretch;
-            flex-direction: column;
-        }
-    }
-</style>
+</ConfirmDialog>
 
 @code {
     private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan FilterDebounce = TimeSpan.FromMilliseconds(300);
     private const int DefaultPageSize = 25;
+    private const int SkeletonRowCount = 5;
+    private const int ColumnCount = 7;
+    // Matches the data columns, so skeleton cells hide with their column on narrow screens.
+    private static readonly string?[] SkeletonColumnClasses = [null, null, "schedules-table__cron", null, null, "schedules-table__tags"];
     internal const string ScheduleNotFoundActionFailureMessage = "Schedule action failed: Schedule was not found.";
+
+    private static readonly IReadOnlyList<TabItem<string>> StateTabs =
+    [
+        new(string.Empty, "All"),
+        new(DashboardScheduleFilters.ActiveStateFilter, "Active"),
+        new(DashboardScheduleFilters.PausedStateFilter, "Paused"),
+    ];
 
     private readonly DashboardScheduleFilters _filters = new();
     private readonly List<ScheduleInspectionSummary> _schedules = [];
+    private readonly HashSet<string> _busyKeys = new(StringComparer.Ordinal);
+    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private ScheduleInspectionPage? _page;
+    private CancellationTokenSource? _filterDebounceCts;
+    private ScheduleInspectionSummary? _confirmSchedule;
+    private ScheduleAction _confirmAction;
     private string? _loadError;
-    private string? _actionMessage;
-    private Guid? _triggeredJobId;
-    private ScheduleActionSeverity _actionSeverity = ScheduleActionSeverity.Success;
+    private string? _loadMoreError;
+    private int _queryVersion;
     private bool _isLoading;
     private bool _isLoadingMore;
-    private bool _isActionRunning;
+    private bool _confirmDialogOpen;
 
-    private string ActionAlertClass
-      => this._actionSeverity switch
-      {
-          ScheduleActionSeverity.Success => "schedules-inline-alert schedules-inline-alert--success",
-          ScheduleActionSeverity.Warning => "schedules-inline-alert schedules-inline-alert--warning",
-          _ => "schedules-inline-alert schedules-inline-alert--error",
-      };
-
-    private string ActionAlertIcon
-      => this._actionSeverity switch
-      {
-          ScheduleActionSeverity.Success => "check_circle",
-          ScheduleActionSeverity.Warning => "info",
-          _ => "warning",
-      };
-
-    private bool IsActionDisabled
-      => this._isActionRunning || this._isLoading || this._isLoadingMore;
-
-    private string EmptyText
-      => this.HasAppliedFilters
-        ? "No schedules matched the current filters."
-        : "No recurring schedules are registered.";
-
-    private bool HasAppliedFilters
-      => this._filters.HasAppliedFilters;
-
-    private string ResultRangeText
+    private enum ScheduleAction
     {
-        get
-        {
-            var loadedCount = this._schedules.Count;
-            var totalCount = this._page?.TotalCount ?? loadedCount;
-            var moreText = this._page?.ContinuationToken is null ? string.Empty : " with more available";
-            var filterText = this.HasAppliedFilters ? " matching filters" : string.Empty;
-
-            return loadedCount == 0
-              ? string.Create(CultureInfo.InvariantCulture, $"Showing 0 of {DashboardFormat.Count(totalCount)} schedules{filterText}")
-              : string.Create(CultureInfo.InvariantCulture, $"Showing 1-{DashboardFormat.Count(loadedCount)} of {DashboardFormat.Count(totalCount)} schedules{filterText}{moreText}");
-        }
+        Trigger,
+        Pause,
     }
 
     [Inject]
     private NavigationManager Navigation { get; set; } = null!;
+
+    private string TableCardClass
+      => this._isLoading && this._page is not null
+        ? "sd-table-card schedules-table-card sd-table-card--loading"
+        : "sd-table-card schedules-table-card";
+
+    private string EmptyTitle
+      => this._filters.HasAppliedFilters ? "No schedules match" : "No recurring schedules yet";
+
+    private string EmptyText
+      => this._filters.HasAppliedFilters
+        ? "Nothing matches the key and state filters. Try a shorter part of the key, or reset the filters."
+        : "Schedules appear here once your app registers them with IRecurringScheduleManager.";
+
+    private string FooterText
+    {
+        get
+        {
+            var total = this._page?.TotalCount ?? this._schedules.Count;
+            return string.Concat(
+              "Showing ",
+              DashboardFormat.Count(this._schedules.Count),
+              " of ",
+              DashboardFormat.Count(total),
+              total == 1 ? " schedule" : " schedules");
+        }
+    }
+
+    private string ConfirmTitle
+      => this._confirmSchedule is not { } schedule
+        ? string.Empty
+        : this._confirmAction == ScheduleAction.Trigger
+          ? string.Concat("Run ", schedule.ScheduleKey, " now?")
+          : string.Concat("Pause ", schedule.ScheduleKey, "?");
+
+    private string ConfirmLabel
+      => this._confirmAction == ScheduleAction.Trigger ? "Run now" : "Pause schedule";
+
+    private IReadOnlyList<string> ConfirmParagraphs
+    {
+        get
+        {
+            if (this._confirmSchedule is not { } schedule)
+            {
+                return [];
+            }
+
+            if (this._confirmAction == ScheduleAction.Pause)
+            {
+                return
+                [
+                    "No new jobs are enqueued from this schedule until you resume it. Jobs that are already queued or running aren't affected.",
+                ];
+            }
+
+            var paragraphs = new List<string>(2)
+            {
+                schedule.IsPaused
+                  ? "Enqueues one job from this schedule straight away. The schedule stays paused."
+                  : "Enqueues one job from this schedule straight away. Its regular cron times don't change.",
+            };
+            if (schedule.OverlapMode == RecurringOverlapMode.Skip)
+            {
+                paragraphs.Add("If an earlier run is still queued or running, nothing is enqueued.");
+            }
+
+            return paragraphs;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -595,7 +289,42 @@
         this.StartPeriodicRefresh(PageRefreshInterval);
     }
 
-    private async Task SetScheduleKeyFilterAsync(string value)
+    protected override Task OnAfterRenderAsync(bool firstRender)
+      => this.FlushToastsAsync();
+
+    private protected override ValueTask DisposePageAsync()
+    {
+        this.CancelPendingFilterLoad();
+        return ValueTask.CompletedTask;
+    }
+
+    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
+    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
+      => this._pendingToasts.Add((title, description, tone));
+
+    private async Task FlushToastsAsync()
+    {
+        if (this._pendingToasts.Count == 0)
+        {
+            return;
+        }
+
+        var toasts = this._pendingToasts.ToArray();
+        this._pendingToasts.Clear();
+        foreach (var (title, description, tone) in toasts)
+        {
+            try
+            {
+                await JsRuntime.ToastAsync(title, description, tone);
+            }
+            catch (JSException)
+            {
+            }
+        }
+    }
+
+    // Typing filters after a short pause and replaces the current history entry rather than pushing one per burst.
+    private void SetScheduleKeyFilter(string value)
     {
         if (string.Equals(this._filters.ScheduleKey, value, StringComparison.Ordinal))
         {
@@ -603,24 +332,36 @@
         }
 
         this._filters.ScheduleKey = value;
-        this.ClearActionAlert();
-        this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: true);
-
-        await this.LoadAsync();
+        this.ScheduleDebouncedLoad();
     }
 
-    private async Task SetPauseStateFilterAsync(ChangeEventArgs eventArgs)
+    private async Task SetPauseStateFilterAsync(string value)
     {
-        var value = eventArgs.Value?.ToString() ?? string.Empty;
         if (string.Equals(this._filters.PauseState, value, StringComparison.Ordinal))
         {
             return;
         }
 
         this._filters.PauseState = value;
-        this.ClearActionAlert();
-        this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: false);
+        await this.ApplyDiscreteFilterChangeAsync();
+    }
 
+    private async Task ClearFiltersAsync()
+    {
+        if (!this._filters.HasAppliedFilters)
+        {
+            return;
+        }
+
+        _ = this._filters.CopyFrom(new DashboardScheduleFilters());
+        await this.ApplyDiscreteFilterChangeAsync();
+    }
+
+    // Discrete changes push a history entry so Back steps through them.
+    private async Task ApplyDiscreteFilterChangeAsync()
+    {
+        this.CancelPendingFilterLoad();
+        this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: false);
         await this.LoadAsync();
     }
 
@@ -631,53 +372,120 @@
             return;
         }
 
-        this.ClearActionAlert();
+        this.CancelPendingFilterLoad();
         await this.LoadAsync();
+    }
+
+    private void ScheduleDebouncedLoad()
+    {
+        this._filterDebounceCts?.Cancel();
+
+        var next = new CancellationTokenSource();
+        this._filterDebounceCts = next;
+        _ = this.RunDebouncedLoadAsync(next);
+    }
+
+    private async Task RunDebouncedLoadAsync(CancellationTokenSource cancellationTokenSource)
+    {
+        try
+        {
+            await Task.Delay(FilterDebounce, cancellationTokenSource.Token);
+            await this.InvokeAsync(async () =>
+            {
+                this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: true);
+                var load = this.LoadAsync();
+                this.StateHasChanged();
+                await load;
+                this.StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) when (cancellationTokenSource.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(this._filterDebounceCts, cancellationTokenSource))
+            {
+                this._filterDebounceCts = null;
+            }
+
+            cancellationTokenSource.Dispose();
+        }
+    }
+
+    private void CancelPendingFilterLoad()
+    {
+        var cancellationTokenSource = this._filterDebounceCts;
+        this._filterDebounceCts = null;
+        cancellationTokenSource?.Cancel();
     }
 
     private async Task LoadAsync()
     {
+        var queryVersion = ++this._queryVersion;
         this._loadError = null;
+        this._loadMoreError = null;
         this.LiveRefresh.ClearError();
         this._isLoading = true;
 
         try
         {
             var page = await Reader.SearchSchedulesAsync(this.CreateQuery(DefaultPageSize, continuationToken: null));
+            if (queryVersion != this._queryVersion)
+            {
+                return;
+            }
+
             this.ReplaceSchedules(page);
             this.LiveRefresh.MarkUpdated();
         }
         catch (Exception exception)
         {
-            this._loadError = exception.Message;
+            if (queryVersion == this._queryVersion)
+            {
+                this._loadError = exception.Message;
+            }
         }
         finally
         {
-            this._isLoading = false;
-            this.NotifyShellRefreshChanged();
+            if (queryVersion == this._queryVersion)
+            {
+                this._isLoading = false;
+                this.NotifyShellRefreshChanged();
+            }
         }
     }
 
     private async Task LoadMoreAsync()
     {
-        if (this._page?.ContinuationToken is null || this._isLoadingMore)
+        if (this._page?.ContinuationToken is null || this._isLoading || this._isLoadingMore)
         {
             return;
         }
 
-        this._loadError = null;
+        var queryVersion = this._queryVersion;
+        this._loadMoreError = null;
         this._isLoadingMore = true;
 
         try
         {
             var page = await Reader.SearchSchedulesAsync(this.CreateQuery(DefaultPageSize, this._page.ContinuationToken));
+            if (queryVersion != this._queryVersion)
+            {
+                return;
+            }
+
             this._schedules.AddRange(page.Schedules);
             this._page = page;
             this.LiveRefresh.MarkUpdated();
         }
         catch (Exception exception)
         {
-            this._loadError = exception.Message;
+            // Keep the loaded rows; the failure is shown next to the Load more control.
+            if (queryVersion == this._queryVersion)
+            {
+                this._loadMoreError = exception.Message;
+            }
         }
         finally
         {
@@ -686,91 +494,19 @@
         }
     }
 
-    private async Task PauseOrResumeAsync(ScheduleInspectionSummary schedule)
-    {
-        if (this._isActionRunning)
-        {
-            return;
-        }
-
-        this._isActionRunning = true;
-        this.ClearActionAlert();
-
-        try
-        {
-            var successVerb = schedule.IsPaused ? "resumed" : "paused";
-            var succeeded = schedule.IsPaused
-              ? await ScheduleManager.ResumeAsync(schedule.ScheduleKey)
-              : await ScheduleManager.PauseAsync(schedule.ScheduleKey);
-
-            if (succeeded)
-            {
-                this.SetActionSuccess(string.Create(CultureInfo.InvariantCulture, $"Schedule {schedule.ScheduleKey} {successVerb}."));
-                await this.LiveRefresh.RefreshNowAsync();
-                return;
-            }
-
-            this.SetActionFailure("Schedule action failed: Schedule was not found.");
-        }
-        catch (Exception exception)
-        {
-            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Schedule action failed: {exception.Message}"));
-        }
-        finally
-        {
-            this._isActionRunning = false;
-        }
-    }
-
-    private async Task TriggerNowAsync(ScheduleInspectionSummary schedule)
-    {
-        if (this._isActionRunning)
-        {
-            return;
-        }
-
-        this._isActionRunning = true;
-        this.ClearActionAlert();
-
-        try
-        {
-            var result = await ScheduleManager.TriggerAsync(schedule.ScheduleKey);
-            switch (result.Status)
-            {
-                case RecurringScheduleTriggerStatus.Enqueued:
-                    this.SetActionSuccess(CreateTriggerSuccessMessage(schedule.ScheduleKey), result.JobId);
-                    await this.LiveRefresh.RefreshNowAsync();
-                    break;
-                case RecurringScheduleTriggerStatus.SkippedActiveOccurrence:
-                    this.SetActionWarning(CreateTriggerSkippedMessage(schedule.ScheduleKey));
-                    break;
-                case RecurringScheduleTriggerStatus.NotFound:
-                    this.SetActionFailure(ScheduleNotFoundActionFailureMessage);
-                    break;
-                default:
-                    this.SetActionFailure(string.Create(
-                      CultureInfo.InvariantCulture,
-                      $"Schedule action failed: Trigger returned unsupported status {result.Status}."));
-                    break;
-            }
-        }
-        catch (Exception exception)
-        {
-            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Schedule action failed: {exception.Message}"));
-        }
-        finally
-        {
-            this._isActionRunning = false;
-        }
-    }
-
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
+        var queryVersion = this._queryVersion;
         var visiblePageSize = Math.Max(DefaultPageSize, this._schedules.Count);
-        var page = await Reader.SearchSchedulesAsync(this.CreateQuery(visiblePageSize, continuationToken: null),
-cancellationToken);
+        var page = await Reader.SearchSchedulesAsync(this.CreateQuery(visiblePageSize, continuationToken: null), cancellationToken);
 
-        await this.ApplyPageStateAsync(() => this.ReplaceSchedules(page));
+        await this.ApplyPageStateAsync(() =>
+        {
+            if (queryVersion == this._queryVersion)
+            {
+                this.ReplaceSchedules(page);
+            }
+        });
     }
 
     private ScheduleInspectionQuery CreateQuery(
@@ -784,85 +520,151 @@ cancellationToken);
         this._schedules.AddRange(page.Schedules);
         this._page = page;
         this._loadError = null;
+        this._loadMoreError = null;
     }
 
-    private void SetActionSuccess(string message, Guid? triggeredJobId = null)
+    private bool IsBusy(string scheduleKey)
+      => this._busyKeys.Contains(scheduleKey);
+
+    private void OpenConfirmDialog(ScheduleAction action, ScheduleInspectionSummary schedule)
     {
-        this._actionSeverity = ScheduleActionSeverity.Success;
-        this._actionMessage = message;
-        this._triggeredJobId = triggeredJobId;
+        this._confirmAction = action;
+        this._confirmSchedule = schedule;
+        this._confirmDialogOpen = true;
     }
 
-    private void SetActionWarning(string message)
+    private Task ConfirmScheduleActionAsync()
+      => this._confirmSchedule is not { } schedule
+        ? Task.CompletedTask
+        : this._confirmAction == ScheduleAction.Trigger
+          ? this.TriggerNowAsync(schedule)
+          : this.PauseOrResumeAsync(schedule, pause: true);
+
+    private Task ResumeAsync(ScheduleInspectionSummary schedule)
+      => this.PauseOrResumeAsync(schedule, pause: false);
+
+    private async Task PauseOrResumeAsync(ScheduleInspectionSummary schedule, bool pause)
     {
-        this._actionSeverity = ScheduleActionSeverity.Warning;
-        this._actionMessage = message;
-        this._triggeredJobId = null;
+        var scheduleKey = schedule.ScheduleKey;
+        if (!this._busyKeys.Add(scheduleKey))
+        {
+            return;
+        }
+
+        // The row stays busy until the list has refreshed, so it never shows the old state as actionable.
+        try
+        {
+            var succeeded = pause
+              ? await ScheduleManager.PauseAsync(scheduleKey)
+              : await ScheduleManager.ResumeAsync(scheduleKey);
+
+            if (succeeded)
+            {
+                this.ShowToast(string.Concat("Schedule ", scheduleKey, pause ? " paused." : " resumed."), tone: AlertTone.Success);
+            }
+            else
+            {
+                this.ShowToast(ScheduleNotFoundActionFailureMessage, "It may have been removed. The list has been refreshed.", AlertTone.Destructive);
+            }
+
+            await this.LiveRefresh.RefreshNowAsync();
+        }
+        catch (Exception exception)
+        {
+            this.ShowToast(string.Concat(pause ? "Couldn't pause " : "Couldn't resume ", scheduleKey), exception.Message, AlertTone.Destructive);
+        }
+        finally
+        {
+            _ = this._busyKeys.Remove(scheduleKey);
+        }
     }
 
-    private void SetActionFailure(string message)
+    private async Task TriggerNowAsync(ScheduleInspectionSummary schedule)
     {
-        this._actionSeverity = ScheduleActionSeverity.Error;
-        this._actionMessage = message;
-        this._triggeredJobId = null;
-    }
+        var scheduleKey = schedule.ScheduleKey;
+        if (!this._busyKeys.Add(scheduleKey))
+        {
+            return;
+        }
 
-    private void ClearActionAlert()
-    {
-        this._actionMessage = null;
-        this._triggeredJobId = null;
+        try
+        {
+            var result = await ScheduleManager.TriggerAsync(scheduleKey);
+            var refresh = true;
+            switch (result.Status)
+            {
+                case RecurringScheduleTriggerStatus.Enqueued:
+                    this.ShowToast(CreateTriggerSuccessMessage(scheduleKey), result.JobId?.ToString("D"), AlertTone.Success);
+                    break;
+                case RecurringScheduleTriggerStatus.SkippedActiveOccurrence:
+                    this.ShowToast(
+                      CreateTriggerSkippedMessage(scheduleKey),
+                      "It skips overlapping runs, so nothing was enqueued.",
+                      AlertTone.Warning);
+                    refresh = false;
+                    break;
+                case RecurringScheduleTriggerStatus.NotFound:
+                    this.ShowToast(ScheduleNotFoundActionFailureMessage, "It may have been removed. The list has been refreshed.", AlertTone.Destructive);
+                    break;
+                default:
+                    this.ShowToast(
+                      string.Concat("Couldn't trigger ", scheduleKey),
+                      string.Create(CultureInfo.InvariantCulture, $"The trigger returned an unsupported status, {result.Status}."),
+                      AlertTone.Destructive);
+                    refresh = false;
+                    break;
+            }
+
+            if (refresh)
+            {
+                await this.LiveRefresh.RefreshNowAsync();
+            }
+        }
+        catch (Exception exception)
+        {
+            this.ShowToast(string.Concat("Couldn't trigger ", scheduleKey), exception.Message, AlertTone.Destructive);
+        }
+        finally
+        {
+            _ = this._busyKeys.Remove(scheduleKey);
+        }
     }
 
     private static string FullHandler(ScheduleInspectionSummary schedule)
       => string.Concat(schedule.ServiceType, ".", schedule.MethodName);
 
     public static string ShortHandler(ScheduleInspectionSummary job)
-        => string.Concat(ShortTypeName(job.ServiceType), ".", job.MethodName);
+        => string.Concat(DashboardFormat.ShortTypeName(job.ServiceType), ".", job.MethodName);
 
-    private static string ShortTypeName(string typeName)
+    // Concurrency groups and any non-default priority or overlap mode, shown under the handler.
+    private static string? ExecutionDetails(ScheduleInspectionSummary schedule)
     {
-        var typeDelimiterIndex = typeName.IndexOf(',', StringComparison.Ordinal);
-        if (typeDelimiterIndex >= 0)
+        var details = new List<string>(3);
+        if (schedule.ConcurrencyGroupKeys.Count > 0)
         {
-            typeName = typeName[..typeDelimiterIndex];
+            details.Add(string.Concat(
+              schedule.ConcurrencyGroupKeys.Count == 1 ? "Group " : "Groups ",
+              string.Join(", ", schedule.ConcurrencyGroupKeys)));
         }
 
-        var separatorIndex = typeName.LastIndexOf('.');
-        return separatorIndex < 0 || separatorIndex == typeName.Length - 1
-          ? typeName
-          : typeName[(separatorIndex + 1)..];
+        if (schedule.Priority != 0)
+        {
+            details.Add(string.Create(CultureInfo.InvariantCulture, $"Priority {schedule.Priority}"));
+        }
+
+        if (schedule.OverlapMode == RecurringOverlapMode.Allow)
+        {
+            details.Add("Overlap allowed");
+        }
+
+        return details.Count == 0 ? null : string.Join(" · ", details);
     }
 
-    private static string ScheduleRowClass(ScheduleInspectionSummary schedule)
-      => schedule.IsPaused ? "schedules-row--paused" : string.Empty;
+    private static string NextRunEmptyText(ScheduleInspectionSummary schedule)
+      => schedule.IsPaused ? "—" : "Not scheduled";
 
-    private static string ScheduleStateText(ScheduleInspectionSummary schedule)
-      => schedule.IsPaused ? "Paused" : "Active";
-
-    private static string ScheduleStateClass(ScheduleInspectionSummary schedule)
-      => schedule.IsPaused
-        ? "schedules-state schedules-state--paused"
-        : "schedules-state schedules-state--active";
-
-    private static string NextFireEmptyText(ScheduleInspectionSummary schedule)
-      => schedule.IsPaused ? "Paused" : "Not scheduled";
-
-    private static string OverlapClass(ScheduleInspectionSummary schedule)
-      => schedule.OverlapMode == RecurringOverlapMode.Allow
-        ? "schedules-overlap schedules-overlap--allow"
-        : "schedules-overlap";
-
-    private static string PauseResumeIcon(ScheduleInspectionSummary schedule)
-      => schedule.IsPaused ? "play_circle" : "pause";
-
-    private static string PauseResumeTitle(ScheduleInspectionSummary schedule)
-      => schedule.IsPaused ? "Resume Schedule" : "Pause Schedule";
-
-    private static string PauseResumeLabel(ScheduleInspectionSummary schedule)
-      => string.Create(CultureInfo.InvariantCulture, $"{PauseResumeTitle(schedule)} {schedule.ScheduleKey}");
-
-    private static string TriggerLabel(ScheduleInspectionSummary schedule)
-      => string.Create(CultureInfo.InvariantCulture, $"Trigger Now {schedule.ScheduleKey}");
+    private static string HandlerJobsHref(ScheduleInspectionSummary schedule)
+      => DashboardJobFilterQuery.HandlerHref(ShortHandler(schedule));
 
     internal static string CreateTriggerSuccessMessage(string scheduleKey)
       => string.Create(CultureInfo.InvariantCulture, $"Schedule {scheduleKey} triggered as job");
@@ -870,13 +672,6 @@ cancellationToken);
     internal static string CreateTriggerSkippedMessage(string scheduleKey)
       => string.Create(CultureInfo.InvariantCulture, $"Schedule {scheduleKey} already has an active occurrence.");
 
-    private static string JobHref(Guid jobId)
-      => string.Create(CultureInfo.InvariantCulture, $"jobs/{jobId:D}");
-
-    private enum ScheduleActionSeverity
-    {
-        Success,
-        Warning,
-        Error,
-    }
+    private static string SkeletonWidth(int row, int column)
+      => string.Create(CultureInfo.InvariantCulture, $"{45 + (((row * 7) + (column * 13)) % 45)}%");
 }
