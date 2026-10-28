@@ -48,13 +48,7 @@ public partial class JobDetail
             return;
         }
 
-        try
-        {
-            await this.JsRuntime.InvokeVoidAsync("sheddueller.scrollIntoView", this._logEnd);
-        }
-        catch (JSException)
-        {
-        }
+        await this.JsRuntime.TryInvokeVoidAsync("sheddueller.scrollIntoView", this._logEnd);
     }
 
     // Paused means no live appends and no list replacement. Resuming catches up on anything missed while paused.

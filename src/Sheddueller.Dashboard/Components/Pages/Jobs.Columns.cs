@@ -85,24 +85,18 @@ public partial class Jobs
             return;
         }
 
+        // Best-effort: without it, drag-resizing does nothing, and the next render tries again.
         this._columnResizeReceiver ??= DotNetObjectReference.Create(this);
-        await this.JsRuntime.InvokeVoidAsync(
+        this._columnResizingRegistered = await this.JsRuntime.TryInvokeVoidAsync(
           "sheddueller.jobViews.registerTableColumnResizing",
           this._columnResizeReceiver);
-        this._columnResizingRegistered = true;
     }
 
     private async Task UnregisterColumnResizingAsync()
     {
         if (this._columnResizingRegistered)
         {
-            try
-            {
-                await this.JsRuntime.InvokeVoidAsync("sheddueller.jobViews.unregisterTableColumnResizing");
-            }
-            catch (JSDisconnectedException)
-            {
-            }
+            await this.JsRuntime.TryInvokeVoidAsync("sheddueller.jobViews.unregisterTableColumnResizing");
         }
 
         this._columnResizeReceiver?.Dispose();
