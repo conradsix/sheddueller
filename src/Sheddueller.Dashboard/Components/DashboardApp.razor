@@ -38,21 +38,22 @@
         ? InteractiveServer
         : new InteractiveServerRenderMode(prerender: false);
 
-    private static string DashboardAssetVersion
-    {
-        get
-        {
-            var assembly = typeof(ShedduellerDashboardOptions).Assembly;
-            var attribute = (System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(
-              assembly,
-              typeof(System.Reflection.AssemblyInformationalVersionAttribute));
-            var version = attribute?.InformationalVersion ?? assembly.GetName().Version?.ToString() ?? "dev";
-            var location = assembly.Location;
-            var stamp = string.IsNullOrEmpty(location) || !File.Exists(location)
-              ? assembly.ManifestModule.ModuleVersionId.ToString("N")
-              : File.GetLastWriteTimeUtc(location).Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    // Cache-busts the dashboard's own assets. The assembly doesn't change while the app runs, so this is worked out
+    // (reflection and a file check) once rather than for every asset link on every request.
+    private static readonly string DashboardAssetVersion = CreateAssetVersion();
 
-            return Uri.EscapeDataString(string.Concat(version, ".", stamp));
-        }
+    private static string CreateAssetVersion()
+    {
+        var assembly = typeof(ShedduellerDashboardOptions).Assembly;
+        var attribute = (System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(
+          assembly,
+          typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+        var version = attribute?.InformationalVersion ?? assembly.GetName().Version?.ToString() ?? "dev";
+        var location = assembly.Location;
+        var stamp = string.IsNullOrEmpty(location) || !File.Exists(location)
+          ? assembly.ManifestModule.ModuleVersionId.ToString("N")
+          : File.GetLastWriteTimeUtc(location).Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        return Uri.EscapeDataString(string.Concat(version, ".", stamp));
     }
 }

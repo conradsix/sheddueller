@@ -9,13 +9,11 @@ using Sheddueller.Storage;
 
 public abstract class DashboardPageComponent : ComponentBase, IAsyncDisposable
 {
-    private readonly CancellationTokenSource _timerCancellation = new();
     private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private Action? _unsubscribeJobEvents;
     private IDisposable? _shellRefreshRegistration;
     private DashboardLocationTracker? _locationTracker;
-    private PeriodicTimer? _refreshTimer;
-    private Task? _refreshTask;
+    private DashboardPeriodicRefresh? _periodicRefresh;
     private bool _disposed;
 
     [CascadingParameter(Name = "DashboardShellRefresh")]
@@ -42,15 +40,11 @@ public abstract class DashboardPageComponent : ComponentBase, IAsyncDisposable
         this._locationTracker?.Dispose();
         this._shellRefreshRegistration?.Dispose();
         this.LiveRefresh?.Dispose();
-        await this._timerCancellation.CancelAsync().ConfigureAwait(false);
-        this._refreshTimer?.Dispose();
-
-        if (this._refreshTask is not null)
+        if (this._periodicRefresh is not null)
         {
-            await this._refreshTask.ConfigureAwait(false);
+            await this._periodicRefresh.DisposeAsync().ConfigureAwait(false);
         }
 
-        this._timerCancellation.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -173,11 +167,20 @@ public abstract class DashboardPageComponent : ComponentBase, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Refreshes the page every <paramref name="interval"/> while auto-refresh is on, until it is disposed. Call
+    /// after <see cref="InitializeLiveRefresh"/>.
+    /// </summary>
     private protected void StartPeriodicRefresh(TimeSpan interval)
-    {
-        this._refreshTimer = new PeriodicTimer(interval);
-        this._refreshTask = this.RunRefreshTimerAsync(this._refreshTimer, this._timerCancellation.Token);
-    }
+      => this._periodicRefresh = new DashboardPeriodicRefresh(
+        interval,
+        async _ =>
+        {
+            if (this.LiveRefresh.AutoRefreshEnabled)
+            {
+                await this.LiveRefresh.RefreshNowAsync().ConfigureAwait(false);
+            }
+        });
 
     private protected async Task ApplyPageStateAsync(Action action)
     {
@@ -199,23 +202,4 @@ public abstract class DashboardPageComponent : ComponentBase, IAsyncDisposable
 
     private protected void NotifyShellRefreshChanged()
       => this.ShellRefresh?.NotifyChanged();
-
-    private async Task RunRefreshTimerAsync(
-        PeriodicTimer timer,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-            {
-                if (this.LiveRefresh.AutoRefreshEnabled)
-                {
-                    await this.LiveRefresh.RefreshNowAsync().ConfigureAwait(false);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
 }

@@ -14,9 +14,7 @@
 </div>
 
 @code {
-    private DateTimeOffset _nowUtc;
-    private bool _subscribed;
-    private bool _disposed;
+    private DashboardClockSubscription? _clockSubscription;
 
     [Inject]
     private DashboardClock Clock { get; set; } = null!;
@@ -43,7 +41,7 @@
     public string BaseClass { get; set; } = "sd-timestamp";
 
     private string RelativeText
-      => DashboardFormat.Relative(this.Value, this._nowUtc, this.Prefix, this.EmptyText, this.AllowFutureRelative);
+      => DashboardFormat.Relative(this.Value, this.ClockSubscription.NowUtc, this.Prefix, this.EmptyText, this.AllowFutureRelative);
 
     private string? Tooltip
       => this.Inline && this.Value is not null ? DashboardFormat.Utc(this.Value) : null;
@@ -68,38 +66,25 @@
     private string SeparatorClass
       => string.Concat(this.BaseClass, "__separator");
 
+    // Created on first use, after injection.
+    private DashboardClockSubscription ClockSubscription
+      => this._clockSubscription ??= new DashboardClockSubscription(this.Clock, this.InvokeAsync, this.StateHasChanged);
+
     protected override void OnParametersSet()
-      => this._nowUtc = this.Clock.UtcNow;
+      => this.ClockSubscription.Refresh();
 
     protected override void OnAfterRender(bool firstRender)
     {
         // Relative text only needs the shared circuit clock; one timer serves every timestamp on the page.
-        if (firstRender && !this._disposed)
+        if (firstRender)
         {
-            this.Clock.Ticked += this.OnClockTicked;
-            this._subscribed = true;
+            this.ClockSubscription.Start();
         }
     }
 
     public ValueTask DisposeAsync()
     {
-        this._disposed = true;
-        if (this._subscribed)
-        {
-            this.Clock.Ticked -= this.OnClockTicked;
-            this._subscribed = false;
-        }
-
+        this.ClockSubscription.Dispose();
         return ValueTask.CompletedTask;
     }
-
-    private void OnClockTicked()
-      => _ = this.InvokeAsync(() =>
-      {
-          if (!this._disposed)
-          {
-              this._nowUtc = this.Clock.UtcNow;
-              this.StateHasChanged();
-          }
-      });
 }
