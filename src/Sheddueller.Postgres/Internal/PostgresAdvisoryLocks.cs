@@ -40,6 +40,25 @@ internal static class PostgresAdvisoryLocks
     public const long IdempotencyKeyHashSeed = 7870834;
 
     /// <summary>
+    /// Takes the lock for an idempotency key until <paramref name="transaction" /> ends, waiting for it if needed.
+    /// </summary>
+    public static async ValueTask LockIdempotencyKeyAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string schemaName,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, @idempotency_key_hash_seed));";
+        command.Parameters.AddWithValue("schema_name", schemaName);
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+        command.Parameters.AddWithValue("idempotency_key_hash_seed", IdempotencyKeyHashSeed);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Takes the schema's lock for <paramref name="lockKey" /> until <paramref name="transaction" /> ends, without
     /// waiting. Returns whether it was taken; false means another transaction holds it.
     /// </summary>

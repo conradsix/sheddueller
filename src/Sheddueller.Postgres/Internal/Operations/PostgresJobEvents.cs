@@ -118,6 +118,25 @@ internal static class PostgresJobEvents
         reader.IsDBNull(8) ? null : reader.GetDouble(8),
         reader.IsDBNull(9) ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(9)));
 
+    /// <summary>
+    /// Writes an event at a sequence the caller has already reserved on the job row, records its metric and notifies
+    /// listeners on commit.
+    /// </summary>
+    public static async ValueTask<JobEvent> InsertAndNotifyInTransactionAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        AppendJobEventRequest request,
+        long eventSequence,
+        CancellationToken cancellationToken)
+    {
+        ValidateRequest(request);
+        var jobEvent = await InsertInTransactionAsync(context, connection, transaction, request, eventSequence, cancellationToken).ConfigureAwait(false);
+        await NotifyAsync(context, connection, transaction, jobEvent, cancellationToken).ConfigureAwait(false);
+
+        return jobEvent;
+    }
+
     private static async ValueTask<JobEvent> AppendInTransactionAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -127,6 +146,17 @@ internal static class PostgresJobEvents
     {
         ValidateRequest(request);
         var eventSequence = await IncrementEventSequenceAsync(context, connection, transaction, request.JobId, cancellationToken).ConfigureAwait(false);
+        return await InsertInTransactionAsync(context, connection, transaction, request, eventSequence, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<JobEvent> InsertInTransactionAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        AppendJobEventRequest request,
+        long eventSequence,
+        CancellationToken cancellationToken)
+    {
         var eventId = Guid.NewGuid();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;

@@ -8,23 +8,17 @@ using Sheddueller.Enqueueing;
 
 internal static class PostgresJobTags
 {
-    public static async ValueTask ReplaceJobTagsAsync(
+    /// <summary>
+    /// Inserts a new job's tags, already normalized with <see cref="SubmissionValidator.NormalizeJobTags" />, in order.
+    /// </summary>
+    public static async ValueTask InsertJobTagsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid jobId,
-        IReadOnlyList<JobTag>? tags,
+        IReadOnlyList<JobTag> normalized,
         CancellationToken cancellationToken)
     {
-        var normalized = SubmissionValidator.NormalizeJobTags(tags);
-        await PostgresOperationContext.ExecuteCountAsync(
-          connection,
-          transaction,
-          $"delete from {context.Names.JobTags} where job_id = @job_id;",
-          command => command.Parameters.AddWithValue("job_id", jobId),
-          cancellationToken)
-          .ConfigureAwait(false);
-
         if (normalized.Count == 0)
         {
             return;

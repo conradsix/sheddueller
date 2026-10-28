@@ -153,7 +153,7 @@ internal static class PostgresJobGroups
           .ConfigureAwait(false);
     }
 
-    public static async ValueTask ReplaceJobGroupsAsync(
+    public static async ValueTask InsertJobGroupsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,

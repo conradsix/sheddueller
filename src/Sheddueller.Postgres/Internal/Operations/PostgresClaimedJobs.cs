@@ -152,7 +152,8 @@ internal static class PostgresClaimedJobs
             return null;
         }
 
-        await LockIdempotencyKeyAsync(context, connection, transaction, job.IdempotencyKey, cancellationToken).ConfigureAwait(false);
+        await PostgresAdvisoryLocks.LockIdempotencyKeyAsync(connection, transaction, context.Options.SchemaName, job.IdempotencyKey, cancellationToken)
+          .ConfigureAwait(false);
         var duplicateJobId = await ReadQueuedDuplicateJobIdAsync(context, connection, transaction, job, cancellationToken).ConfigureAwait(false);
         if (duplicateJobId is null)
         {
@@ -190,25 +191,6 @@ internal static class PostgresClaimedJobs
 
         return PostgresJobEventMessages.SupersededFailure(duplicateJobId.Value);
     }
-
-    private static async ValueTask LockIdempotencyKeyAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        string idempotencyKey,
-        CancellationToken cancellationToken)
-      => await PostgresOperationContext.ExecuteCountAsync(
-          connection,
-          transaction,
-          "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, @idempotency_key_hash_seed));",
-          command =>
-          {
-              command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
-              command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
-              command.Parameters.AddWithValue("idempotency_key_hash_seed", PostgresAdvisoryLocks.IdempotencyKeyHashSeed);
-          },
-          cancellationToken)
-          .ConfigureAwait(false);
 
     private static async ValueTask<Guid?> ReadQueuedDuplicateJobIdAsync(
         PostgresOperationContext context,

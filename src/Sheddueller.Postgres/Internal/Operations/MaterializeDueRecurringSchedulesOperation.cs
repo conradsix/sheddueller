@@ -26,7 +26,7 @@ internal static class MaterializeDueRecurringSchedulesOperation
             {
                 var retry = PostgresRetryPolicies.Normalize(schedule.RetryPolicy ?? request.DefaultRetryPolicy);
                 var jobId = Guid.NewGuid();
-                await PostgresSchedules.InsertMaterializedJobAsync(
+                await PostgresSchedules.EnqueueOccurrenceAsync(
                   context,
                   connection,
                   transaction,

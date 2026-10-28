@@ -283,7 +283,11 @@ internal static class PostgresSchedules
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false);
     }
 
-    public static async ValueTask<long> InsertMaterializedJobAsync(
+    /// <summary>
+    /// Enqueues an occurrence of the schedule, inside the caller's transaction, as a job built from the schedule's
+    /// definition.
+    /// </summary>
+    public static ValueTask<EnqueueJobResult> EnqueueOccurrenceAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -293,90 +297,31 @@ internal static class PostgresSchedules
         DateTimeOffset? scheduledFireAtUtc,
         ScheduleOccurrenceKind occurrenceKind,
         CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-          $"""
-          insert into {context.Names.Jobs} (
-              job_id,
-              state,
-              priority,
-              enqueued_at_utc,
-              service_type,
-              method_name,
-              method_parameter_types,
-              invocation_target_kind,
-              method_parameter_bindings,
-              serialized_arguments_content_type,
-              serialized_arguments,
-              attempt_count,
-              max_attempts,
-              retry_backoff_kind,
-              retry_base_delay_ms,
-              retry_max_delay_ms,
-              source_schedule_key,
-              scheduled_fire_at_utc,
-              schedule_occurrence_kind)
-          values (
-              @job_id,
-              'Queued',
-              @priority,
-              transaction_timestamp(),
-              @service_type,
-              @method_name,
-              @method_parameter_types,
-              @invocation_target_kind,
-              @method_parameter_bindings,
-              @serialized_arguments_content_type,
-              @serialized_arguments,
-              0,
-              @max_attempts,
-              @retry_backoff_kind,
-              @retry_base_delay_ms,
-              @retry_max_delay_ms,
-              @source_schedule_key,
-              @scheduled_fire_at_utc,
-              @schedule_occurrence_kind)
-          returning enqueue_sequence;
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-        command.Parameters.AddWithValue("priority", schedule.Priority);
-        command.Parameters.AddWithValue("service_type", schedule.ServiceType);
-        command.Parameters.AddWithValue("method_name", schedule.MethodName);
-        command.Parameters.AddWithValue("method_parameter_types", schedule.MethodParameterTypes.ToArray());
-        command.Parameters.AddWithValue("invocation_target_kind", PostgresConversion.ToText(schedule.InvocationTargetKind));
-        command.Parameters.AddWithValue(
-          "method_parameter_bindings",
-          NpgsqlDbType.Array | NpgsqlDbType.Text,
-          PostgresOperationContext.ToDbValue(schedule.MethodParameterBindings?.Select(PostgresConversion.ToText).ToArray()));
-        command.Parameters.AddWithValue("serialized_arguments_content_type", schedule.SerializedArguments.ContentType);
-        command.Parameters.AddWithValue("serialized_arguments", schedule.SerializedArguments.Data);
-        command.Parameters.AddWithValue("max_attempts", retry.MaxAttempts);
-        command.Parameters.AddWithValue("retry_backoff_kind", PostgresOperationContext.ToDbValue(PostgresConversion.ToText(retry.BackoffKind)));
-        command.Parameters.AddWithValue("retry_base_delay_ms", PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(retry.BaseDelay)));
-        command.Parameters.AddWithValue("retry_max_delay_ms", PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(retry.MaxDelay)));
-        command.Parameters.AddWithValue("source_schedule_key", schedule.ScheduleKey);
-        command.Parameters.AddWithValue("scheduled_fire_at_utc", PostgresOperationContext.ToDbValue(scheduledFireAtUtc));
-        command.Parameters.AddWithValue("schedule_occurrence_kind", PostgresConversion.ToText(occurrenceKind));
-
-        var enqueueSequence = (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-          ?? throw new InvalidOperationException("PostgreSQL did not return an enqueue sequence for the materialized job."));
-
-        await PostgresJobGroups.ReplaceJobGroupsAsync(context, connection, transaction, jobId, schedule.ConcurrencyGroupKeys, cancellationToken)
-          .ConfigureAwait(false);
-        await PostgresJobTags.ReplaceJobTagsAsync(context, connection, transaction, jobId, schedule.Tags, cancellationToken)
-          .ConfigureAwait(false);
-        await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
-          context,
-          connection,
-          transaction,
-          new AppendJobEventRequest(jobId, JobEventKind.Lifecycle, AttemptNumber: 0, Message: PostgresJobEventMessages.Queued),
-          cancellationToken)
-          .ConfigureAwait(false);
-
-        return enqueueSequence;
-    }
+      => EnqueueJobOperation.EnqueueInTransactionAsync(
+        context,
+        connection,
+        transaction,
+        new EnqueueJobRequest(
+          jobId,
+          schedule.Priority,
+          schedule.ServiceType,
+          schedule.MethodName,
+          schedule.MethodParameterTypes,
+          schedule.SerializedArguments,
+          schedule.ConcurrencyGroupKeys,
+          // The job's enqueue time is the transaction's; the store doesn't read this.
+          EnqueuedAtUtc: default,
+          MaxAttempts: retry.MaxAttempts,
+          RetryBackoffKind: retry.BackoffKind,
+          RetryBaseDelay: retry.BaseDelay,
+          RetryMaxDelay: retry.MaxDelay,
+          SourceScheduleKey: schedule.ScheduleKey,
+          ScheduledFireAtUtc: scheduledFireAtUtc,
+          Tags: schedule.Tags,
+          ScheduleOccurrenceKind: occurrenceKind,
+          InvocationTargetKind: schedule.InvocationTargetKind,
+          MethodParameterBindings: schedule.MethodParameterBindings),
+        cancellationToken);
 
     private static async ValueTask ReplaceScheduleGroupsAsync(
         PostgresOperationContext context,

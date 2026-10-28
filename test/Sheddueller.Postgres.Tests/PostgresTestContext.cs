@@ -299,6 +299,30 @@ internal sealed class PostgresTestContext(
         return tags;
     }
 
+    public async ValueTask<long> ReadJobEventSequenceAsync(Guid jobId)
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select job_event_sequence from {this.Table("jobs")} where job_id = @job_id;",
+          command => command.Parameters.AddWithValue("job_id", jobId));
+        return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
+    public async ValueTask<long> SumEnqueuedMetricAsync()
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select coalesce(sum(enqueued_count), 0) from {this.Table("metrics_buckets")};",
+          _ => { });
+        return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
+    public async ValueTask<long> SumHistogramSamplesAsync(string metric)
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select coalesce(sum(sample_count), 0) from {this.Table("metrics_histogram_bins")} where metric = @metric;",
+          command => command.Parameters.AddWithValue("metric", metric));
+        return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
     public async ValueTask<int> CountJobEventsAsync(Guid jobId)
     {
         var result = await this.ExecuteScalarAsync(
