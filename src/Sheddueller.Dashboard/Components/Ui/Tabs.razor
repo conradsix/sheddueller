@@ -1,0 +1,68 @@
+@typeparam TValue
+
+<div class="@CssClass" role="tablist" aria-label="@Label" @attributes="AdditionalAttributes">
+    @foreach (var item in Items)
+    {
+        var selected = EqualityComparer<TValue>.Default.Equals(item.Value, Value);
+        @if (item.Href is not null)
+        {
+            <a class="sd-tabs__tab" role="tab" href="@item.Href" aria-selected="@(selected ? "true" : "false")"
+               aria-current="@(selected ? "page" : null)">
+                @item.Label
+                @if (item.Count is { } count)
+                {
+                    <span class="@CountClass(item)">@count.ToString("N0", CultureInfo.CurrentCulture)</span>
+                }
+            </a>
+        }
+        else
+        {
+            <button type="button" class="sd-tabs__tab" role="tab" aria-selected="@(selected ? "true" : "false")"
+                    @onclick="() => SelectAsync(item.Value)">
+                @item.Label
+                @if (item.Count is { } count)
+                {
+                    <span class="@CountClass(item)">@count.ToString("N0", CultureInfo.CurrentCulture)</span>
+                }
+            </button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<TabItem<TValue>> Items { get; set; } = [];
+
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<TValue> ValueChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public TabsVariant Variant { get; set; } = TabsVariant.Segmented;
+
+    [Parameter]
+    public bool Small { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join(
+        "sd-tabs",
+        this.Variant == TabsVariant.Line ? "sd-tabs--line" : null,
+        this.Small ? "sd-tabs--sm" : null);
+
+    private static string CountClass(TabItem<TValue> item)
+      => item.Attention && item.Count > 0 ? "sd-tabs__count sd-tabs__count--attention" : "sd-tabs__count";
+
+    private async Task SelectAsync(TValue value)
+    {
+        this.Value = value;
+        await this.ValueChanged.InvokeAsync(value);
+    }
+}

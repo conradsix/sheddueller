@@ -8,19 +8,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="@Navigation.BaseUri" />
     <title>Sheddueller</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet" />
-    <link href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" rel="stylesheet" />
-    <link href="_content/Sheddueller.Dashboard/vendor/prism/prism.css" rel="stylesheet" />
-    <link href="_content/Sheddueller.Dashboard/vendor/prism/prism-dark.css" rel="stylesheet" media="(prefers-color-scheme: dark)" />
+    <link rel="preload" href="_content/Sheddueller.Dashboard/fonts/geist/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link href="_content/Sheddueller.Dashboard/css/sheddueller.css?v=@DashboardAssetVersion" rel="stylesheet" />
+    <link href="_content/Sheddueller.Dashboard/vendor/uplot/uPlot.min.css" rel="stylesheet" />
+    <script src="_content/Sheddueller.Dashboard/sheddueller-theme.js?v=@DashboardAssetVersion"></script>
 </head>
 <body>
     <Routes @rendermode="DashboardRenderMode" />
-    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
+    <script src="_content/Sheddueller.Dashboard/vendor/uplot/uPlot.iife.min.js"></script>
     <script src="_content/Sheddueller.Dashboard/vendor/prism/prism.js" data-manual></script>
     <script src="_content/Sheddueller.Dashboard/vendor/prism/sheddueller-prism.js"></script>
+    <script src="_content/Sheddueller.Dashboard/sheddueller-ui.js?v=@DashboardAssetVersion"></script>
     <script src="_content/Sheddueller.Dashboard/vendor/sheddueller-job-views.js?v=@DashboardAssetVersion"></script>
     <script src="_content/Sheddueller.Dashboard/vendor/sheddueller-throughput-chart.js?v=@DashboardAssetVersion"></script>
     <script src="_framework/blazor.web.js"></script>

@@ -11,7 +11,7 @@
             </div>
             <button @ref="_closeButton" class="jobs-column-drawer__icon-button" type="button"
                     @onclick="CloseAsync" aria-label="Close column configurator">
-                <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                <Icon Name="close" />
             </button>
         </header>
 
@@ -36,7 +36,7 @@
                                         aria-label="Reorder @DashboardJobViews.Heading(column). Position @(columnIndex + 1) of @Columns.Count."
                                         @ondragstart="() => BeginDrag(columnIndex)" @ondragend="EndDrag"
                                         @onkeydown="eventArgs => HandleReorderKeyAsync(columnIndex, eventArgs)">
-                                    <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
+                                    <Icon Name="drag_indicator" />
                                 </button>
                                 <span class="jobs-column-drawer__position" aria-hidden="true">@(columnIndex + 1)</span>
                                 <span class="jobs-column-drawer__column-label">
@@ -51,19 +51,19 @@
                                     <button class="jobs-column-drawer__icon-button" type="button" title="Move up"
                                             aria-label="Move @DashboardJobViews.Heading(column) up"
                                             disabled="@(columnIndex == 0)" @onclick="() => MoveColumnAsync(columnIndex, columnIndex - 1)">
-                                        <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
+                                        <Icon Name="arrow_upward" />
                                     </button>
                                     <button class="jobs-column-drawer__icon-button" type="button" title="Move down"
                                             aria-label="Move @DashboardJobViews.Heading(column) down"
                                             disabled="@(columnIndex == Columns.Count - 1)" @onclick="() => MoveColumnAsync(columnIndex, columnIndex + 1)">
-                                        <span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span>
+                                        <Icon Name="arrow_downward" />
                                     </button>
                                     @if (column.Width is not null)
                                     {
                                         <button class="jobs-column-drawer__icon-button" type="button" title="Reset column width"
                                                 aria-label="Reset @DashboardJobViews.Heading(column) column width"
                                                 @onclick="() => ColumnWidthResetRequested.InvokeAsync(columnIndex)">
-                                            <span class="material-symbols-outlined" aria-hidden="true">width_normal</span>
+                                            <Icon Name="width_normal" />
                                         </button>
                                     }
                                     @if (column.Kind == ShedduellerDashboardJobColumnKind.Tag)
@@ -71,18 +71,18 @@
                                         <button class="jobs-column-drawer__icon-button" type="button" title="Edit promoted tag column"
                                                 aria-label="Edit @DashboardJobViews.Heading(column) promoted tag column"
                                                 @onclick="() => BeginTagEdit(columnIndex)">
-                                            <span class="material-symbols-outlined" aria-hidden="true">edit</span>
+                                            <Icon Name="edit" />
                                         </button>
                                         <button class="jobs-column-drawer__icon-button jobs-column-drawer__icon-button--danger" type="button"
                                                 title="Remove promoted tag column" aria-label="Remove @DashboardJobViews.Heading(column) promoted tag column"
                                                 @onclick="() => RemoveTagColumnAsync(columnIndex)">
-                                            <span class="material-symbols-outlined" aria-hidden="true">remove_circle</span>
+                                            <Icon Name="remove_circle" />
                                         </button>
                                     }
                                     else if (column.Kind == ShedduellerDashboardJobColumnKind.JobId)
                                     {
                                         <span class="jobs-column-drawer__locked" title="Job ID is required">
-                                            <span class="material-symbols-outlined" aria-hidden="true">lock</span>
+                                            <Icon Name="lock" />
                                             <span>Required</span>
                                         </span>
                                     }
@@ -91,7 +91,7 @@
                                         <button class="jobs-column-drawer__icon-button" type="button" title="Hide column"
                                                 aria-label="Hide @DashboardJobViews.Heading(column) column"
                                                 @onclick="() => SetColumnVisibleAsync(column.Kind, visible: false)">
-                                            <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span>
+                                            <Icon Name="visibility_off" />
                                         </button>
                                     }
                                 </span>
@@ -139,7 +139,7 @@
                         {
                             <li @key="kind">
                                 <button type="button" @onclick="() => SetColumnVisibleAsync(kind, visible: true)">
-                                    <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                                    <Icon Name="add" />
                                     <span>@DashboardJobViews.Heading(new(kind))</span>
                                 </button>
                             </li>
@@ -154,12 +154,12 @@
                 </div>
                 <div class="jobs-column-drawer__width-actions">
                     <button type="button" @onclick="AutoFitRequested">
-                        <span class="material-symbols-outlined" aria-hidden="true">fit_width</span>
+                        <Icon Name="fit_width" />
                         <span>Auto-fit loaded values</span>
                     </button>
                     <button type="button" disabled="@Columns.All(column => column.Width is null)"
                             @onclick="ResetWidthsRequested">
-                        <span class="material-symbols-outlined" aria-hidden="true">width_normal</span>
+                        <Icon Name="width_normal" />
                         <span>Reset widths</span>
                     </button>
                 </div>
@@ -172,7 +172,7 @@
                 </div>
                 <button class="jobs-column-drawer__add-tag-toggle" type="button" @onclick="ToggleAddTag"
                         aria-expanded="@_isAddingTag">
-                    <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                    <Icon Name="add" />
                     <span>Add tag column</span>
                 </button>
                 @if (_isAddingTag)
@@ -207,7 +207,7 @@
 
         <footer class="jobs-column-drawer__footer">
             <button type="button" @onclick="ResetRequested">
-                <span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>
+                <Icon Name="restart_alt" />
                 <span>Reset columns</span>
             </button>
             <span class="jobs-column-drawer__footer-actions">
@@ -297,11 +297,9 @@
     .jobs-column-drawer__section-heading h3 {
         margin: 0;
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
+        font-size: 12px;
+        font-weight: 500;
         line-height: 16px;
-        text-transform: uppercase;
     }
 
     .jobs-column-drawer__section-heading>span {
@@ -328,7 +326,7 @@
         display: grid;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 3px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-low);
     }
 
@@ -362,7 +360,8 @@
         align-items: center;
         justify-content: center;
         border: 1px solid transparent;
-        border-radius: 2px;
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-xs);
         background: transparent;
         color: var(--sd-on-surface-variant);
         padding: 3px;
@@ -394,14 +393,14 @@
         color: var(--sd-error);
     }
 
-    .jobs-column-drawer__icon-button .material-symbols-outlined,
-    .jobs-column-drawer__drag-handle .material-symbols-outlined {
+    .jobs-column-drawer__icon-button .sd-icon,
+    .jobs-column-drawer__drag-handle .sd-icon {
         font-size: 18px;
     }
 
     .jobs-column-drawer__position {
         color: var(--sd-outline);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         font-size: 10px;
         text-align: center;
     }
@@ -423,7 +422,7 @@
     .jobs-column-drawer__column-label small,
     .jobs-column-drawer__tag-editor small {
         color: var(--sd-on-surface-variant);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         font-size: 10px;
         line-height: 14px;
         overflow-wrap: anywhere;
@@ -440,13 +439,11 @@
         align-items: center;
         gap: 3px;
         color: var(--sd-on-surface-variant);
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
     }
 
-    .jobs-column-drawer__locked .material-symbols-outlined {
+    .jobs-column-drawer__locked .sd-icon {
         font-size: 14px;
     }
 
@@ -461,7 +458,7 @@
 
     .jobs-column-drawer__tag-editor--new {
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 3px;
+        border-radius: var(--radius-md);
     }
 
     .jobs-column-drawer__tag-editor label {
@@ -476,7 +473,7 @@
         width: 100%;
         min-height: 34px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface);
         padding: 6px 8px;
@@ -504,14 +501,13 @@
         justify-content: center;
         gap: 4px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-xs);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface);
         padding: 6px 9px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
     }
 
     .jobs-column-drawer__available-list {

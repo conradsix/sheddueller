@@ -14,7 +14,7 @@
     @if (_loadError is not null)
     {
         <section class="schedules-message schedules-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h2>Schedules failed to load</h2>
                 <p>@_loadError</p>
@@ -24,7 +24,7 @@
     else if (_isLoading && _page is null)
     {
         <section class="schedules-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h2>Loading schedules</h2>
                 <p>Reading recurring schedule definitions.</p>
@@ -147,13 +147,12 @@
                                             <button class="schedules-icon-button" type="button" title="Trigger Now"
                                                     aria-label="@TriggerLabel(schedule)"
                                                     @onclick="@(() => TriggerNowAsync(schedule))" disabled="@IsActionDisabled">
-                                                <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>
+                                                <Icon Name="play_arrow" />
                                             </button>
                                             <button class="schedules-icon-button" type="button" title="@PauseResumeTitle(schedule)"
                                                     aria-label="@PauseResumeLabel(schedule)"
                                                     @onclick="@(() => PauseOrResumeAsync(schedule))" disabled="@IsActionDisabled">
-                                                <span class="material-symbols-outlined"
-                                                      aria-hidden="true">@PauseResumeIcon(schedule)</span>
+                                                <Icon Name="@PauseResumeIcon(schedule)" />
                                             </button>
                                         </div>
                                     </td>
@@ -202,13 +201,14 @@
         align-items: flex-start;
         gap: 12px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
         padding: 16px;
     }
 
-    .schedules-message .material-symbols-outlined,
-    .schedules-inline-alert .material-symbols-outlined {
+    .schedules-message .sd-icon,
+    .schedules-inline-alert .sd-icon {
         color: var(--sd-primary);
     }
 
@@ -219,8 +219,8 @@
         color: var(--sd-on-error-container);
     }
 
-    .schedules-message--error .material-symbols-outlined,
-    .schedules-inline-alert--error .material-symbols-outlined {
+    .schedules-message--error .sd-icon,
+    .schedules-inline-alert--error .sd-icon {
         color: var(--sd-error);
     }
 
@@ -230,7 +230,7 @@
         color: var(--sd-success);
     }
 
-    .schedules-inline-alert--success .material-symbols-outlined {
+    .schedules-inline-alert--success .sd-icon {
         color: var(--sd-success);
     }
 
@@ -253,13 +253,13 @@
         color: var(--sd-warning);
     }
 
-    .schedules-inline-alert--warning .material-symbols-outlined {
+    .schedules-inline-alert--warning .sd-icon {
         color: var(--sd-warning);
     }
 
     .schedules-action-alert__job {
         color: inherit;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         text-decoration: underline;
         text-underline-offset: 2px;
     }
@@ -271,7 +271,7 @@
     .schedules-timestamp__absolute,
     .schedules-chip,
     .schedules-chip-empty {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
     }
 
     .schedules-state-filter {
@@ -285,7 +285,7 @@
         align-items: center;
         justify-content: center;
         border: 0;
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: transparent;
         color: var(--sd-on-surface-variant);
         padding: 0;
@@ -355,11 +355,9 @@
 
     .schedules-table th {
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .schedules-table td {
@@ -413,13 +411,11 @@
         align-items: center;
         gap: 6px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         padding: 2px 8px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .schedules-state span {
@@ -496,7 +492,7 @@
         max-width: 148px;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         background: var(--sd-surface);
         color: var(--sd-on-surface-variant);
         padding: 1px 5px;
@@ -583,8 +579,13 @@
         }
     }
 
+    [Inject]
+    private NavigationManager Navigation { get; set; } = null!;
+
     protected override async Task OnInitializedAsync()
     {
+        _ = this._filters.CopyFrom(DashboardScheduleFilterQuery.ParseUri(this.Navigation.Uri));
+        this.TrackLocation(this.Navigation, DashboardScheduleFilterQuery.Path, this.ApplyLocationAsync);
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: false,
@@ -603,6 +604,7 @@
 
         this._filters.ScheduleKey = value;
         this.ClearActionAlert();
+        this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: true);
 
         await this.LoadAsync();
     }
@@ -617,7 +619,19 @@
 
         this._filters.PauseState = value;
         this.ClearActionAlert();
+        this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: false);
 
+        await this.LoadAsync();
+    }
+
+    private async Task ApplyLocationAsync(string location)
+    {
+        if (!this._filters.CopyFrom(DashboardScheduleFilterQuery.ParseUri(location)))
+        {
+            return;
+        }
+
+        this.ClearActionAlert();
         await this.LoadAsync();
     }
 

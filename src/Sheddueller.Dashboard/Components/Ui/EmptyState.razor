@@ -1,0 +1,41 @@
+<div class="@CssClass" @attributes="AdditionalAttributes">
+    <div class="sd-empty__icon"><Icon Name="@Icon" /></div>
+    <h2 class="sd-empty__title">@Title</h2>
+    @if (ChildContent is not null)
+    {
+        <p class="sd-empty__description">@ChildContent</p>
+    }
+    @if (Actions is not null)
+    {
+        <div class="sd-empty__actions">@Actions</div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Icon { get; set; } = "inbox";
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Explains why there is nothing here and what to do next.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    /// <summary>
+    /// Drops the dashed border, for use inside a card or table.
+    /// </summary>
+    [Parameter]
+    public bool Flat { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join("sd-empty", this.Flat ? "sd-empty--flat" : null);
+}

@@ -1,0 +1,44 @@
+<label class="@CssClass">
+    <Icon Name="search" />
+    <input type="search" class="sd-input" value="@Value" placeholder="@Placeholder" aria-label="@Label" autocomplete="off"
+           data-sd-search="@(Shortcut ? "true" : null)" @oninput="OnInputAsync" @attributes="AdditionalAttributes" />
+    @if (Shortcut)
+    {
+        <Kbd>/</Kbd>
+    }
+</label>
+
+@code {
+    [Parameter]
+    public string? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Makes this the field that <kbd>/</kbd> focuses. Use on the page's main search only.
+    /// </summary>
+    [Parameter]
+    public bool Shortcut { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join("sd-search", this.Class);
+
+    private async Task OnInputAsync(ChangeEventArgs args)
+    {
+        this.Value = args.Value as string ?? string.Empty;
+        await this.ValueChanged.InvokeAsync(this.Value);
+    }
+}

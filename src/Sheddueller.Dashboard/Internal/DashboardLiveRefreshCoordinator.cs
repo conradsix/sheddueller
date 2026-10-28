@@ -2,18 +2,26 @@ namespace Sheddueller.Dashboard.Internal;
 
 using System.Diagnostics.CodeAnalysis;
 
+/// <summary>
+/// Coordinates a page's refreshes. <c>refreshAsync</c> serves explicit refreshes (<see cref="RefreshNowAsync"/>:
+/// manual refresh, re-enabling auto-refresh, after an action). Live events go through <see cref="QueueRefresh"/>,
+/// which is throttled and uses <c>queuedRefreshAsync</c> when supplied so a page can apply live data less
+/// disruptively than an explicit refresh.
+/// </summary>
 internal sealed class DashboardLiveRefreshCoordinator(
     Func<CancellationToken, Task> refreshAsync,
     Func<Action, Task> applyAsync,
     bool autoRefreshEnabled = true,
     TimeSpan? throttle = null,
-    Func<TimeSpan, CancellationToken, Task>? delayAsync = null) : IDisposable
+    Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
+    Func<CancellationToken, Task>? queuedRefreshAsync = null) : IDisposable
 {
     private static readonly TimeSpan DefaultThrottle = TimeSpan.FromSeconds(1);
 
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync = delayAsync ?? Task.Delay;
+    private readonly Func<CancellationToken, Task> _queuedRefreshAsync = queuedRefreshAsync ?? refreshAsync;
     private readonly TimeSpan _throttle = throttle ?? DefaultThrottle;
     private bool _disposed;
     private bool _refreshRequested;
@@ -66,6 +74,21 @@ internal sealed class DashboardLiveRefreshCoordinator(
         }
     }
 
+    /// <summary>
+    /// Applies a remembered auto-refresh preference without refreshing (used when a page registers with the shell).
+    /// </summary>
+    public void ApplyAutoRefreshPreference(bool enabled)
+    {
+        lock (this._gate)
+        {
+            this.AutoRefreshEnabled = enabled;
+            if (!enabled)
+            {
+                this._refreshRequested = false;
+            }
+        }
+    }
+
     public void QueueRefresh()
     {
         var startLoop = false;
@@ -91,8 +114,11 @@ internal sealed class DashboardLiveRefreshCoordinator(
         }
     }
 
+    public Task RefreshNowAsync()
+      => this.RunRefreshAsync(refreshAsync);
+
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Live dashboard refresh should display provider failures without tearing down the update loop.")]
-    public async Task RefreshNowAsync()
+    private async Task RunRefreshAsync(Func<CancellationToken, Task> refresh)
     {
         if (this.IsDisposed())
         {
@@ -109,7 +135,7 @@ internal sealed class DashboardLiveRefreshCoordinator(
 
         try
         {
-            await refreshAsync(cancellationToken).ConfigureAwait(false);
+            await refresh(cancellationToken).ConfigureAwait(false);
             await this.ApplyIfActiveAsync(() => this.MarkUpdated()).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -171,7 +197,7 @@ internal sealed class DashboardLiveRefreshCoordinator(
                     this._refreshRequested = false;
                 }
 
-                await this.RefreshNowAsync().ConfigureAwait(false);
+                await this.RunRefreshAsync(this._queuedRefreshAsync).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

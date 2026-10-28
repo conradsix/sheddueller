@@ -39,6 +39,8 @@ public static class ShedduellerDashboardServiceCollectionExtensions
         services.AddSignalR();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<DashboardLiveUpdateStream>();
+        services.TryAddScoped(serviceProvider => new DashboardClock(serviceProvider.GetRequiredService<TimeProvider>()));
+        services.TryAddScoped<DashboardNavigationState>();
         services.TryAddSingleton<DashboardThroughputStore>();
         services.TryAddSingleton<IDashboardThroughputReader>(serviceProvider => serviceProvider.GetRequiredService<DashboardThroughputStore>());
         services.TryAddSingleton<DashboardMetricsSnapshotCache>();

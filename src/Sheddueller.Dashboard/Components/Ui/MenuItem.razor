@@ -1,0 +1,60 @@
+@if (Href is null)
+{
+    <button type="button" role="menuitem" class="@CssClass" disabled="@Disabled" @onclick="OnClick" @attributes="AdditionalAttributes">
+        @if (Icon is not null)
+        {
+            <Icon Name="@Icon" />
+        }
+        <span>@ChildContent</span>
+        @if (Hint is not null)
+        {
+            <span class="sd-menu__hint">@Hint</span>
+        }
+    </button>
+}
+else
+{
+    <a role="menuitem" class="@CssClass" href="@Href" @attributes="AdditionalAttributes">
+        @if (Icon is not null)
+        {
+            <Icon Name="@Icon" />
+        }
+        <span>@ChildContent</span>
+        @if (Hint is not null)
+        {
+            <span class="sd-menu__hint">@Hint</span>
+        }
+    </a>
+}
+
+@code {
+    [Parameter]
+    public string? Icon { get; set; }
+
+    /// <summary>
+    /// Right-aligned hint, such as a shortcut or count.
+    /// </summary>
+    [Parameter]
+    public string? Hint { get; set; }
+
+    [Parameter]
+    public string? Href { get; set; }
+
+    [Parameter]
+    public bool Destructive { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join("sd-menu__item", this.Destructive ? "sd-menu__item--destructive" : null);
+}

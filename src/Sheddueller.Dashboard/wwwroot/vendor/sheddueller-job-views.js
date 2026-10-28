@@ -47,7 +47,7 @@
 
                 const table = handle.closest(".jobs-table");
                 const index = Number.parseInt(handle.dataset.columnIndex, 10);
-                const columns = Array.from(table.querySelectorAll("col"));
+                const columns = Array.from(table.querySelectorAll("col:not(.jobs-table__filler)"));
                 if (!Number.isInteger(index) || index < 0 || index >= columns.length) {
                     return;
                 }
@@ -72,7 +72,7 @@
                     widths[index] = currentWidth;
                     columns[index].style.width = `${currentWidth}px`;
                     const tableWidth = widths.reduce((total, width) => total + width, 0);
-                    table.style.width = `${tableWidth}px`;
+                    table.style.width = `max(100%, ${tableWidth}px)`;
                     table.style.minWidth = `${tableWidth}px`;
                     handle.setAttribute("aria-valuenow", currentWidth.toString());
                 };

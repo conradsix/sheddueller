@@ -1,0 +1,24 @@
+<button type="button" class="@CssClass" data-sd-copy="@Value" data-sd-copy-label="@Label"
+        aria-label="@($"Copy {Label}")" data-sd-tooltip="@($"Copy {Label}")" @attributes="AdditionalAttributes">
+    <Icon Name="copy" />
+</button>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What is copied, for example <c>job ID</c>.
+    /// </summary>
+    [Parameter]
+    public string Label { get; set; } = "value";
+
+    [Parameter]
+    public ButtonSize Size { get; set; } = ButtonSize.ExtraSmall;
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Button(ButtonVariant.Ghost, this.Size, iconOnly: true);
+}

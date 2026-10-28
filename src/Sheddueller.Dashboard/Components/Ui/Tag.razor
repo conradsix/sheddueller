@@ -1,0 +1,25 @@
+@if (Href is null)
+{
+    <span class="@CssClass" title="@Value" @attributes="AdditionalAttributes">@Value</span>
+}
+else
+{
+    <a class="@CssClass" href="@Href" title="@Value" @attributes="AdditionalAttributes">@Value</a>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Href { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join("sd-tag", this.Class);
+}

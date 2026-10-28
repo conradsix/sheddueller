@@ -18,7 +18,7 @@
     @if (_metricsUnsupported)
     {
         <section class="metrics-message metrics-message--warning" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
+            <Icon Name="monitoring" />
             <div>
                 <h2>Metrics unavailable</h2>
                 <p>The configured scheduler provider does not support rolling inspection metrics.</p>
@@ -28,7 +28,7 @@
     else if (_loadError is not null)
     {
         <section class="metrics-message metrics-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h2>Metrics failed to load</h2>
                 <p>@_loadError</p>
@@ -38,7 +38,7 @@
     else if (_isLoading && _snapshot is null)
     {
         <section class="metrics-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h2>Loading metrics</h2>
                 <p>Reading rolling scheduler telemetry.</p>
@@ -48,7 +48,7 @@
     else if (Windows.Count == 0)
     {
         <section class="metrics-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">query_stats</span>
+            <Icon Name="query_stats" />
             <div>
                 <h2>No metrics returned</h2>
                 <p>The metrics reader returned no rolling windows.</p>
@@ -80,7 +80,7 @@
             <article class="metrics-summary-card">
                 <div class="metrics-summary-card__header">
                     <span>Queue Depth</span>
-                    <span class="material-symbols-outlined" aria-hidden="true">stacked_inbox</span>
+                    <Icon Name="stacked_inbox" />
                 </div>
                 <strong>@DashboardFormat.Count(selectedWindow.QueuedCount)</strong>
                 <div class="metrics-summary-card__detail">
@@ -91,7 +91,7 @@
             <article class="metrics-summary-card">
                 <div class="metrics-summary-card__header">
                     <span>Throughput Rate</span>
-                    <span class="material-symbols-outlined" aria-hidden="true">speed</span>
+                    <Icon Name="speed" />
                 </div>
                 <strong>@DashboardMetricsFormat.Rate(selectedWindow.SuccessRatePerMinute)</strong>
                 <div class="metrics-rate-stack" aria-label="Throughput rates">
@@ -103,7 +103,7 @@
             <article class="metrics-summary-card">
                 <div class="metrics-summary-card__header">
                     <span>Schedule Fire Lag</span>
-                    <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+                    <Icon Name="timer" />
                 </div>
                 <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95ScheduleFireLag)</strong>
                 <div class="metrics-summary-card__detail">
@@ -114,7 +114,7 @@
             <article class="metrics-summary-card metrics-summary-card--nodes">
                 <div class="metrics-summary-card__header">
                     <span>Node Health</span>
-                    <span class="material-symbols-outlined" aria-hidden="true">dns</span>
+                    <Icon Name="dns" />
                 </div>
                 <div class="metrics-node-health">
                     <span class="metrics-node-health__item metrics-node-health__item--active">
@@ -318,7 +318,7 @@
                 .metrics-header h1 {
                     margin: 0;
                     color: var(--sd-on-surface);
-                    font-family: "Space Grotesk", Inter, Arial, sans-serif;
+                    font-family: var(--font-sans);
                     font-size: 24px;
                     font-weight: 600;
                     line-height: 32px;
@@ -340,7 +340,7 @@
                 .metrics-window-tabs {
                     gap: 2px;
                     border: 1px solid var(--sd-outline-variant);
-                    border-radius: 4px;
+                    border-radius: var(--radius-md);
                     background: var(--sd-surface-high);
                     padding: 2px;
                 }
@@ -348,16 +348,14 @@
                 .metrics-window-tabs button {
                     min-width: 52px;
                     border: 1px solid transparent;
-                    border-radius: 2px;
+                    border-radius: var(--radius-md);
                     background: transparent;
                     color: var(--sd-on-surface-variant);
                     cursor: pointer;
                     padding: 6px 12px;
-                    font-size: 11px;
-                    font-weight: 700;
-                    letter-spacing: 0.05em;
-                    line-height: 12px;
-                    text-transform: uppercase;
+                    font-size: 12px;
+                    font-weight: 500;
+                    line-height: 16px;
                 }
 
                 .metrics-window-tabs button:hover {
@@ -375,7 +373,8 @@
                 .metrics-message {
                     gap: 12px;
                     border: 1px solid var(--sd-outline-variant);
-                    border-radius: var(--sd-radius);
+                    border-radius: calc(var(--radius) + 2px);
+                    box-shadow: var(--shadow-sm);
                     background: var(--sd-surface-lowest);
                     padding: 16px;
                 }
@@ -394,7 +393,7 @@
 
                 .metrics-message h2 {
                     margin: 0;
-                    font-family: "Space Grotesk", Inter, Arial, sans-serif;
+                    font-family: var(--font-sans);
                     font-size: 18px;
                     font-weight: 600;
                     line-height: 24px;
@@ -409,7 +408,8 @@
                 .metrics-inline-alert {
                     gap: 8px;
                     border: 1px solid var(--sd-outline-variant);
-                    border-radius: var(--sd-radius);
+                    border-radius: calc(var(--radius) + 2px);
+                    box-shadow: var(--shadow-sm);
                     background: var(--sd-info-container);
                     color: var(--sd-info);
                     padding: 10px 12px;
@@ -434,7 +434,8 @@
                 .metrics-throughput-panel,
                 .metrics-table-shell {
                     border: 1px solid var(--sd-outline-variant);
-                    border-radius: var(--sd-radius);
+                    border-radius: calc(var(--radius) + 2px);
+                    box-shadow: var(--shadow-sm);
                     background: var(--sd-surface-lowest);
                 }
 
@@ -451,16 +452,14 @@
                     justify-content: space-between;
                     gap: 10px;
                     color: var(--sd-on-surface-variant);
-                    font-size: 11px;
-                    font-weight: 700;
-                    letter-spacing: 0.05em;
-                    line-height: 12px;
-                    text-transform: uppercase;
+                    font-size: 12px;
+                    font-weight: 500;
+                    line-height: 16px;
                 }
 
                 .metrics-summary-card>strong {
                     color: var(--sd-on-surface);
-                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-family: var(--font-mono);
                     font-size: 30px;
                     font-weight: 700;
                     letter-spacing: 0;
@@ -477,7 +476,7 @@
                 .metrics-summary-card__detail em,
                 .metrics-rate-stack em {
                     color: var(--sd-on-surface);
-                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-family: var(--font-mono);
                     font-style: normal;
                 }
 
@@ -526,7 +525,7 @@
 
                 .metrics-node-health__item strong {
                     color: var(--sd-on-surface);
-                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-family: var(--font-mono);
                     font-size: 18px;
                     line-height: 22px;
                 }
@@ -574,7 +573,7 @@
                 .metrics-table-toolbar h2 {
                     margin: 0;
                     color: var(--sd-on-surface);
-                    font-family: "Space Grotesk", Inter, Arial, sans-serif;
+                    font-family: var(--font-sans);
                     font-size: 18px;
                     font-weight: 600;
                     line-height: 24px;
@@ -583,11 +582,9 @@
                 .metrics-panel__header span,
                 .metrics-table-toolbar span {
                     color: var(--sd-on-surface-variant);
-                    font-size: 11px;
-                    font-weight: 700;
-                    letter-spacing: 0.05em;
-                    line-height: 12px;
-                    text-transform: uppercase;
+                    font-size: 12px;
+                    font-weight: 500;
+                    line-height: 16px;
                 }
 
                 .metrics-bar-list {
@@ -616,7 +613,7 @@
                 .metrics-bar-row strong,
                 .metrics-duration-stat strong {
                     color: var(--sd-on-surface);
-                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-family: var(--font-mono);
                     font-weight: 700;
                 }
 
@@ -660,11 +657,9 @@
 
                 .metrics-duration-stat>span:first-child {
                     color: var(--sd-on-surface-variant);
-                    font-size: 11px;
-                    font-weight: 700;
-                    letter-spacing: 0.05em;
-                    line-height: 12px;
-                    text-transform: uppercase;
+                    font-size: 12px;
+                    font-weight: 500;
+                    line-height: 16px;
                 }
 
                 .metrics-duration-stat strong {
@@ -789,7 +784,7 @@
 
                 .throughput-chart-legend__item strong {
                     color: var(--sd-on-surface);
-                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-family: var(--font-mono);
                     font-weight: 700;
                 }
 
@@ -852,16 +847,14 @@
                 .metrics-table th {
                     background: var(--sd-surface-low);
                     color: var(--sd-on-surface-variant);
-                    font-size: 11px;
-                    font-weight: 700;
-                    letter-spacing: 0.05em;
-                    line-height: 12px;
-                    text-transform: uppercase;
+                    font-size: 12px;
+                    font-weight: 500;
+                    line-height: 16px;
                 }
 
                 .metrics-table td {
                     color: var(--sd-on-surface);
-                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-family: var(--font-mono);
                     font-size: 13px;
                     line-height: 18px;
                 }
@@ -979,11 +972,16 @@
     private static readonly TimeSpan[] DefaultMetricWindows = [TimeSpan.FromMinutes(5), TimeSpan.FromHours(1),
 TimeSpan.FromHours(24)];
 
+    private static readonly TimeSpan DefaultSelectedWindow = TimeSpan.FromHours(1);
+
     private MetricsInspectionSnapshot? _snapshot;
     private string? _loadError;
-    private TimeSpan _selectedWindow = TimeSpan.FromHours(1);
+    private TimeSpan _selectedWindow = DefaultSelectedWindow;
     private bool _isLoading;
     private bool _metricsUnsupported;
+
+    [Inject]
+    private NavigationManager Navigation { get; set; } = null!;
 
     private IReadOnlyList<MetricsInspectionWindow> Windows
       => this._snapshot?.Windows ?? [];
@@ -994,6 +992,8 @@ TimeSpan.FromHours(24)];
 
     protected override async Task OnInitializedAsync()
     {
+        this._selectedWindow = DashboardMetricsWindowQuery.ParseUri(this.Navigation.Uri, DefaultMetricWindows, DefaultSelectedWindow);
+        this.TrackLocation(this.Navigation, DashboardMetricsWindowQuery.Path, this.ApplyLocationAsync);
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: false,
@@ -1004,7 +1004,16 @@ TimeSpan.FromHours(24)];
     }
 
     private void SetSelectedWindow(TimeSpan window)
-      => this._selectedWindow = window;
+    {
+        this._selectedWindow = window;
+        this.NavigateToLocation(DashboardMetricsWindowQuery.ToHref(window, DefaultSelectedWindow), replace: false);
+    }
+
+    private Task ApplyLocationAsync(string location)
+    {
+        this._selectedWindow = DashboardMetricsWindowQuery.ParseUri(location, DefaultMetricWindows, DefaultSelectedWindow);
+        return Task.CompletedTask;
+    }
 
     private async Task LoadAsync()
     {

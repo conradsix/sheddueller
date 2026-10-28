@@ -5,7 +5,7 @@
 @if (_snapshot is null)
 {
     <div class="throughput-chart throughput-chart--empty">
-        <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
+        <Icon Name="monitoring" />
         <span>Waiting for live throughput data</span>
     </div>
 }
@@ -18,7 +18,7 @@ else
         @if (!HasActivity(_snapshot))
         {
             <div class="throughput-chart__empty">
-                <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
+                <Icon Name="monitoring" />
                 <span>Waiting for live job events</span>
             </div>
         }

@@ -16,7 +16,7 @@
 
         <button class="jobs-clear-queued-button" type="button" title="@ClearQueuedButtonTitle"
                 aria-label="@ClearQueuedButtonTitle" @onclick="ClearQueuedJobsAsync" disabled="@IsClearQueuedDisabled">
-            <span class="material-symbols-outlined" aria-hidden="true">@ClearQueuedButtonIcon</span>
+            <Icon Name="@ClearQueuedButtonIcon" />
             <span>@ClearQueuedButtonText</span>
         </button>
     </header>
@@ -51,39 +51,39 @@
         <span class="jobs-view-status">@CurrentViewStatus</span>
         <div class="jobs-view-actions">
             <button @ref="_columnsButton" type="button" @onclick="OpenColumnEditor" aria-expanded="@_isColumnEditorOpen">
-                <span class="material-symbols-outlined" aria-hidden="true">view_column</span>
+                <Icon Name="view_column" />
                 <span>Columns</span>
             </button>
             @if (CurrentView?.Source == DashboardJobViewSource.Personal)
             {
                 <button type="button" @onclick="SaveCurrentViewAsync" disabled="@(!CanSaveCurrentView)">
-                    <span class="material-symbols-outlined" aria-hidden="true">save</span>
+                    <Icon Name="save" />
                     <span>Save</span>
                 </button>
                 <button type="button" @onclick="SaveViewAsAsync">
-                    <span class="material-symbols-outlined" aria-hidden="true">save_as</span>
+                    <Icon Name="save_as" />
                     <span>Save As</span>
                 </button>
             }
             else
             {
                 <button type="button" @onclick="SaveViewAsAsync">
-                    <span class="material-symbols-outlined" aria-hidden="true">save_as</span>
+                    <Icon Name="save_as" />
                     <span>Save As</span>
                 </button>
             }
             <button type="button" @onclick="SetPreferredViewAsync" disabled="@(!CanSetPreferredView)">
-                <span class="material-symbols-outlined" aria-hidden="true">home</span>
+                <Icon Name="home" />
                 <span>Set Default</span>
             </button>
             @if (CurrentView?.Source == DashboardJobViewSource.Personal)
             {
                 <button type="button" @onclick="RenameCurrentViewAsync">
-                    <span class="material-symbols-outlined" aria-hidden="true">edit</span>
+                    <Icon Name="edit" />
                     <span>Rename</span>
                 </button>
                 <button class="jobs-view-delete" type="button" @onclick="DeleteCurrentViewAsync">
-                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                    <Icon Name="delete" />
                     <span>Delete</span>
                 </button>
             }
@@ -140,7 +140,7 @@
     @if (_error is not null)
     {
         <section class="jobs-message jobs-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h2>Jobs failed to load</h2>
                 <p>@_error</p>
@@ -150,7 +150,7 @@
     else if (_page is null)
     {
         <section class="jobs-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h2>Loading jobs</h2>
                 <p>Reading scheduler job records.</p>
@@ -166,6 +166,11 @@
             </DashboardInlineAlert>
         }
 
+        @if (_pendingNewJobCount > 0)
+        {
+            <button class="jobs-load-more-button" type="button" @onclick="ShowPendingJobsAsync">@PendingJobsButtonText</button>
+        }
+
         <div class="jobs-table-shell">
             <div class="jobs-table-wrap">
                 <table class="jobs-table" style="@TableStyle">
@@ -174,6 +179,7 @@
                         {
                             <col style="@ColumnWidthStyle(column)" @key="ColumnKey(column)" />
                         }
+                        <col class="jobs-table__filler" />
                     </colgroup>
                     <thead>
                         <tr>
@@ -195,13 +201,14 @@
                                           @onkeydown="eventArgs => HandleColumnWidthKeyAsync(columnIndex, eventArgs)"></span>
                                 </th>
                             }
+                            <th class="jobs-table__filler" aria-hidden="true"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (_jobs.Count == 0)
                         {
                             <tr>
-                                <td class="jobs-empty-row" colspan="@_columns.Count">@EmptyText</td>
+                                <td class="jobs-empty-row" colspan="@(_columns.Count + 1)">@EmptyText</td>
                             </tr>
                         }
                         else
@@ -266,6 +273,7 @@
                                                 break;
                                         }
                                     }
+                                    <td class="jobs-table__filler" aria-hidden="true"></td>
                                 </tr>
                             }
                         }
@@ -282,14 +290,21 @@
                     </button>
                 }
             </footer>
+            @if (_loadMoreError is not null)
+            {
+                <DashboardInlineAlert CssClass="jobs-inline-alert jobs-inline-alert--error" Icon="warning">
+                    <span>Load more failed: @_loadMoreError</span>
+                </DashboardInlineAlert>
+            }
         </div>
     }
 </div>
 
 <style>
+    /* Fills the shell's content area so only the table scrolls. */
     .jobs-page {
         display: flex;
-        height: calc(100vh - (var(--sd-page-margin) * 2));
+        flex: 1 1 auto;
         min-height: 0;
         flex-direction: column;
         gap: var(--sd-gutter);
@@ -354,15 +369,13 @@
         justify-content: center;
         gap: 4px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface);
         padding: 6px 8px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .jobs-view-actions button:hover:not(:disabled) {
@@ -375,7 +388,7 @@
         opacity: 0.5;
     }
 
-    .jobs-view-actions .material-symbols-outlined {
+    .jobs-view-actions .sd-icon {
         font-size: 16px;
     }
 
@@ -409,11 +422,9 @@
 
     .jobs-filter-label {
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .jobs-status-option {
@@ -437,15 +448,13 @@
         min-height: 32px;
         align-items: center;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-container);
         color: var(--sd-on-surface-variant);
         padding: 6px 10px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
         transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
     }
 
@@ -480,15 +489,13 @@
         gap: 4px;
         min-height: 32px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface);
         padding: 6px 10px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     button.jobs-clear-queued-button {
@@ -497,7 +504,7 @@
         color: var(--sd-on-error-container);
     }
 
-    button.jobs-clear-queued-button .material-symbols-outlined {
+    button.jobs-clear-queued-button .sd-icon {
         font-size: 17px;
     }
 
@@ -528,13 +535,14 @@
         align-items: flex-start;
         gap: 12px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
         padding: 16px;
     }
 
-    .jobs-message .material-symbols-outlined,
-    .jobs-inline-alert .material-symbols-outlined {
+    .jobs-message .sd-icon,
+    .jobs-inline-alert .sd-icon {
         color: var(--sd-primary);
     }
 
@@ -545,8 +553,8 @@
         color: var(--sd-on-error-container);
     }
 
-    .jobs-message--error .material-symbols-outlined,
-    .jobs-inline-alert--error .material-symbols-outlined {
+    .jobs-message--error .sd-icon,
+    .jobs-inline-alert--error .sd-icon {
         color: var(--sd-error);
     }
 
@@ -556,7 +564,7 @@
         color: var(--sd-success);
     }
 
-    .jobs-inline-alert--success .material-symbols-outlined {
+    .jobs-inline-alert--success .sd-icon {
         color: var(--sd-success);
     }
 
@@ -566,7 +574,7 @@
         color: var(--sd-warning);
     }
 
-    .jobs-inline-alert--warning .material-symbols-outlined {
+    .jobs-inline-alert--warning .sd-icon {
         color: var(--sd-warning);
     }
 
@@ -595,7 +603,8 @@
         flex-direction: column;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
     }
 
@@ -606,7 +615,7 @@
     }
 
     .jobs-table {
-        width: auto;
+        width: 100%;
         min-width: 0;
         border-collapse: collapse;
         table-layout: fixed;
@@ -628,14 +637,17 @@
         vertical-align: middle;
     }
 
+    /* Empty trailing column that absorbs spare width so the table spans the card. */
+    .jobs-table .jobs-table__filler {
+        padding: 0;
+    }
+
     .jobs-table th {
         position: relative;
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .jobs-table__resize-handle {
@@ -691,7 +703,7 @@
     .jobs-chip,
     .jobs-progress-text,
     .jobs-timestamp__absolute {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
     }
 
     .jobs-id-link {
@@ -768,7 +780,7 @@
         max-width: 180px;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         background: var(--sd-surface-low);
         color: var(--sd-on-surface-variant);
         font-size: 10px;
@@ -809,10 +821,10 @@
         max-width: 100%;
         overflow-wrap: anywhere;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         background: var(--sd-surface-low);
         color: var(--sd-on-surface-variant);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         font-size: 10px;
         line-height: 14px;
         padding: 1px 6px;
@@ -835,14 +847,12 @@
         align-items: center;
         gap: 6px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         padding: 2px 8px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
         text-decoration: none;
-        text-transform: uppercase;
     }
 
     .jobs-state>span {
@@ -900,13 +910,12 @@
         align-items: center;
         justify-content: center;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         padding: 2px 6px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 10px;
-        font-weight: 700;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .jobs-queue--claimable {
@@ -1081,21 +1090,38 @@
     private JobInspectionPage? _page;
     private JobInspectionQuery _lastQuery = new(PageSize: DefaultPageSize);
     private CancellationTokenSource? _filterDebounceCts;
+    private DashboardJobListLocation? _initialLocation;
     private string? _error;
+    private string? _loadMoreError;
     private string? _actionMessage;
-    private string? _pendingFilterNavigationUri;
     private string _selectedViewKey = DashboardJobViews.BuiltInKey;
     private string _preferredViewKey = DashboardJobViews.BuiltInKey;
     private int _queryVersion;
+    private int _take = DefaultPageSize;
+    private int _pendingNewJobCount;
     private JobsActionSeverity _actionSeverity = JobsActionSeverity.Success;
     private bool _isLoading;
     private bool _isLoadingMore;
     private bool _isClearQueuedRunning;
     private bool _isColumnEditorOpen;
     private bool _isViewDirty;
-    private bool _hasExplicitInitialQuery;
+    private bool _initialLoadDeferred;
     private bool _columnResizingRegistered;
     private bool _viewStorageLoaded;
+
+    [Inject]
+    private DashboardNavigationState NavigationState { get; set; } = null!;
+
+    private string? ViewParameter
+      => DashboardJobListLocation.ViewParameterValue(
+        this._selectedViewKey,
+        this._preferredViewKey,
+        this.ConfiguredDefaultView().Key);
+
+    private string PendingJobsButtonText
+      => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{DashboardFormat.Count(this._pendingNewJobCount)} new {(this._pendingNewJobCount == 1 ? "job" : "jobs")} — show");
 
     private IReadOnlyList<DashboardResolvedJobView> SharedViews
       => [.. this._views.Where(view => view.Source == DashboardJobViewSource.Shared)];
@@ -1152,8 +1178,9 @@
     {
         get
         {
+            // At least the configured column widths; the trailing filler column takes any extra space.
             var width = DashboardJobColumnWidths.Total(this._columns);
-            return string.Create(CultureInfo.InvariantCulture, $"width: {width}px; min-width: {width}px");
+            return string.Create(CultureInfo.InvariantCulture, $"width: max(100%, {width}px); min-width: {width}px");
         }
     }
 
@@ -1210,19 +1237,38 @@
 
     protected override async Task OnInitializedAsync()
     {
-        Navigation.LocationChanged += this.OnLocationChanged;
         this.InitializeConfiguredViews();
-        this._hasExplicitInitialQuery = DashboardJobViews.HasRecognizedQuery(Navigation.Uri);
-        _ = this._filters.ReplaceWith(this._hasExplicitInitialQuery
-          ? DashboardJobFilterQuery.ParseUri(Navigation.Uri)
-          : DashboardJobViews.CreateFilters(this.CurrentView!.Definition));
-        this._isViewDirty = this._hasExplicitInitialQuery;
+
+        // The URL carries filters, the selected view (when it is not the preferred view), and the loaded depth.
+        var location = DashboardJobListLocation.Parse(Navigation.Uri);
+        this._initialLocation = location;
+        this._take = location.Take;
+        if (location.ViewKey is { } viewKey && this.FindView(viewKey) is { } requestedView)
+        {
+            this.SelectView(requestedView);
+        }
+
+        _ = this._filters.ReplaceWith(location.Filters ?? this.CurrentViewFilters());
+        this.UpdateViewDirty();
+        this.NavigationState.JobsListHref = Navigation.ToBaseRelativePath(Navigation.Uri);
+        this.TrackLocation(Navigation, DashboardJobFilterQuery.JobsPath, this.ApplyLocationAsync);
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: true,
-          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._page is null ? null : nowUtc));
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._page is null ? null : nowUtc),
+          queuedRefreshAsync: this.RefreshLiveAsync);
         LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
-        await this.LoadAsync();
+
+        // When the view depends on browser storage (the preferred view, or a personal view named in the URL), an
+        // interactive render waits for storage after the first render and loads once with the resolved view,
+        // instead of loading the configured default and then reloading with the preferred view.
+        if (this.RendererInfo.IsInteractive && (location.ViewKey is null || this.FindView(location.ViewKey) is null))
+        {
+            this._initialLoadDeferred = true;
+            return;
+        }
+
+        await this.LoadAsync(this._take);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -1240,12 +1286,12 @@
         {
             this._viewStorageLoaded = true;
             await this.LoadStoredViewsAsync();
+            await this.ResolveInitialViewAsync();
         }
     }
 
     private protected override async ValueTask DisposePageAsync()
     {
-        Navigation.LocationChanged -= this.OnLocationChanged;
         LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
         this.CancelPendingFilterLoad();
         if (this._columnResizingRegistered)
@@ -1339,39 +1385,56 @@
                 && this.FindView(payload.PreferredViewKey) is { } preferredView)
             {
                 this._preferredViewKey = preferredView.Key;
-                this._selectedViewKey = preferredView.Key;
-                this.ReplaceColumns(DashboardJobViews.GetColumns(preferredView.Definition));
-
-                if (this._hasExplicitInitialQuery)
-                {
-                    this._isViewDirty = true;
-                }
-                else
-                {
-                    _ = this._filters.ReplaceWith(DashboardJobViews.CreateFilters(preferredView.Definition));
-                    this._isViewDirty = false;
-                    this.NavigateToCurrentFilters();
-                    await this.LoadAsync();
-                }
             }
 
             if (invalidViewFound)
             {
                 this.SetActionWarning("One or more invalid saved job views were ignored.");
             }
-
-            this.StateHasChanged();
         }
         catch (JSException)
         {
             this.SetActionWarning("Personal job views are unavailable because browser storage could not be read.");
-            this.StateHasChanged();
         }
         catch (InvalidOperationException)
         {
             this.SetActionWarning("Personal job views are unavailable in this rendering mode.");
-            this.StateHasChanged();
         }
+    }
+
+    // Applies the view the initial URL asked for (or the preferred view when it named none) once browser storage
+    // is known, then runs the initial load if it was deferred. Skipped if the user already changed the list.
+    private async Task ResolveInitialViewAsync()
+    {
+        if (this._initialLocation is { } location)
+        {
+            this._initialLocation = null;
+            var view = location.ViewKey is { } viewKey ? this.FindView(viewKey) : null;
+            if (location.ViewKey is not null && view is null)
+            {
+                this.SetActionWarning("The job view in this link is not available, so the default view is shown.");
+            }
+
+            view ??= this.FindView(this._preferredViewKey) ?? this.ConfiguredDefaultView();
+            if (!string.Equals(view.Key, this._selectedViewKey, StringComparison.Ordinal))
+            {
+                this.SelectView(view);
+            }
+
+            var filtersChanged = location.Filters is null && this._filters.ReplaceWith(this.CurrentViewFilters());
+            this.UpdateViewDirty();
+            if (filtersChanged && !this._initialLoadDeferred)
+            {
+                await this.LoadAsync(this._take);
+            }
+        }
+
+        if (this._initialLoadDeferred)
+        {
+            await this.LoadAsync(this._take);
+        }
+
+        this.StateHasChanged();
     }
 
     private async Task SetViewAsync(ChangeEventArgs eventArgs)
@@ -1395,19 +1458,32 @@
         DashboardResolvedJobView view,
         bool applyQuery)
     {
+        this._initialLocation = null;
         this.CancelPendingFilterLoad();
-        this._selectedViewKey = view.Key;
-        this.ReplaceColumns(DashboardJobViews.GetColumns(view.Definition));
-        this._isViewDirty = false;
+        this.SelectView(view);
         this.ClearActionAlert();
 
         if (applyQuery)
         {
             _ = this._filters.ReplaceWith(DashboardJobViews.CreateFilters(view.Definition));
-            this.NavigateToCurrentFilters();
-            await this.LoadAsync();
+            this._take = DefaultPageSize;
+            this.UpdateViewDirty();
+            this.NavigateToCurrentState(replace: false);
+            await this.LoadAsync(this._take);
+            return;
         }
+
+        this.UpdateViewDirty();
     }
+
+    private void SelectView(DashboardResolvedJobView view)
+    {
+        this._selectedViewKey = view.Key;
+        this.ReplaceColumns(DashboardJobViews.GetColumns(view.Definition));
+    }
+
+    private DashboardJobFilters CurrentViewFilters()
+      => DashboardJobViews.CreateFilters((this.CurrentView ?? this.ConfiguredDefaultView()).Definition);
 
     private async Task SaveCurrentViewAsync()
     {
@@ -1418,8 +1494,9 @@
 
         storedView.View = DashboardJobViews.CreateView(storedView.View.Name, this._filters, this._columns);
         this.RebuildPersonalViews();
-        this._isViewDirty = false;
+        this.UpdateViewDirty();
         await this.PersistStoredViewsAsync("Saved job view.");
+        this.NavigateToCurrentState(replace: true);
     }
 
     private async Task SaveViewAsAsync()
@@ -1449,8 +1526,9 @@
         this._storedViews.Add(storedView);
         this.RebuildPersonalViews();
         this._selectedViewKey = DashboardJobViews.PersonalKey(id);
-        this._isViewDirty = false;
+        this.UpdateViewDirty();
         await this.PersistStoredViewsAsync("Saved personal job view.");
+        this.NavigateToCurrentState(replace: true);
     }
 
     private async Task RenameCurrentViewAsync()
@@ -1510,6 +1588,7 @@
 
         this._preferredViewKey = this._selectedViewKey;
         await this.PersistStoredViewsAsync("Set the default job view.");
+        this.NavigateToCurrentState(replace: true);
     }
 
     private async Task PersistStoredViewsAsync(string successMessage)
@@ -1545,7 +1624,7 @@
     {
         if (DashboardJobColumnEditor.SetBuiltInVisibility(this._columns, change.Kind, change.Visible))
         {
-            this.MarkViewDirty();
+            this.UpdateViewDirty();
         }
     }
 
@@ -1553,7 +1632,7 @@
     {
         if (DashboardJobColumnEditor.Move(this._columns, move.FromIndex, move.ToIndex))
         {
-            this.MarkViewDirty();
+            this.UpdateViewDirty();
         }
     }
 
@@ -1564,7 +1643,7 @@
             return;
         }
 
-        this.MarkViewDirty();
+        this.UpdateViewDirty();
     }
 
     private void AddTagColumn(ShedduellerDashboardJobColumn column)
@@ -1580,7 +1659,7 @@
         }
 
         this.ClearActionAlert();
-        this.MarkViewDirty();
+        this.UpdateViewDirty();
     }
 
     private void EditTagColumn((int Index, ShedduellerDashboardJobColumn Column) change)
@@ -1597,7 +1676,7 @@
         }
 
         this.ClearActionAlert();
-        this.MarkViewDirty();
+        this.UpdateViewDirty();
     }
 
     [JSInvokable]
@@ -1663,7 +1742,7 @@
 
         if (changed)
         {
-            this.MarkViewDirty();
+            this.UpdateViewDirty();
         }
     }
 
@@ -1685,7 +1764,7 @@
     {
         if (DashboardJobColumnWidths.Set(this._columns, columnIndex, width: null))
         {
-            this.MarkViewDirty();
+            this.UpdateViewDirty();
         }
     }
 
@@ -1693,7 +1772,7 @@
     {
         if (DashboardJobColumnWidths.Reset(this._columns))
         {
-            this.MarkViewDirty();
+            this.UpdateViewDirty();
         }
     }
 
@@ -1703,14 +1782,14 @@
     {
         if (DashboardJobColumnWidths.Set(this._columns, columnIndex, width))
         {
-            this.MarkViewDirty();
+            this.UpdateViewDirty();
         }
     }
 
     private void ResetColumns()
     {
         this.ReplaceColumns(DashboardJobViews.BuiltInColumns);
-        this.MarkViewDirty();
+        this.UpdateViewDirty();
     }
 
     private void ReplaceColumns(IReadOnlyList<ShedduellerDashboardJobColumn> columns)
@@ -1771,8 +1850,15 @@
         "sheddueller.dashboard.jobViews.v1:",
         new Uri(Navigation.BaseUri, UriKind.Absolute).AbsolutePath.TrimEnd('/'));
 
-    private void MarkViewDirty()
-      => this._isViewDirty = true;
+    // A view has unsaved changes only when the current filters or columns differ from its saved definition, so a
+    // URL that reproduces the view (or a change that is undone) is not reported as dirty.
+    private void UpdateViewDirty()
+    {
+        var view = this.CurrentView;
+        this._isViewDirty = view is not null
+          && (!this._filters.Matches(DashboardJobViews.CreateFilters(view.Definition))
+            || !this._columns.SequenceEqual(DashboardJobViews.GetColumns(view.Definition)));
+    }
 
     private static string ColumnKey(ShedduellerDashboardJobColumn column)
       => column.Kind == ShedduellerDashboardJobColumnKind.Tag
@@ -1804,7 +1890,7 @@
     private string TagValueFilterHref(
         ShedduellerDashboardJobColumn column,
         string value)
-      => DashboardJobFilterQuery.WithTagHref(this._filters, string.Concat(column.TagName, ":", value));
+      => DashboardJobFilterQuery.WithTagHref(this._filters, string.Concat(column.TagName, ":", value), this.ViewParameter);
 
     private async Task SetStateFilterAsync(
         JobState state,
@@ -1815,10 +1901,18 @@
             return;
         }
 
-        this.MarkViewDirty();
+        await this.ApplyDiscreteFilterChangeAsync();
+    }
+
+    // Discrete changes (state toggles, sort, clear) push a history entry so Back steps through them.
+    private async Task ApplyDiscreteFilterChangeAsync()
+    {
+        this._initialLocation = null;
         this.CancelPendingFilterLoad();
-        this.NavigateToCurrentFilters();
-        await this.LoadAsync();
+        this.UpdateViewDirty();
+        this._take = DefaultPageSize;
+        this.NavigateToCurrentState(replace: false);
+        await this.LoadAsync(this._take);
     }
 
     private Task SetHandlerContainsAsync(string value)
@@ -1840,10 +1934,7 @@
             return;
         }
 
-        this.CancelPendingFilterLoad();
-        this.MarkViewDirty();
-        this.NavigateToCurrentFilters();
-        await this.LoadAsync();
+        await this.ApplyDiscreteFilterChangeAsync();
     }
 
     private Task SetTextFilterAsync(
@@ -1852,7 +1943,8 @@
     {
         if (setFilter(value))
         {
-            this.MarkViewDirty();
+            this._initialLocation = null;
+            this.UpdateViewDirty();
             this.ScheduleDebouncedLoad();
         }
 
@@ -1866,11 +1958,8 @@
             return;
         }
 
-        this.CancelPendingFilterLoad();
         this._filters.Clear();
-        this.MarkViewDirty();
-        this.NavigateToCurrentFilters();
-        await this.LoadAsync();
+        await this.ApplyDiscreteFilterChangeAsync();
     }
 
     private async Task ClearQueuedJobsAsync()
@@ -1913,9 +2002,10 @@
         }
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(int pageSize)
     {
-        var query = this.CreateQuery(DefaultPageSize, continuationToken: null);
+        this._initialLoadDeferred = false;
+        var query = this.CreateQuery(DashboardJobListLocation.NormalizeTake(pageSize), continuationToken: null);
         var queryVersion = ++this._queryVersion;
         this._lastQuery = query;
         this._error = null;
@@ -1958,7 +2048,7 @@
         }
 
         var queryVersion = this._queryVersion;
-        this._error = null;
+        this._loadMoreError = null;
         this._isLoadingMore = true;
 
         try
@@ -1974,15 +2064,20 @@
                 return;
             }
 
-            this._jobs.AddRange(page.Jobs);
+            var rows = DashboardJobListMerge.Append(this._jobs, page.Jobs);
+            this._jobs.Clear();
+            this._jobs.AddRange(rows);
             this._page = page;
+            this._take = DashboardJobListLocation.NormalizeTake(this._jobs.Count);
+            this.NavigateToCurrentState(replace: true);
             this.LiveRefresh.MarkUpdated();
         }
         catch (Exception exception)
         {
+            // Keep the loaded rows; the failure is shown next to the Load More control.
             if (queryVersion == this._queryVersion)
             {
-                this._error = exception.Message;
+                this._loadMoreError = exception.Message;
             }
         }
         finally
@@ -2005,9 +2100,25 @@
         this.LiveRefresh.QueueRefresh();
     }
 
-    private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
+    // Explicit refresh (manual refresh, "N new jobs — show", auto-refresh re-enabled, after an action): the fresh
+    // result replaces the list.
+    private Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
+      => this.RefreshJobsAsync(mergeIntoDisplayedRows: false, cancellationToken);
+
+    // Live-event refresh: displayed rows update in place and keep their order; new rows are held back and counted.
+    private Task RefreshLiveAsync(CancellationToken cancellationToken)
+      => this.RefreshJobsAsync(mergeIntoDisplayedRows: true, cancellationToken);
+
+    private async Task RefreshJobsAsync(
+        bool mergeIntoDisplayedRows,
+        CancellationToken cancellationToken)
     {
         var queryVersion = this._queryVersion;
+        if (this._initialLoadDeferred)
+        {
+            return;
+        }
+
         var visiblePageSize = Math.Max(DefaultPageSize, this._jobs.Count);
         var page = await Reader.SearchJobsAsync(this._lastQuery with
         {
@@ -2020,7 +2131,41 @@
             return;
         }
 
-        await this.ApplyPageStateAsync(() => this.ReplaceJobs(page));
+        await this.ApplyPageStateAsync(() =>
+        {
+            if (queryVersion != this._queryVersion)
+            {
+                return;
+            }
+
+            if (mergeIntoDisplayedRows)
+            {
+                this.MergeLiveJobs(page);
+            }
+            else
+            {
+                this.ReplaceJobs(page);
+            }
+        });
+    }
+
+    private Task ShowPendingJobsAsync()
+      => this.LiveRefresh.RefreshNowAsync();
+
+    private void MergeLiveJobs(JobInspectionPage page)
+    {
+        // Nothing is on screen when the last load failed or nothing has loaded yet, so there is nothing to keep still.
+        if (this._error is not null || this._page is null || this._jobs.Count == 0)
+        {
+            this.ReplaceJobs(page);
+            return;
+        }
+
+        var merge = DashboardJobListMerge.Merge(this._jobs, page.Jobs);
+        this._jobs.Clear();
+        this._jobs.AddRange(merge.Rows);
+        this._pendingNewJobCount = merge.NewJobCount;
+        this._page = this._page with { TotalCount = page.TotalCount };
     }
 
     private void ScheduleDebouncedLoad()
@@ -2040,8 +2185,10 @@
             await Task.Delay(FilterDebounce, cancellationTokenSource.Token);
             await this.InvokeAsync(async () =>
             {
-                this.NavigateToCurrentFilters();
-                await this.LoadAsync();
+                // Typing replaces the current history entry rather than pushing one per keystroke burst.
+                this._take = DefaultPageSize;
+                this.NavigateToCurrentState(replace: true);
+                await this.LoadAsync(this._take);
             });
         }
         catch (OperationCanceledException) when (cancellationTokenSource.IsCancellationRequested)
@@ -2065,67 +2212,42 @@
         cancellationTokenSource?.Cancel();
     }
 
-    private void OnLocationChanged(
-        object? sender,
-        LocationChangedEventArgs eventArgs)
+    // Back/Forward, or a filter link on this page: the URL is the source of truth for filters, view, and depth.
+    private async Task ApplyLocationAsync(string location)
     {
-        _ = sender;
-
-        if (!this.IsJobsListLocation(eventArgs.Location))
+        this._initialLocation = null;
+        this.NavigationState.JobsListHref = Navigation.ToBaseRelativePath(location);
+        var next = DashboardJobListLocation.Parse(location);
+        var view = (next.ViewKey is { } viewKey ? this.FindView(viewKey) : null)
+          ?? this.FindView(this._preferredViewKey)
+          ?? this.ConfiguredDefaultView();
+        var viewChanged = !string.Equals(view.Key, this._selectedViewKey, StringComparison.Ordinal);
+        if (viewChanged)
         {
-            return;
+            this.SelectView(view);
         }
 
-        if (string.Equals(NormalizeAbsoluteUri(eventArgs.Location), this._pendingFilterNavigationUri, StringComparison.Ordinal))
+        var filtersChanged = this._filters.ReplaceWith(next.Filters ?? DashboardJobViews.CreateFilters(view.Definition));
+        var takeChanged = next.Take != this._take;
+        this._take = next.Take;
+        this.UpdateViewDirty();
+        if (viewChanged || filtersChanged || takeChanged || this._initialLoadDeferred)
         {
-            this._pendingFilterNavigationUri = null;
-            return;
-        }
-
-        this._pendingFilterNavigationUri = null;
-        _ = this.ApplyFilterLocationAsync(eventArgs.Location);
-    }
-
-    private async Task ApplyFilterLocationAsync(string location)
-    {
-        var nextFilters = DashboardJobFilterQuery.ParseUri(location);
-
-        await this.InvokeAsync(async () =>
-        {
-            if (!this._filters.ReplaceWith(nextFilters))
-            {
-                return;
-            }
-
-            this.MarkViewDirty();
             this.CancelPendingFilterLoad();
-            await this.LoadAsync();
-            this.StateHasChanged();
-        });
-    }
-
-    private void NavigateToCurrentFilters()
-    {
-        var href = DashboardJobFilterQuery.ToHref(this._filters);
-        if (string.Equals(Navigation.ToBaseRelativePath(Navigation.Uri), href, StringComparison.Ordinal))
-        {
-            return;
+            await this.LoadAsync(this._take);
         }
-
-        this._pendingFilterNavigationUri = Navigation.ToAbsoluteUri(href).AbsoluteUri;
-        Navigation.NavigateTo(href, replace: true);
     }
 
-    private bool IsJobsListLocation(string location)
+    private void NavigateToCurrentState(bool replace)
     {
-        var relativePath = Navigation.ToBaseRelativePath(location);
-        var queryIndex = relativePath.IndexOf('?', StringComparison.Ordinal);
-        var path = queryIndex < 0 ? relativePath : relativePath[..queryIndex];
-        return string.Equals(path.TrimEnd('/'), "jobs", StringComparison.OrdinalIgnoreCase);
+        var href = DashboardJobListLocation.ToHref(
+          this._filters,
+          this.CurrentViewFilters(),
+          this.ViewParameter,
+          this._take);
+        this.NavigationState.JobsListHref = href;
+        this.NavigateToLocation(href, replace);
     }
-
-    private static string NormalizeAbsoluteUri(string uri)
-      => new Uri(uri, UriKind.Absolute).AbsoluteUri;
 
     private JobInspectionQuery CreateQuery(
         int pageSize,
@@ -2137,6 +2259,9 @@
         this._jobs.Clear();
         this._jobs.AddRange(page.Jobs);
         this._page = page;
+        this._pendingNewJobCount = 0;
+        this._loadMoreError = null;
+        this._error = null;
     }
 
     private void SetActionSuccess(string message)
@@ -2197,23 +2322,24 @@
     private static string GetDispositionClass(JobInspectionSummary job)
       => job.State == JobState.Failed ? "jobs-disposition--error" : "jobs-disposition--muted";
 
+    // Click-to-filter links are plain hrefs, so they push history; they keep a non-preferred view in the URL.
     private string StateFilterHref(JobState state)
-      => DashboardJobFilterQuery.WithStateHref(this._filters, state);
+      => DashboardJobFilterQuery.WithStateHref(this._filters, state, this.ViewParameter);
 
     private static string StateFilterTitle(JobState state)
       => string.Concat("Filter jobs by state ", state);
 
     private string HandlerFilterHref(JobInspectionSummary job)
-      => DashboardJobFilterQuery.WithHandlerHref(this._filters, DashboardFormat.ShortHandler(job));
+      => DashboardJobFilterQuery.WithHandlerHref(this._filters, DashboardFormat.ShortHandler(job), this.ViewParameter);
 
     private static string HandlerFilterTitle(JobInspectionSummary job)
       => string.Concat("Filter jobs by handler ", DashboardFormat.ShortHandler(job));
 
     private string TagFilterHref(string tag)
-      => DashboardJobFilterQuery.WithTagHref(this._filters, tag);
+      => DashboardJobFilterQuery.WithTagHref(this._filters, tag, this.ViewParameter);
 
     private string GroupFilterHref(string group)
-      => DashboardJobFilterQuery.WithGroupHref(this._filters, group);
+      => DashboardJobFilterQuery.WithGroupHref(this._filters, group, this.ViewParameter);
 
     private enum JobsActionSeverity
     {

@@ -1,0 +1,62 @@
+<section class="@CssClass" @attributes="AdditionalAttributes">
+    @if (Title is not null || Description is not null || HeaderActions is not null)
+    {
+        <header class="sd-card__header">
+            <div>
+                @if (Title is not null)
+                {
+                    <h2 class="sd-card__title">@Title</h2>
+                }
+                @if (Description is not null)
+                {
+                    <p class="sd-card__description">@Description</p>
+                }
+            </div>
+            @HeaderActions
+        </header>
+    }
+    @if (Flush)
+    {
+        @ChildContent
+    }
+    else
+    {
+        <div class="sd-card__content">@ChildContent</div>
+    }
+    @if (Footer is not null)
+    {
+        <footer class="sd-card__footer">@Footer</footer>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    [Parameter]
+    public RenderFragment? HeaderActions { get; set; }
+
+    /// <summary>
+    /// Renders the content edge to edge, for tables and lists.
+    /// </summary>
+    [Parameter]
+    public bool Flush { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Footer { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join("sd-card", this.Class);
+}

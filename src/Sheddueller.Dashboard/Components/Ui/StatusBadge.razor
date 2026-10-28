@@ -1,0 +1,48 @@
+@if (Href is null)
+{
+    <span class="@CssClass" title="@Title" @attributes="AdditionalAttributes"><span class="sd-status__dot" aria-hidden="true"></span>@Text</span>
+}
+else
+{
+    <a class="@CssClass" href="@Href" title="@Title" @attributes="AdditionalAttributes"><span class="sd-status__dot" aria-hidden="true"></span>@Text</a>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public JobState State { get; set; }
+
+    /// <summary>
+    /// Overrides the default label for the state.
+    /// </summary>
+    [Parameter]
+    public string? Label { get; set; }
+
+    [Parameter]
+    public string? Href { get; set; }
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// The label people see for a job state. A claimed job is shown as running.
+    /// </summary>
+    public static string StateLabel(JobState state)
+      => state switch
+      {
+          JobState.Queued => "Queued",
+          JobState.Claimed => "Running",
+          JobState.Completed => "Completed",
+          JobState.Failed => "Failed",
+          JobState.Canceled => "Canceled",
+          _ => state.ToString(),
+      };
+
+    private string Text
+      => this.Label ?? StateLabel(this.State);
+
+    private string CssClass
+      => UiClasses.Join("sd-badge sd-status", string.Concat("sd-status--", DashboardFormat.StateCssModifier(this.State)));
+}

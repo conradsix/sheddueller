@@ -15,7 +15,7 @@
     @if (_store is null)
     {
         <section class="settings-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">info</span>
+            <Icon Name="info" />
             <div>
                 <h2>Persisted settings unavailable</h2>
                 <p>The registered Sheddueller provider does not expose dashboard-editable cleanup settings.</p>
@@ -25,7 +25,7 @@
     else if (_loadError is not null)
     {
         <section class="settings-message settings-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h2>Settings failed to load</h2>
                 <p>@_loadError</p>
@@ -35,7 +35,7 @@
     else if (_isLoading)
     {
         <section class="settings-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h2>Loading settings</h2>
                 <p>Reading persisted cleanup settings.</p>
@@ -165,11 +165,11 @@
 
         <div class="settings-actions">
             <button class="settings-button settings-button--secondary" type="button" @onclick="LoadAsync" disabled="@_isSaving">
-                <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+                <Icon Name="refresh" />
                 <span>Reload</span>
             </button>
             <button class="settings-button settings-button--primary" type="button" @onclick="SaveAsync" disabled="@_isSaving">
-                <span class="material-symbols-outlined" aria-hidden="true">save</span>
+                <Icon Name="save" />
                 <span>@SaveButtonText</span>
             </button>
         </div>
@@ -203,7 +203,8 @@
     .settings-panel,
     .settings-actions {
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
     }
 
@@ -215,8 +216,8 @@
         padding: 16px;
     }
 
-    .settings-message .material-symbols-outlined,
-    .settings-inline-alert .material-symbols-outlined {
+    .settings-message .sd-icon,
+    .settings-inline-alert .sd-icon {
         color: var(--sd-primary);
     }
 
@@ -227,8 +228,8 @@
         color: var(--sd-on-error-container);
     }
 
-    .settings-message--error .material-symbols-outlined,
-    .settings-inline-alert--error .material-symbols-outlined {
+    .settings-message--error .sd-icon,
+    .settings-inline-alert--error .sd-icon {
         color: var(--sd-error);
     }
 
@@ -238,7 +239,7 @@
         color: var(--sd-success);
     }
 
-    .settings-inline-alert--success .material-symbols-outlined {
+    .settings-inline-alert--success .sd-icon {
         color: var(--sd-success);
     }
 
@@ -297,10 +298,10 @@
         width: 128px;
         min-height: 36px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         padding: 6px 8px;
     }
 
@@ -365,7 +366,7 @@
         min-height: 36px;
         gap: 6px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         cursor: pointer;
         font-size: 12px;
         font-weight: 800;

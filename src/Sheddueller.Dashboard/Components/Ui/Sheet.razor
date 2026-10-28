@@ -1,0 +1,38 @@
+@inherits DialogBase
+
+<dialog @ref="Element" class="sd-sheet" aria-labelledby="@TitleId" closedby="any" @attributes="AdditionalAttributes">
+    <div class="sd-sheet__inner">
+        <header class="sd-sheet__header">
+            <div>
+                <h2 id="@TitleId" class="sd-dialog__title">@Title</h2>
+                @if (Description is not null)
+                {
+                    <p class="sd-card__description">@Description</p>
+                }
+            </div>
+            <IconButton Icon="x" Label="Close" Size="ButtonSize.Small" ShowTooltip="false" OnClick="CloseAsync" />
+        </header>
+        <div class="sd-sheet__body">@ChildContent</div>
+        @if (Footer is not null)
+        {
+            <footer class="sd-sheet__footer">@Footer</footer>
+        }
+    </div>
+</dialog>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Footer { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}

@@ -1,0 +1,28 @@
+@if (Body is not null)
+{
+    <svg class="@CssClass" viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-icon="@ResolvedName"
+         @attributes="AdditionalAttributes">@((MarkupString)Body)</svg>
+}
+
+@code {
+    /// <summary>
+    /// Lucide icon name, for example <c>circle-check</c>.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string? ResolvedName
+      => DashboardIcons.Resolve(this.Name);
+
+    private string? Body
+      => DashboardIcons.GetBody(this.Name);
+
+    private string CssClass
+      => UiClasses.Join("sd-icon", this.Class);
+}

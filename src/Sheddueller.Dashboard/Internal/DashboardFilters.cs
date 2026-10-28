@@ -1,5 +1,7 @@
 namespace Sheddueller.Dashboard.Internal;
 
+using System.Globalization;
+
 using Microsoft.AspNetCore.WebUtilities;
 
 using Sheddueller.Inspection.ConcurrencyGroups;
@@ -103,6 +105,13 @@ internal sealed class DashboardJobFilters
         return true;
     }
 
+    public bool Matches(DashboardJobFilters other)
+      => this.SelectedStates.SequenceEqual(other.SelectedStates)
+        && string.Equals(Normalize(this.HandlerContains), Normalize(other.HandlerContains), StringComparison.Ordinal)
+        && string.Equals(Normalize(this.TagContains), Normalize(other.TagContains), StringComparison.Ordinal)
+        && string.Equals(Normalize(this.ConcurrencyGroupContains), Normalize(other.ConcurrencyGroupContains), StringComparison.Ordinal)
+        && this.Sort == other.Sort;
+
     public DashboardJobFilters Clone()
     {
         var clone = new DashboardJobFilters();
@@ -154,8 +163,9 @@ internal static class DashboardJobFilterQuery
     public const string TagParameter = "tag";
     public const string GroupParameter = "group";
     public const string SortParameter = "sort";
-
-    private const string JobsPath = "jobs";
+    public const string ViewParameter = "view";
+    public const string TakeParameter = "take";
+    public const string JobsPath = "jobs";
 
     public static DashboardJobFilters ParseUri(string uri)
       => ParseQuery(new Uri(uri, UriKind.Absolute).Query);
@@ -215,6 +225,18 @@ internal static class DashboardJobFilterQuery
     }
 
     public static string ToHref(DashboardJobFilters filters)
+      => ToHref(filters, viewKey: null, take: null, forceExplicitFilters: false);
+
+    /// <summary>
+    /// Builds a jobs list URL. Filters are always written explicitly; when there is nothing to write and
+    /// <paramref name="forceExplicitFilters"/> is set, the sort is written so the URL still means "these exact
+    /// (empty) filters" rather than "the view's filters".
+    /// </summary>
+    public static string ToHref(
+        DashboardJobFilters filters,
+        string? viewKey,
+        int? take,
+        bool forceExplicitFilters)
     {
         var queryParts = new List<string>();
 
@@ -226,9 +248,15 @@ internal static class DashboardJobFilterQuery
         AddQueryPart(queryParts, HandlerParameter, filters.HandlerContains);
         AddQueryPart(queryParts, TagParameter, filters.TagContains);
         AddQueryPart(queryParts, GroupParameter, filters.ConcurrencyGroupContains);
-        if (filters.Sort != JobInspectionSort.Operational)
+        if (filters.Sort != JobInspectionSort.Operational || (forceExplicitFilters && queryParts.Count == 0))
         {
             AddQueryPart(queryParts, SortParameter, filters.Sort.ToString());
+        }
+
+        AddQueryPart(queryParts, ViewParameter, viewKey ?? string.Empty);
+        if (take is { } takeValue)
+        {
+            AddQueryPart(queryParts, TakeParameter, takeValue.ToString(CultureInfo.InvariantCulture));
         }
 
         return queryParts.Count == 0
@@ -266,41 +294,45 @@ internal static class DashboardJobFilterQuery
 
     public static string WithStateHref(
         DashboardJobFilters filters,
-        JobState state)
+        JobState state,
+        string? viewKey = null)
     {
         var next = filters.Clone();
         _ = next.ReplaceStates([state]);
-        return ToHref(next);
+        return ToHref(next, viewKey, take: null, forceExplicitFilters: false);
     }
 
     public static string WithHandlerHref(
         DashboardJobFilters filters,
-        string handler)
+        string handler,
+        string? viewKey = null)
     {
         var next = filters.Clone();
         _ = next.SetHandlerContains(handler);
-        return ToHref(next);
+        return ToHref(next, viewKey, take: null, forceExplicitFilters: false);
     }
 
     public static string WithTagHref(
         DashboardJobFilters filters,
-        string tag)
+        string tag,
+        string? viewKey = null)
     {
         var next = filters.Clone();
         _ = next.SetTagContains(tag);
-        return ToHref(next);
+        return ToHref(next, viewKey, take: null, forceExplicitFilters: false);
     }
 
     public static string WithGroupHref(
         DashboardJobFilters filters,
-        string group)
+        string group,
+        string? viewKey = null)
     {
         var next = filters.Clone();
         _ = next.SetConcurrencyGroupContains(group);
-        return ToHref(next);
+        return ToHref(next, viewKey, take: null, forceExplicitFilters: false);
     }
 
-    private static bool TryGetLastNonEmptyValue(
+    public static bool TryGetLastNonEmptyValue(
         Dictionary<string, Microsoft.Extensions.Primitives.StringValues> query,
         string parameterName,
         out string value)
@@ -355,6 +387,19 @@ internal sealed class DashboardScheduleFilters
       => !string.IsNullOrWhiteSpace(this.ScheduleKey)
         || !string.IsNullOrWhiteSpace(this.PauseState);
 
+    public bool CopyFrom(DashboardScheduleFilters other)
+    {
+        if (string.Equals(this.ScheduleKey, other.ScheduleKey, StringComparison.Ordinal)
+            && string.Equals(this.PauseState, other.PauseState, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        this.ScheduleKey = other.ScheduleKey;
+        this.PauseState = other.PauseState;
+        return true;
+    }
+
     public ScheduleInspectionQuery ToQuery(
         int pageSize,
         string? continuationToken)
@@ -388,6 +433,19 @@ internal sealed class DashboardNodeFilters
     public NodeHealthState? StateFilter
       => Enum.TryParse<NodeHealthState>(this.State, out var state) ? state : null;
 
+    public bool CopyFrom(DashboardNodeFilters other)
+    {
+        if (string.Equals(this.State, other.State, StringComparison.Ordinal)
+            && string.Equals(this.NodeId, other.NodeId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        this.State = other.State;
+        this.NodeId = other.NodeId;
+        return true;
+    }
+
     public IReadOnlyList<NodeInspectionSummary> ApplyClientFilter(IReadOnlyList<NodeInspectionSummary> nodes)
       => string.IsNullOrWhiteSpace(this.NodeId)
         ? nodes
@@ -417,6 +475,23 @@ internal sealed class DashboardConcurrencyGroupFilters
 
     public bool? RateLimitedFilter
       => this.RateLimitedOnly ? true : null;
+
+    public bool CopyFrom(DashboardConcurrencyGroupFilters other)
+    {
+        if (string.Equals(this.GroupKey, other.GroupKey, StringComparison.Ordinal)
+            && this.SaturatedOnly == other.SaturatedOnly
+            && this.HasBlockedJobsOnly == other.HasBlockedJobsOnly
+            && this.RateLimitedOnly == other.RateLimitedOnly)
+        {
+            return false;
+        }
+
+        this.GroupKey = other.GroupKey;
+        this.SaturatedOnly = other.SaturatedOnly;
+        this.HasBlockedJobsOnly = other.HasBlockedJobsOnly;
+        this.RateLimitedOnly = other.RateLimitedOnly;
+        return true;
+    }
 
     public IReadOnlyList<ConcurrencyGroupInspectionSummary> ApplyClientFilter(
         IReadOnlyList<ConcurrencyGroupInspectionSummary> groups)

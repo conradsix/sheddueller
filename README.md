@@ -281,6 +281,8 @@ app.MapShedduellerDashboard("/sheddueller");
 
 The dashboard uses the configured Sheddueller provider and can be hosted by a worker process or a client-only web process. Configured job views are shared, read-only presets. Dashboard users can copy or create personal views that persist in browser storage for the dashboard's mounted path. A view restores filters, sort order, visible column order, per-column width overrides, and tag-derived columns; promoted tags are removed from the remaining Tags cell. Column widths can be set in host presets with the optional `Width` property or resized and auto-fitted from the dashboard.
 
+Filters, the selected view, and loaded depth live in the URL, so lists can be bookmarked and shared, and Back returns to the list you came from. The dashboard has light, dark, and system themes, a command menu (<kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd>) for jumping to pages or opening a job by ID, and keyboard shortcuts (<kbd>?</kbd> lists them). Fonts, icons, and scripts are served from the package itself; the dashboard makes no requests to third-party CDNs, so it works offline and behind strict content security policies.
+
 ## Testing
 
 `Sheddueller.Testing` replaces enqueueing and schedule management with capture-friendly fakes.

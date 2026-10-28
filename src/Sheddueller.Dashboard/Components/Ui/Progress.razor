@@ -1,0 +1,28 @@
+<span class="@CssClass" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@Rounded"
+      aria-label="@Label" @attributes="AdditionalAttributes"><span style="@FillStyle"></span></span>
+
+@code {
+    /// <summary>
+    /// Percentage from 0 to 100.
+    /// </summary>
+    [Parameter]
+    public double Value { get; set; }
+
+    [Parameter]
+    public string? Label { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private int Rounded
+      => (int)Math.Round(Math.Clamp(this.Value, 0, 100), MidpointRounding.AwayFromZero);
+
+    private string FillStyle
+      => string.Create(CultureInfo.InvariantCulture, $"width:{this.Rounded}%");
+
+    private string CssClass
+      => UiClasses.Join("sd-progress", this.Class);
+}

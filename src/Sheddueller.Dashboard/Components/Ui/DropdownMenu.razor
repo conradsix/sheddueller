@@ -1,0 +1,61 @@
+<button type="button" class="@TriggerClass" popovertarget="@_id" aria-haspopup="menu" aria-label="@Label"
+        data-sd-tooltip="@(TriggerContent is null ? Label : null)" disabled="@Disabled" @attributes="AdditionalAttributes">
+    @if (Icon is not null)
+    {
+        <Icon Name="@Icon" />
+    }
+    @TriggerContent
+    @if (TriggerContent is not null && ShowChevron)
+    {
+        <Icon Name="chevrons-up-down" Class="sd-muted" />
+    }
+</button>
+<div id="@_id" popover class="sd-menu" role="menu" aria-label="@Label" data-sd-align="@(AlignStart ? "start" : "end")">
+    @ChildContent
+</div>
+
+@code {
+    private readonly string _id = string.Concat("sd-menu-", Guid.NewGuid().ToString("N").AsSpan(0, 8));
+
+    /// <summary>
+    /// Accessible name of the trigger and menu. Shown as a tooltip when the trigger is icon-only.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Icon { get; set; }
+
+    /// <summary>
+    /// Visible trigger content. Leave empty for an icon-only trigger.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? TriggerContent { get; set; }
+
+    [Parameter]
+    public bool ShowChevron { get; set; } = true;
+
+    [Parameter]
+    public ButtonVariant Variant { get; set; } = ButtonVariant.Ghost;
+
+    [Parameter]
+    public ButtonSize Size { get; set; } = ButtonSize.Default;
+
+    [Parameter]
+    public bool AlignStart { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string TriggerClass
+      => UiClasses.Button(this.Variant, this.Size, iconOnly: this.TriggerContent is null, this.Class);
+}

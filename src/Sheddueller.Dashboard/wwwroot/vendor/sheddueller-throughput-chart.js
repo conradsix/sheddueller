@@ -1,5 +1,6 @@
 (function () {
   const charts = new WeakMap();
+  const models = new Map();
   const seriesDefinitions = [
     { label: "Queued", color: "#515f74", valuesKey: "Queued", visibleKey: "QueuedVisible" },
     { label: "Started", color: "#1d4ed8", valuesKey: "Started", visibleKey: "StartedVisible" },
@@ -15,6 +16,11 @@
   }
 
   function destroy(element) {
+    models.delete(element);
+    teardown(element);
+  }
+
+  function teardown(element) {
     const existing = charts.get(element);
     if (!existing) {
       return;
@@ -33,6 +39,7 @@
       return;
     }
 
+    models.set(element, model);
     if (window.uPlot) {
       renderUPlot(element, model);
       return;
@@ -49,7 +56,7 @@
     const scale = scaleInfo(timestamps, visibleSeries);
     const timeScale = timeScaleRange(model, timestamps);
 
-    destroy(element);
+    teardown(element);
     const options = {
       ...chartSize(element),
       cursor: {
@@ -90,7 +97,7 @@
   function renderCanvas(element, model) {
     let existing = charts.get(element);
     if (existing?.kind !== "canvas") {
-      destroy(element);
+      teardown(element);
       const canvas = document.createElement("canvas");
       canvas.className = "throughput-chart__canvas";
       element.appendChild(canvas);
@@ -327,12 +334,26 @@
   }
 
   function axisColor() {
-    return getComputedStyle(document.documentElement).getPropertyValue("--sd-on-surface-variant").trim() || "#45464d";
+    return getComputedStyle(document.documentElement).getPropertyValue("--muted-foreground").trim() || "#71717a";
   }
 
   function gridColor() {
-    return getComputedStyle(document.documentElement).getPropertyValue("--sd-outline-variant").trim() || "#c6c6cd";
+    return getComputedStyle(document.documentElement).getPropertyValue("--border").trim() || "#e4e4e7";
   }
+
+  // Axis and grid colours come from theme tokens, so redraw when the theme changes.
+  function redrawAll() {
+    for (const [element, model] of models) {
+      if (element.isConnected) {
+        render(element, model);
+      } else {
+        models.delete(element);
+      }
+    }
+  }
+
+  document.addEventListener("sheddueller:themechange", redrawAll);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
 
   window.shedduellerThroughputChart = { render, destroy };
 })();
