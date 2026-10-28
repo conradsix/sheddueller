@@ -1,3 +1,222 @@
 /* Page-specific layout for the nodes page. Shared look lives in ../sheddueller.css. */
 @layer pages {
+  /* Health summary: each tile is a link that filters the table by its state. */
+  .nodes-health {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+  }
+
+  .nodes-health__tile {
+    --tone: var(--primary);
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--card);
+    color: var(--card-foreground);
+    padding: 12px 16px 14px;
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+    transition: border-color 150ms, background-color 150ms, box-shadow 150ms;
+  }
+
+  .nodes-health__tile--success {
+    --tone: var(--success);
+  }
+
+  .nodes-health__tile--warning {
+    --tone: var(--warning);
+  }
+
+  .nodes-health__tile--destructive {
+    --tone: var(--destructive);
+  }
+
+  .nodes-health__tile:hover {
+    border-color: color-mix(in oklab, var(--tone) 40%, var(--border));
+  }
+
+  .nodes-health__tile:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .nodes-health__tile[aria-current="true"] {
+    border-color: color-mix(in oklab, var(--tone) 65%, var(--border));
+    background: color-mix(in oklab, var(--tone) 6%, var(--card));
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 65%, var(--border));
+  }
+
+  .nodes-health__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .nodes-health__dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--tone);
+  }
+
+  .nodes-health__count {
+    margin-top: 2px;
+    font-size: 26px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  .nodes-health__tile--attention .nodes-health__count {
+    color: var(--tone);
+  }
+
+  .nodes-health__tile .sd-skeleton {
+    margin-block: 2px 1px;
+  }
+
+  .nodes-health__caption {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  .nodes-toolbar .nodes-search {
+    width: 320px;
+    max-width: 100%;
+  }
+
+  /* Fits the content width beside an expanded sidebar; scrolls sideways only on narrow screens. */
+  .nodes-table-wrap {
+    overflow-x: auto;
+  }
+
+  .nodes-table {
+    min-width: 840px;
+    table-layout: fixed;
+    white-space: nowrap;
+  }
+
+  .nodes-table th,
+  .nodes-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .nodes-table__col-health {
+    width: 112px;
+  }
+
+  .nodes-table__col-time {
+    width: 176px;
+  }
+
+  .nodes-table__col-running {
+    width: 168px;
+  }
+
+  .nodes-table__col-claimed {
+    width: 104px;
+  }
+
+  .nodes-table .nodes-table__num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .nodes-table__skeleton td {
+    height: var(--row-height);
+  }
+
+  .nodes-table__empty td,
+  .nodes-table__empty:hover td {
+    height: auto;
+    background: none;
+    white-space: normal;
+  }
+
+  .nodes-id-cell {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .nodes-id {
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+  }
+
+  .nodes-copy {
+    display: inline-flex;
+    flex: none;
+    opacity: 0;
+    transition: opacity 150ms;
+  }
+
+  .nodes-table tbody tr:hover .nodes-copy,
+  .nodes-copy:focus-within {
+    opacity: 1;
+  }
+
+  .nodes-badge--success {
+    --tone: var(--success);
+  }
+
+  .nodes-badge--warning {
+    --tone: var(--warning);
+  }
+
+  .nodes-badge--destructive {
+    --tone: var(--destructive);
+  }
+
+  .nodes-load {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  .nodes-load .sd-progress {
+    width: 64px;
+  }
+
+  .nodes-load__bar--busy {
+    background: color-mix(in oklab, var(--warning) 16%, var(--muted));
+  }
+
+  .nodes-load__bar--busy > span {
+    background: var(--warning);
+  }
+
+  .nodes-load__bar--idle {
+    background: var(--muted);
+  }
+
+  .nodes-load__bar--idle > span {
+    background: var(--muted-foreground);
+  }
+
+  .nodes-load__text {
+    min-width: 5ch;
+    font-size: 12.5px;
+  }
+
+  .nodes-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
 }

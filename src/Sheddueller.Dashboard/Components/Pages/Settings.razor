@@ -1,437 +1,226 @@
 @page "/settings"
 @inherits DashboardPageComponent
 @inject IServiceProvider Services
+@inject NavigationManager Navigation
+@inject IJSRuntime JsRuntime
 @inject Microsoft.Extensions.Options.IOptions<ShedduellerOptions> ShedduellerOptions
 @inject Microsoft.Extensions.Options.IOptions<ShedduellerDashboardOptions> DashboardOptions
 
-<div class="settings-page">
-    <header class="settings-header">
-        <div>
-            <h1>Settings</h1>
-            <p>Persisted cluster cleanup controls.</p>
-        </div>
-    </header>
+<div class="@PageClass">
+    <PageHeader Title="Settings"
+                Description="Cleanup and retention shared by every node, saved in the job store. Preferences apply to this browser only.">
+        <Actions>
+            @if (_store is not null && _loadError is null)
+            {
+                <Button Icon="@(_isLoading ? "loader-circle" : "refresh-cw")" Disabled="@(_isLoading || _isSaving)"
+                        OnClick="RequestReloadAsync">Reload</Button>
+            }
+        </Actions>
+    </PageHeader>
 
     @if (_store is null)
     {
-        <section class="settings-message" aria-live="polite">
-            <Icon Name="info" />
-            <div>
-                <h2>Persisted settings unavailable</h2>
-                <p>The registered Sheddueller provider does not expose dashboard-editable cleanup settings.</p>
-            </div>
-        </section>
+        <EmptyState Icon="settings" Title="Cleanup settings can't be edited with this store">
+            The registered job store doesn't save cleanup settings, so cleanup uses the values set in code
+            (<code>ShedduellerOptions.JobRetention</code> and <code>ShedduellerDashboardOptions.EventRetention</code>).
+            To edit them here, register a store that implements <code>IShedduellerCleanupConfigurationStore</code>,
+            such as PostgreSQL with <code>UsePostgres</code>.
+        </EmptyState>
     }
     else if (_loadError is not null)
     {
-        <section class="settings-message settings-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h2>Settings failed to load</h2>
-                <p>@_loadError</p>
-            </div>
-        </section>
+        <Alert Tone="AlertTone.Destructive" Title="Settings couldn't be loaded">
+            <ChildContent>@_loadError</ChildContent>
+            <Actions>
+                <Button Size="ButtonSize.Small" Icon="@(_isLoading ? "loader-circle" : "refresh-cw")" Disabled="_isLoading"
+                        OnClick="LoadAsync">Try again</Button>
+            </Actions>
+        </Alert>
     }
-    else if (_isLoading)
+    else if (_form is null)
     {
-        <section class="settings-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h2>Loading settings</h2>
-                <p>Reading persisted cleanup settings.</p>
+        <Card Title="Cleanup and retention" Description="Loading the saved settings…" Flush="true" aria-busy="true">
+            <div class="settings-rows" aria-hidden="true">
+                @for (var row = 0; row < SkeletonRowCount; row++)
+                {
+                    <div class="settings-row">
+                        <div class="settings-row__text">
+                            <Skeleton Width="@(row % 2 == 0 ? "34%" : "26%")" />
+                            <Skeleton Width="@(row % 2 == 0 ? "62%" : "70%")" Height="12px" />
+                        </div>
+                        <div class="settings-row__control">
+                            <Skeleton Width="216px" Height="32px" />
+                        </div>
+                    </div>
+                }
             </div>
-        </section>
+        </Card>
     }
     else
     {
-        @if (_actionMessage is not null)
-        {
-            <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
-                <span>@_actionMessage</span>
-            </DashboardInlineAlert>
-        }
+        <Card Title="Terminal jobs" Flush="true"
+              Description="Completed, failed, and canceled jobs are deleted from the job store once they're older than their retention.">
+            <HeaderActions>
+                <Switch Value="_form.JobRetentionEnabled" ValueChanged="SetJobRetentionEnabled" Disabled="_isSaving">Delete old jobs</Switch>
+            </HeaderActions>
+            <ChildContent>
+                @if (!_form.JobRetentionEnabled)
+                {
+                    <p class="settings-card__note">
+                        <Icon Name="info" />
+                        <span>Job cleanup is off, so finished jobs are kept. The values below are saved but not used until it's turned back on.</span>
+                    </p>
+                }
+                <div class="settings-rows">
+                    @DurationRow(DashboardCleanupSetting.CompletedRetention, "Keep completed jobs for",
+                                 "Completed jobs older than this are deleted.", "Completed jobs are never deleted.")
+                    @DurationRow(DashboardCleanupSetting.FailedRetention, "Keep failed jobs for",
+                                 "Failed jobs older than this are deleted.", "Failed jobs are never deleted.")
+                    @DurationRow(DashboardCleanupSetting.CanceledRetention, "Keep canceled jobs for",
+                                 "Canceled jobs older than this are deleted.", "Canceled jobs are never deleted.")
+                    @DurationRow(DashboardCleanupSetting.JobCleanupInterval, "Run cleanup every",
+                                 "How often cleanup looks for jobs to delete.")
+                    @BatchSizeRow()
+                </div>
+            </ChildContent>
+        </Card>
 
-        <section class="settings-panel">
-            <div class="settings-panel__header">
-                <h2>Terminal Jobs</h2>
-                <label class="settings-switch">
-                    <input type="checkbox" @bind="_form.JobRetentionEnabled" disabled="@_isSaving" />
-                    <span>Cleanup enabled</span>
-                </label>
+        <Card Title="Job events" Flush="true"
+              Description="Lifecycle events, logs, and progress updates shown on each job's page.">
+            <div class="settings-rows">
+                @DurationRow(DashboardCleanupSetting.EventRetention, "Keep events for",
+                             "Events are deleted once their job has been finished for longer than this.")
+                @DurationRow(DashboardCleanupSetting.EventCleanupInterval, "Run cleanup every",
+                             "How often cleanup looks for events to delete.")
             </div>
+        </Card>
 
-            <div class="settings-grid">
-                <label class="settings-field">
-                    <span>Completed retention</span>
-                    <div class="settings-retention-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.CompletedRetentionHours" disabled="@(_isSaving || _form.CompletedRetainForever)" />
-                        <span>hours</span>
-                        <label class="settings-inline-check">
-                            <input type="checkbox" @bind="_form.CompletedRetainForever" disabled="@_isSaving" />
-                            <span>Forever</span>
-                        </label>
-                    </div>
-                </label>
-                <label class="settings-field">
-                    <span>Failed retention</span>
-                    <div class="settings-retention-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.FailedRetentionHours" disabled="@(_isSaving || _form.FailedRetainForever)" />
-                        <span>hours</span>
-                        <label class="settings-inline-check">
-                            <input type="checkbox" @bind="_form.FailedRetainForever" disabled="@_isSaving" />
-                            <span>Forever</span>
-                        </label>
-                    </div>
-                </label>
-                <label class="settings-field">
-                    <span>Canceled retention</span>
-                    <div class="settings-retention-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.CanceledRetentionHours" disabled="@(_isSaving || _form.CanceledRetainForever)" />
-                        <span>hours</span>
-                        <label class="settings-inline-check">
-                            <input type="checkbox" @bind="_form.CanceledRetainForever" disabled="@_isSaving" />
-                            <span>Forever</span>
-                        </label>
-                    </div>
-                </label>
-                <label class="settings-field">
-                    <span>Cleanup interval</span>
-                    <div class="settings-unit-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.JobRetentionCleanupIntervalMinutes" disabled="@_isSaving" />
-                        <span>minutes</span>
-                    </div>
-                </label>
-                <label class="settings-field">
-                    <span>Batch size</span>
-                    <input class="settings-number-input" type="number" min="1" step="1"
-                           @bind="_form.JobRetentionBatchSize" disabled="@_isSaving" />
-                </label>
+        <Card Title="Metrics" Flush="true" Description="Throughput and timing samples behind the Metrics page.">
+            <div class="settings-rows">
+                @DurationRow(DashboardCleanupSetting.MetricsRetention, "Keep metrics for",
+                             "Samples older than this are deleted.")
+                @DurationRow(DashboardCleanupSetting.MetricsCleanupInterval, "Run cleanup every",
+                             "How often cleanup looks for samples to delete.")
             </div>
-        </section>
-
-        <section class="settings-panel">
-            <div class="settings-panel__header">
-                <h2>Job Events</h2>
-            </div>
-
-            <div class="settings-grid">
-                <label class="settings-field">
-                    <span>Event retention</span>
-                    <div class="settings-unit-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.JobEventRetentionHours" disabled="@_isSaving" />
-                        <span>hours</span>
-                    </div>
-                </label>
-                <label class="settings-field">
-                    <span>Cleanup interval</span>
-                    <div class="settings-unit-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.JobEventCleanupIntervalMinutes" disabled="@_isSaving" />
-                        <span>minutes</span>
-                    </div>
-                </label>
-            </div>
-        </section>
-
-        <section class="settings-panel">
-            <div class="settings-panel__header">
-                <h2>Metrics</h2>
-            </div>
-
-            <div class="settings-grid">
-                <label class="settings-field">
-                    <span>Metrics retention</span>
-                    <div class="settings-unit-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.MetricsRetentionHours" disabled="@_isSaving" />
-                        <span>hours</span>
-                    </div>
-                </label>
-                <label class="settings-field">
-                    <span>Cleanup interval</span>
-                    <div class="settings-unit-row">
-                        <input class="settings-number-input" type="number" min="1" step="1"
-                               @bind="_form.MetricsCleanupIntervalMinutes" disabled="@_isSaving" />
-                        <span>minutes</span>
-                    </div>
-                </label>
-            </div>
-        </section>
-
-        <div class="settings-actions">
-            <button class="settings-button settings-button--secondary" type="button" @onclick="LoadAsync" disabled="@_isSaving">
-                <Icon Name="refresh" />
-                <span>Reload</span>
-            </button>
-            <button class="settings-button settings-button--primary" type="button" @onclick="SaveAsync" disabled="@_isSaving">
-                <Icon Name="save" />
-                <span>@SaveButtonText</span>
-            </button>
-        </div>
+        </Card>
     }
+
+    <Card Title="Preferences" Flush="true" Description="Saved in this browser only. They don't change anything for other people.">
+        <div class="settings-rows">
+            <div class="sd-field settings-row">
+                <div class="settings-row__text">
+                    <span class="settings-row__label" id="settings-theme-label">Theme</span>
+                    <p class="sd-field__hint">System follows your device's light or dark setting.</p>
+                </div>
+                <div class="settings-row__control">
+                    <div class="sd-tabs sd-tabs--sm settings-theme" role="radiogroup" aria-labelledby="settings-theme-label">
+                        @foreach (var (theme, label, icon) in ThemeOptions)
+                        {
+                            <button type="button" class="sd-tabs__tab" role="radio" data-sd-theme="@theme"
+                                    aria-checked="@ThemeChecked(theme)" @onclick="() => SelectTheme(theme)" @key="theme">
+                                <Icon Name="@icon" />
+                                @label
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Card>
 </div>
 
-<style>
-    .settings-page {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sd-gutter);
-        max-width: 1120px;
-    }
+@if (IsDirty)
+{
+    <div class="sd-bulkbar settings-savebar" role="region" aria-label="Unsaved changes">
+        <span class="sd-bulkbar__count" aria-live="polite">@SaveBarText</span>
+        <span class="sd-bulkbar__divider" aria-hidden="true"></span>
+        <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="_isSaving" OnClick="OpenDiscardDialog">Discard</Button>
+        <Button Variant="ButtonVariant.Primary" Size="ButtonSize.Small" Icon="@(_isSaving ? "loader-circle" : "save")"
+                Disabled="@(_isSaving || InvalidCount > 0)" OnClick="SaveAsync">Save changes</Button>
+    </div>
+}
 
-    .settings-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-    }
+<ConfirmDialog @bind-Open="_discardDialogOpen" Title="Discard unsaved changes?" ConfirmLabel="Discard changes"
+               CancelLabel="Keep editing" Destructive="true" OnConfirm="DiscardChanges">
+    <p>The settings go back to the values that were loaded. Nothing is saved.</p>
+</ConfirmDialog>
 
-    .settings-header p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
+<ConfirmDialog @bind-Open="_reloadDialogOpen" Title="Discard changes and reload?" ConfirmLabel="Discard and reload"
+               CancelLabel="Keep editing" Destructive="true" OnConfirm="LoadAsync">
+    <p>Reloading reads the saved settings again, and your unsaved changes are lost.</p>
+</ConfirmDialog>
 
-    .settings-message,
-    .settings-inline-alert,
-    .settings-panel,
-    .settings-actions {
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-    }
+<ConfirmDialog @bind-Open="_leaveDialogOpen" Title="Leave without saving?" ConfirmLabel="Leave page" CancelLabel="Stay"
+               Destructive="true" OnConfirm="ConfirmLeave">
+    <p>Your changes to the cleanup settings haven't been saved and will be lost.</p>
+</ConfirmDialog>
 
-    .settings-message,
-    .settings-inline-alert {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        padding: 16px;
-    }
-
-    .settings-message .sd-icon,
-    .settings-inline-alert .sd-icon {
-        color: var(--sd-primary);
-    }
-
-    .settings-message--error,
-    .settings-inline-alert--error {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .settings-message--error .sd-icon,
-    .settings-inline-alert--error .sd-icon {
-        color: var(--sd-error);
-    }
-
-    .settings-inline-alert--success {
-        border-color: var(--sd-success);
-        background: var(--sd-success-container);
-        color: var(--sd-success);
-    }
-
-    .settings-inline-alert--success .sd-icon {
-        color: var(--sd-success);
-    }
-
-    .settings-message p,
-    .settings-inline-alert {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .settings-message--error p,
-    .settings-inline-alert--error {
-        color: var(--sd-on-error-container);
-    }
-
-    .settings-inline-alert--success {
-        color: var(--sd-success);
-    }
-
-    .settings-panel {
-        padding: 16px;
-    }
-
-    .settings-panel__header {
-        display: flex;
-        min-height: 36px;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        border-bottom: 1px solid var(--sd-outline-variant);
-        margin: -4px 0 16px;
-        padding-bottom: 12px;
-    }
-
-    .settings-panel h2 {
-        margin: 0;
-        font-size: 16px;
-        line-height: 20px;
-    }
-
-    .settings-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(280px, 1fr));
-        gap: 16px;
-    }
-
-    .settings-field {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 16px;
-    }
-
-    .settings-number-input {
-        width: 128px;
-        min-height: 36px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        font-family: var(--font-mono);
-        padding: 6px 8px;
-    }
-
-    .settings-number-input:focus-visible {
-        outline: 2px solid var(--sd-primary);
-        outline-offset: 1px;
-    }
-
-    .settings-number-input:disabled {
-        opacity: 0.55;
-    }
-
-    .settings-unit-row,
-    .settings-retention-row,
-    .settings-inline-check,
-    .settings-switch,
-    .settings-actions,
-    .settings-button {
-        display: flex;
-        align-items: center;
-    }
-
-    .settings-unit-row,
-    .settings-retention-row {
-        gap: 8px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-    }
-
-    .settings-retention-row {
-        flex-wrap: wrap;
-    }
-
-    .settings-inline-check,
-    .settings-switch {
-        gap: 6px;
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 16px;
-    }
-
-    .settings-switch {
-        white-space: nowrap;
-    }
-
-    .settings-inline-check input,
-    .settings-switch input {
-        width: 16px;
-        height: 16px;
-        accent-color: var(--sd-primary);
-    }
-
-    .settings-actions {
-        justify-content: flex-end;
-        gap: 8px;
-        padding: 12px;
-    }
-
-    .settings-button {
-        min-height: 36px;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 800;
-        line-height: 16px;
-        padding: 0 12px;
-    }
-
-    .settings-button--secondary {
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-    }
-
-    .settings-button--primary {
-        border-color: var(--sd-primary);
-        background: var(--sd-primary);
-        color: var(--sd-on-primary);
-    }
-
-    .settings-button:disabled {
-        cursor: not-allowed;
-        opacity: 0.65;
-    }
-
-    @@media (max-width: 760px) {
-        .settings-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .settings-panel__header,
-        .settings-actions {
-            align-items: stretch;
-            flex-direction: column;
-        }
-    }
-</style>
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" />
 
 @code {
+    private const int SkeletonRowCount = 5;
+    private const string SettingsPath = "settings";
+
+    private static readonly (string Theme, string Label, string Icon)[] ThemeOptions =
+    [
+        ("system", "System", "monitor"),
+        ("light", "Light", "sun"),
+        ("dark", "Dark", "moon"),
+    ];
+
+    private readonly HashSet<DashboardCleanupSetting> _touched = [];
+    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private IShedduellerCleanupConfigurationStore? _store;
-    private SettingsFormModel _form = new();
+    private ShedduellerCleanupConfiguration? _loaded;
+    private DashboardCleanupSettingsForm? _baseline;
+    private DashboardCleanupSettingsForm? _form;
     private string? _loadError;
-    private string? _actionMessage;
+    private string? _pendingNavigation;
     private bool _isLoading;
     private bool _isSaving;
-    private bool _isActionError;
+    private bool _showAllErrors;
+    private bool _leaveConfirmed;
+    private bool _discardDialogOpen;
+    private bool _reloadDialogOpen;
+    private bool _leaveDialogOpen;
 
-    private string SaveButtonText
-      => this._isSaving ? "Saving..." : "Save Settings";
+    // sheddueller-ui.js applies and stores the theme (data-sd-theme); the page mirrors it only for aria-checked.
+    private string? _theme;
 
-    private string ActionAlertClass
-      => this._isActionError
-        ? "settings-inline-alert settings-inline-alert--error"
-        : "settings-inline-alert settings-inline-alert--success";
+    private bool IsDirty
+      => this._form is not null && this._baseline is not null && this._form.HasChangesFrom(this._baseline);
 
-    private string ActionAlertIcon
-      => this._isActionError ? "warning" : "check_circle";
+    private int InvalidCount
+      => this._form?.InvalidSettings.Count ?? 0;
+
+    private string PageClass
+      => this.IsDirty ? "sd-page settings-page settings-page--dirty" : "sd-page settings-page";
+
+    private string SaveBarText
+      => this.InvalidCount switch
+      {
+          0 => "You have unsaved changes",
+          1 => "1 setting needs fixing",
+          var count => string.Create(CultureInfo.InvariantCulture, $"{count} settings need fixing"),
+      };
 
     protected override async Task OnInitializedAsync()
     {
         this._store = Services.GetService<IShedduellerCleanupConfigurationStore>();
-        this._form = SettingsFormModel.FromConfiguration(this.CreateDefaultConfiguration());
-
         if (this._store is not null)
         {
             await this.LoadAsync();
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await this.ReadThemeAsync();
+        }
+
+        await this.FlushToastsAsync();
     }
 
     private async Task LoadAsync()
@@ -442,17 +231,24 @@
         }
 
         this._isLoading = true;
-        this._loadError = null;
-        this._actionMessage = null;
 
         try
         {
             var configuration = await this._store.GetCleanupConfigurationAsync(this.CreateDefaultConfiguration());
-            this._form = SettingsFormModel.FromConfiguration(configuration);
+            this.SetLoaded(configuration);
+            this._form = DashboardCleanupSettingsForm.FromConfiguration(configuration);
+            this._loadError = null;
         }
         catch (Exception exception)
         {
-            this._loadError = exception.Message;
+            if (this._form is null)
+            {
+                this._loadError = exception.Message;
+            }
+            else
+            {
+                this.ShowToast("Couldn't reload settings", exception.Message, AlertTone.Destructive);
+            }
         }
         finally
         {
@@ -460,32 +256,278 @@
         }
     }
 
+    private async Task RequestReloadAsync()
+    {
+        if (this.IsDirty)
+        {
+            this._reloadDialogOpen = true;
+            return;
+        }
+
+        await this.LoadAsync();
+    }
+
     private async Task SaveAsync()
     {
-        if (this._store is null || this._isSaving)
+        if (this._store is null || this._form is null || this._isSaving)
         {
             return;
         }
 
+        if (!this._form.TryCreateConfiguration(out var configuration))
+        {
+            this._showAllErrors = true;
+            this.ShowToast("Some settings need fixing", "Fix the highlighted fields, then save again.", AlertTone.Destructive);
+            return;
+        }
+
         this._isSaving = true;
-        this._actionMessage = null;
-        this._isActionError = false;
 
         try
         {
-            var configuration = this._form.ToConfiguration();
             await this._store.SetCleanupConfigurationAsync(configuration);
-            this._form = SettingsFormModel.FromConfiguration(configuration);
-            this._actionMessage = "Cleanup settings saved.";
+
+            // Keep the values as typed (1.5 hours stays 1.5 hours); the baseline is what the store now holds.
+            this.SetLoaded(configuration);
+            this.ShowToast("Settings saved", "Cleanup uses the new values on its next run.", AlertTone.Success);
         }
         catch (Exception exception)
         {
-            this._isActionError = true;
-            this._actionMessage = string.Concat("Save failed: ", exception.Message);
+            this.ShowToast("Couldn't save settings", exception.Message, AlertTone.Destructive);
         }
         finally
         {
             this._isSaving = false;
+        }
+    }
+
+    private void OpenDiscardDialog()
+      => this._discardDialogOpen = true;
+
+    private void DiscardChanges()
+    {
+        if (this._loaded is not null)
+        {
+            this._form = DashboardCleanupSettingsForm.FromConfiguration(this._loaded);
+            this.ResetValidation();
+        }
+    }
+
+    private void SetLoaded(ShedduellerCleanupConfiguration configuration)
+    {
+        this._loaded = configuration;
+        this._baseline = DashboardCleanupSettingsForm.FromConfiguration(configuration);
+        this.ResetValidation();
+    }
+
+    private void OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (this._leaveConfirmed
+            || !this.IsDirty
+            || DashboardQueryString.IsPath(Navigation.ToBaseRelativePath(Navigation.ToAbsoluteUri(context.TargetLocation).AbsoluteUri), SettingsPath))
+        {
+            return;
+        }
+
+        context.PreventNavigation();
+        this._pendingNavigation = context.TargetLocation;
+        this._leaveDialogOpen = true;
+    }
+
+    private void ConfirmLeave()
+    {
+        if (this._pendingNavigation is { } target)
+        {
+            this._leaveConfirmed = true;
+            Navigation.NavigateTo(target);
+        }
+    }
+
+    private void SetJobRetentionEnabled(bool enabled)
+    {
+        if (this._form is not null)
+        {
+            this._form.JobRetentionEnabled = enabled;
+        }
+    }
+
+    private void SetAmount(DashboardCleanupSetting setting, ChangeEventArgs args)
+    {
+        if (this._form is not null)
+        {
+            this._form.SetDuration(setting, this._form.Duration(setting) with { Amount = args.Value as string ?? string.Empty });
+        }
+    }
+
+    private void SetUnit(DashboardCleanupSetting setting, ChangeEventArgs args)
+    {
+        if (this._form is not null && Enum.TryParse<DashboardDurationUnit>(args.Value as string, out var unit))
+        {
+            this._form.SetDuration(setting, this._form.Duration(setting) with { Unit = unit });
+            this._touched.Add(setting);
+        }
+    }
+
+    private void SetKeptForever(DashboardCleanupSetting setting, ChangeEventArgs args)
+    {
+        if (this._form is not null)
+        {
+            this._form.SetKeptForever(setting, args.Value is true);
+            this._touched.Add(setting);
+        }
+    }
+
+    private void SetBatchSize(ChangeEventArgs args)
+    {
+        if (this._form is not null)
+        {
+            this._form.BatchSize = args.Value as string ?? string.Empty;
+        }
+    }
+
+    // Errors show once a field is committed (blur or Enter) or a save is attempted, then update as you type.
+    private void Touch(DashboardCleanupSetting setting)
+      => this._touched.Add(setting);
+
+    private void ResetValidation()
+    {
+        this._touched.Clear();
+        this._showAllErrors = false;
+    }
+
+    private string? VisibleError(DashboardCleanupSetting setting)
+      => this._form is not null && (this._showAllErrors || this._touched.Contains(setting))
+        ? this._form.Error(setting)
+        : null;
+
+    private static string InputId(DashboardCleanupSetting setting)
+      => string.Concat("settings-", setting.ToString());
+
+    private static string DescribedBy(DashboardCleanupSetting setting, string? error)
+      => error is null
+        ? string.Concat(InputId(setting), "-hint")
+        : string.Concat(InputId(setting), "-hint ", InputId(setting), "-error");
+
+    private RenderFragment DurationRow(
+        DashboardCleanupSetting setting,
+        string label,
+        string hint,
+        string? foreverHint = null)
+    {
+        var form = this._form!;
+        var duration = form.Duration(setting);
+        var canKeepForever = DashboardCleanupSettingsForm.CanKeepForever(setting);
+        var keptForever = form.IsKeptForever(setting);
+        var error = this.VisibleError(setting);
+        var id = InputId(setting);
+
+        return @<div class="sd-field settings-row" @key="setting">
+            <div class="settings-row__text">
+                <label class="settings-row__label" for="@id">@label</label>
+                <p class="sd-field__hint" id="@($"{id}-hint")">@(keptForever ? foreverHint : hint)</p>
+            </div>
+            <div class="settings-row__control">
+                <div class="settings-duration">
+                    <input id="@id" class="sd-input settings-duration__amount" type="text" inputmode="decimal" autocomplete="off"
+                           spellcheck="false" value="@duration.Amount" disabled="@(keptForever || _isSaving)"
+                           aria-invalid="@(error is null ? null : "true")" aria-describedby="@DescribedBy(setting, error)"
+                           @oninput="args => SetAmount(setting, args)" @onchange="() => Touch(setting)" />
+                    <span class="sd-select settings-duration__unit">
+                        <select aria-label="@($"{label}, unit")" value="@duration.Unit.ToString()" disabled="@(keptForever || _isSaving)"
+                                @onchange="args => SetUnit(setting, args)">
+                            @foreach (var unit in DashboardDurationInput.Units)
+                            {
+                                <option value="@unit.ToString()">@DashboardDurationInput.UnitLabel(unit, duration.IsSingular)</option>
+                            }
+                        </select>
+                        <Icon Name="chevron-down" />
+                    </span>
+                </div>
+                @if (canKeepForever)
+                {
+                    <label class="sd-switch-label settings-forever">
+                        <input type="checkbox" class="sd-checkbox" checked="@keptForever" disabled="@_isSaving"
+                               @onchange="args => SetKeptForever(setting, args)" />
+                        Keep forever
+                    </label>
+                }
+                @if (error is not null)
+                {
+                    <p class="sd-field__error" id="@($"{id}-error")">@error</p>
+                }
+            </div>
+        </div>;
+    }
+
+    private RenderFragment BatchSizeRow()
+    {
+        var form = this._form!;
+        var setting = DashboardCleanupSetting.JobBatchSize;
+        var error = this.VisibleError(setting);
+        var id = InputId(setting);
+
+        return @<div class="sd-field settings-row" @key="setting">
+            <div class="settings-row__text">
+                <label class="settings-row__label" for="@id">Batch size</label>
+                <p class="sd-field__hint" id="@($"{id}-hint")">Most jobs deleted in one transaction. Smaller batches hold locks for less time.</p>
+            </div>
+            <div class="settings-row__control">
+                <div class="settings-duration">
+                    <input id="@id" class="sd-input settings-duration__amount" type="text" inputmode="numeric" autocomplete="off"
+                           spellcheck="false" value="@form.BatchSize" disabled="@_isSaving"
+                           aria-invalid="@(error is null ? null : "true")" aria-describedby="@DescribedBy(setting, error)"
+                           @oninput="SetBatchSize" @onchange="() => Touch(setting)" />
+                    <span class="settings-unit">jobs</span>
+                </div>
+                @if (error is not null)
+                {
+                    <p class="sd-field__error" id="@($"{id}-error")">@error</p>
+                }
+            </div>
+        </div>;
+    }
+
+    private async Task ReadThemeAsync()
+    {
+        try
+        {
+            var theme = await JsRuntime.InvokeAsync<string?>("document.documentElement.getAttribute", "data-theme");
+            this._theme = theme is "light" or "dark" ? theme : "system";
+            this.StateHasChanged();
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    private void SelectTheme(string theme)
+      => this._theme = theme;
+
+    private string? ThemeChecked(string theme)
+      => this._theme is null ? null : string.Equals(this._theme, theme, StringComparison.Ordinal) ? "true" : "false";
+
+    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
+    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
+      => this._pendingToasts.Add((title, description, tone));
+
+    private async Task FlushToastsAsync()
+    {
+        if (this._pendingToasts.Count == 0)
+        {
+            return;
+        }
+
+        var toasts = this._pendingToasts.ToArray();
+        this._pendingToasts.Clear();
+        foreach (var (title, description, tone) in toasts)
+        {
+            try
+            {
+                await JsRuntime.ToastAsync(title, description, tone);
+            }
+            catch (JSException)
+            {
+            }
         }
     }
 
@@ -494,95 +536,4 @@
         JobRetentionCleanupConfiguration.FromOptions(ShedduellerOptions.Value.JobRetention),
         new JobEventCleanupConfiguration(DashboardOptions.Value.EventRetention, JobEventCleanupConfiguration.DefaultCleanupInterval),
         MetricsCleanupConfiguration.Default);
-
-    private sealed class SettingsFormModel
-    {
-        public bool JobRetentionEnabled { get; set; }
-
-        public int CompletedRetentionHours { get; set; }
-
-        public bool CompletedRetainForever { get; set; }
-
-        public int FailedRetentionHours { get; set; }
-
-        public bool FailedRetainForever { get; set; }
-
-        public int CanceledRetentionHours { get; set; }
-
-        public bool CanceledRetainForever { get; set; }
-
-        public int JobRetentionCleanupIntervalMinutes { get; set; }
-
-        public int JobRetentionBatchSize { get; set; }
-
-        public int JobEventRetentionHours { get; set; }
-
-        public int JobEventCleanupIntervalMinutes { get; set; }
-
-        public int MetricsRetentionHours { get; set; }
-
-        public int MetricsCleanupIntervalMinutes { get; set; }
-
-        public static SettingsFormModel FromConfiguration(ShedduellerCleanupConfiguration configuration)
-          => new()
-          {
-              JobRetentionEnabled = configuration.JobRetention.Enabled,
-              CompletedRetentionHours = ToPositiveHours(configuration.JobRetention.CompletedRetention ?? TimeSpan.FromDays(1)),
-              CompletedRetainForever = configuration.JobRetention.CompletedRetention is null,
-              FailedRetentionHours = ToPositiveHours(configuration.JobRetention.FailedRetention ?? TimeSpan.FromDays(7)),
-              FailedRetainForever = configuration.JobRetention.FailedRetention is null,
-              CanceledRetentionHours = ToPositiveHours(configuration.JobRetention.CanceledRetention ?? TimeSpan.FromDays(7)),
-              CanceledRetainForever = configuration.JobRetention.CanceledRetention is null,
-              JobRetentionCleanupIntervalMinutes = ToPositiveMinutes(configuration.JobRetention.CleanupInterval),
-              JobRetentionBatchSize = configuration.JobRetention.BatchSize,
-              JobEventRetentionHours = ToPositiveHours(configuration.JobEvents.Retention),
-              JobEventCleanupIntervalMinutes = ToPositiveMinutes(configuration.JobEvents.CleanupInterval),
-              MetricsRetentionHours = ToPositiveHours(configuration.Metrics.Retention),
-              MetricsCleanupIntervalMinutes = ToPositiveMinutes(configuration.Metrics.CleanupInterval),
-          };
-
-        public ShedduellerCleanupConfiguration ToConfiguration()
-          => new(
-            new JobRetentionCleanupConfiguration(
-              this.JobRetentionEnabled,
-              this.CompletedRetainForever ? null : ToPositiveTimeSpanFromHours(this.CompletedRetentionHours, "Completed retention"),
-              this.FailedRetainForever ? null : ToPositiveTimeSpanFromHours(this.FailedRetentionHours, "Failed retention"),
-              this.CanceledRetainForever ? null : ToPositiveTimeSpanFromHours(this.CanceledRetentionHours, "Canceled retention"),
-              ToPositiveTimeSpanFromMinutes(this.JobRetentionCleanupIntervalMinutes, "Terminal job cleanup interval"),
-              RequirePositive(this.JobRetentionBatchSize, "Batch size")),
-            new JobEventCleanupConfiguration(
-              ToPositiveTimeSpanFromHours(this.JobEventRetentionHours, "Job event retention"),
-              ToPositiveTimeSpanFromMinutes(this.JobEventCleanupIntervalMinutes, "Job event cleanup interval")),
-            new MetricsCleanupConfiguration(
-              ToPositiveTimeSpanFromHours(this.MetricsRetentionHours, "Metrics retention"),
-              ToPositiveTimeSpanFromMinutes(this.MetricsCleanupIntervalMinutes, "Metrics cleanup interval")));
-
-        private static int ToPositiveHours(TimeSpan value)
-          => Math.Max(1, Convert.ToInt32(Math.Ceiling(value.TotalHours)));
-
-        private static int ToPositiveMinutes(TimeSpan value)
-          => Math.Max(1, Convert.ToInt32(Math.Ceiling(value.TotalMinutes)));
-
-        private static TimeSpan ToPositiveTimeSpanFromHours(
-            int value,
-            string label)
-          => TimeSpan.FromHours(RequirePositive(value, label));
-
-        private static TimeSpan ToPositiveTimeSpanFromMinutes(
-            int value,
-            string label)
-          => TimeSpan.FromMinutes(RequirePositive(value, label));
-
-        private static int RequirePositive(
-            int value,
-            string label)
-        {
-            if (value <= 0)
-            {
-                throw new InvalidOperationException(string.Concat(label, " must be positive."));
-            }
-
-            return value;
-        }
-    }
 }

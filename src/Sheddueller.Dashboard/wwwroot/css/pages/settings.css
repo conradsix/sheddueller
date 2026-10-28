@@ -1,3 +1,105 @@
 /* Page-specific layout for the settings page. Shared look lives in ../sheddueller.css. */
 @layer pages {
+  /* A readable form column; the page still flows and scrolls in the shell. */
+  .settings-page {
+    grid-template-columns: minmax(0, 860px);
+  }
+
+  /* Keep Reload beside the title in the narrower column; the description wraps instead. */
+  .settings-page .sd-page-header {
+    flex-wrap: nowrap;
+  }
+
+  /* Room for the unsaved-changes bar, so it never covers the last field. */
+  .settings-page--dirty {
+    padding-bottom: 72px;
+  }
+
+  .settings-card__note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 12px 20px 0;
+    border-radius: var(--radius-md);
+    background: var(--muted);
+    color: var(--muted-foreground);
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+
+  .settings-card__note .sd-icon {
+    margin-top: 2px;
+    font-size: 14px;
+  }
+
+  .settings-rows {
+    display: grid;
+    margin-top: 16px;
+  }
+
+  .settings-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 272px;
+    align-items: start;
+    gap: 8px 32px;
+    border-top: 1px solid var(--border);
+    padding: 14px 20px;
+  }
+
+  .settings-row__text {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: 2px;
+  }
+
+  .settings-row__label {
+    display: block;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .settings-row__control {
+    display: grid;
+    min-width: 0;
+    justify-items: start;
+    gap: 8px;
+  }
+
+  .settings-duration {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .settings-duration__amount {
+    width: 104px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .settings-duration__unit select {
+    width: 120px;
+  }
+
+  .settings-unit {
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+
+  .settings-forever {
+    font-weight: 400;
+  }
+
+  .settings-page .sd-input:disabled,
+  .settings-page .sd-select select:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  @media (max-width: 640px) {
+    .settings-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 }
