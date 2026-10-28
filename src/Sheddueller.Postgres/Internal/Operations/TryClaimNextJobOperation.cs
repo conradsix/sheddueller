@@ -114,29 +114,8 @@ internal static class TryClaimNextJobOperation
           $"""
           select job.job_id
           from {context.Names.Jobs} job
-          where job.state = 'Queued'
-            and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
-            and not exists (
-                select 1
-                from {context.Names.JobDependencies} dependency
-                join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
-                where dependency.job_id = job.job_id
-                  and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
-            )
-            and not exists (
-                select 1
-                from {context.Names.JobConcurrencyGroups} job_group
-                join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
-                where job_group.job_id = job.job_id
-                  and (
-                      concurrency_group.in_use_count >= concurrency_group.effective_limit
-                      or (
-                          concurrency_group.effective_rate_permit_count is not null
-                          and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
-                      )
-                  )
-            )
-          order by job.priority desc, job.enqueue_sequence asc
+          where {PostgresSqlFragments.JobIsClaimable(context.Names, "job", PostgresSqlFragments.ClockNow)}
+          order by {PostgresSqlFragments.ClaimOrder("job")}
           for update of job skip locked
           limit @candidate_limit;
           """;
@@ -168,17 +147,9 @@ internal static class TryClaimNextJobOperation
               from {context.Names.Jobs} job
               join {context.Names.JobConcurrencyGroups} job_group on job_group.job_id = job.job_id
               join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
-              where job.state = 'Queued'
-                and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
-                and not exists (
-                    select 1
-                    from {context.Names.JobDependencies} dependency
-                    join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
-                    where dependency.job_id = job.job_id
-                      and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
-                )
-                and concurrency_group.effective_rate_permit_count is not null
-                and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
+              where {PostgresSqlFragments.JobIsDue("job", PostgresSqlFragments.TransactionNow)}
+                and not {PostgresSqlFragments.HasUnfinishedPrerequisites(context.Names, "job")}
+                and {PostgresSqlFragments.GroupIsRateLimited("concurrency_group", PostgresSqlFragments.ClockNow)}
               group by job.job_id
           ) rate_blocked;
           """;

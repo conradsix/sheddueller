@@ -62,7 +62,7 @@ internal static class CancelJobOperation
           context,
           connection,
           transaction,
-          new AppendJobEventRequest(row.JobId, JobEventKind.Lifecycle, row.AttemptCount, Message: "Canceled"),
+          new AppendJobEventRequest(row.JobId, JobEventKind.Lifecycle, row.AttemptCount, Message: PostgresJobEventMessages.Canceled),
           cancellationToken)
           .ConfigureAwait(false);
 

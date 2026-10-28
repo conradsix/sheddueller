@@ -74,6 +74,15 @@ internal sealed class PostgresTestContext(
         """,
         command => command.Parameters.AddWithValue("job_id", jobId));
 
+    public async ValueTask MakeJobDueAsync(Guid jobId)
+      => await this.ExecuteAsync(
+        $"""
+        update {this.Table("jobs")}
+        set not_before_utc = transaction_timestamp() - interval '1 millisecond'
+        where job_id = @job_id;
+        """,
+        command => command.Parameters.AddWithValue("job_id", jobId));
+
     public async ValueTask<int?> ReadSchemaVersionAsync()
     {
         var result = await this.ExecuteScalarAsync(
@@ -280,6 +289,41 @@ internal sealed class PostgresTestContext(
           command => command.Parameters.AddWithValue("job_id", jobId));
         return Convert.ToInt32(result, CultureInfo.InvariantCulture);
     }
+
+    public async ValueTask InsertLogEventsAsync(Guid jobId, int count)
+      => await this.ExecuteAsync(
+        $"""
+        with job as (
+            update {this.Table("jobs")}
+            set job_event_sequence = job_event_sequence + @count
+            where job_id = @job_id
+            returning job_event_sequence - @count as last_sequence
+        )
+        insert into {this.Table("job_events")} (
+            job_id,
+            event_sequence,
+            event_id,
+            kind,
+            occurred_at_utc,
+            attempt_number,
+            log_level,
+            message)
+        select
+            @job_id,
+            job.last_sequence + series.n,
+            md5(@job_id::text || ':' || (job.last_sequence + series.n)::text)::uuid,
+            'Log',
+            transaction_timestamp(),
+            1,
+            'Information',
+            'log ' || series.n
+        from job, generate_series(1, @count) as series(n);
+        """,
+        command =>
+        {
+            command.Parameters.AddWithValue("job_id", jobId);
+            command.Parameters.AddWithValue("count", count);
+        });
 
     public async ValueTask<IReadOnlyList<JobEvent>> ReadJobEventsAsync(Guid jobId)
     {

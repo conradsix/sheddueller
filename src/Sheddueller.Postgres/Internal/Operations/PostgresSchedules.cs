@@ -411,7 +411,7 @@ internal static class PostgresSchedules
           context,
           connection,
           transaction,
-          new AppendJobEventRequest(jobId, JobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
+          new AppendJobEventRequest(jobId, JobEventKind.Lifecycle, AttemptNumber: 0, Message: PostgresJobEventMessages.Queued),
           cancellationToken)
           .ConfigureAwait(false);
 

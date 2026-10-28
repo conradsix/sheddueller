@@ -31,6 +31,8 @@ internal static class PostgresMetricsInspectionOperation
 
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await PostgresMetricsRollups.CleanupAsync(context, connection, cleanupConfiguration, cancellationToken).ConfigureAwait(false);
+
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var current = await ReadCurrentCountsAsync(context, connection, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false);
 
         var metrics = new List<MetricsInspectionWindow>(windows.Count);
@@ -39,6 +41,7 @@ internal static class PostgresMetricsInspectionOperation
             metrics.Add(await ReadWindowAsync(context, connection, window, current, cancellationToken).ConfigureAwait(false));
         }
 
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new MetricsInspectionSnapshot(metrics);
     }
 
@@ -101,8 +104,8 @@ internal static class PostgresMetricsInspectionOperation
           ),
           saturated_groups as (
               select count(*) as saturated_group_count
-              from {context.Names.ConcurrencyGroups}
-              where in_use_count >= effective_limit
+              from {context.Names.ConcurrencyGroups} concurrency_group
+              where {PostgresSqlFragments.GroupIsSaturated("concurrency_group")}
           ),
           node_counts as (
               select

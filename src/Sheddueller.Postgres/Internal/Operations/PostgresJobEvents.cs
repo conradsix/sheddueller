@@ -179,8 +179,13 @@ internal static class PostgresJobEvents
           request.Message,
           request.ProgressPercent,
           request.Fields);
-        await PostgresMetricsRollups.RecordJobEventAsync(context, connection, transaction, jobEvent, cancellationToken)
-          .ConfigureAwait(false);
+        // Most events are logs and progress, which no metric counts, so they skip the rollup statement entirely.
+        var metric = PostgresMetricsRollups.ClassifyJobEvent(jobEvent.Kind, jobEvent.Message);
+        if (metric != PostgresJobEventMetric.None)
+        {
+            await PostgresMetricsRollups.RecordJobEventAsync(context, connection, transaction, jobEvent, metric, cancellationToken)
+              .ConfigureAwait(false);
+        }
 
         return jobEvent;
     }

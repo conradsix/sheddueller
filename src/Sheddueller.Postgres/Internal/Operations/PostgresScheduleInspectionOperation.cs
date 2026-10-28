@@ -16,6 +16,7 @@ internal static class PostgresScheduleInspectionOperation
     {
         ValidateQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         await using var countCommand = connection.CreateCommand();
         var countConditions = new List<string>();
         ConfigureFilters(context, countCommand, countConditions, query);
@@ -46,6 +47,7 @@ internal static class PostgresScheduleInspectionOperation
           """;
 
         var rows = await ReadScheduleRowsAsync(context, connection, command, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         var pageRows = rows.Take(query.PageSize).ToArray();
         return new ScheduleInspectionPage(
           pageRows,
@@ -59,6 +61,7 @@ internal static class PostgresScheduleInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
@@ -75,9 +78,12 @@ internal static class PostgresScheduleInspectionOperation
         }
 
         var occurrences = await ReadOccurrencesAsync(context, connection, scheduleKey, cancellationToken).ConfigureAwait(false);
+        var retryPolicy = await ReadRetryPolicyAsync(context, connection, scheduleKey, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
         return new ScheduleInspectionDetail(
           rows[0],
-          await ReadRetryPolicyAsync(context, connection, scheduleKey, cancellationToken).ConfigureAwait(false),
+          retryPolicy,
           [.. occurrences.Take(20)],
           occurrences.FirstOrDefault(occurrence => occurrence.State == JobState.Completed),
           occurrences.FirstOrDefault(occurrence => occurrence.State == JobState.Failed));

@@ -57,7 +57,7 @@ internal static class MarkJobCompletedOperation
           context,
           connection,
           transaction,
-          new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: "Completed"),
+          new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: PostgresJobEventMessages.Completed),
           cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

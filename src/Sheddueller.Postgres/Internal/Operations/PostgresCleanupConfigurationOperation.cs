@@ -14,6 +14,8 @@ internal static class PostgresCleanupConfigurationOperation
     private const string JobEventsKey = "cleanup.job_events";
     private const string MetricsKey = "cleanup.metrics";
 
+    // Reads never write: a setting that hasn't been persisted reads as the caller's default, and only SetAsync stores
+    // settings.
     public static async ValueTask<ShedduellerCleanupConfiguration> GetAsync(
         PostgresOperationContext context,
         ShedduellerCleanupConfiguration defaultConfiguration,
@@ -21,17 +23,11 @@ internal static class PostgresCleanupConfigurationOperation
     {
         Validate(defaultConfiguration);
 
-        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-
-        var configuration = new ShedduellerCleanupConfiguration(
-          await ReadJobRetentionAsync(context, connection, transaction, defaultConfiguration.JobRetention, cancellationToken).ConfigureAwait(false),
-          await ReadJobEventsAsync(context, connection, transaction, defaultConfiguration.JobEvents, cancellationToken).ConfigureAwait(false),
-          await ReadMetricsAsync(context, connection, transaction, defaultConfiguration.Metrics, cancellationToken).ConfigureAwait(false));
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-        return configuration;
+        var documents = await ReadDocumentsAsync(context, [JobRetentionKey, JobEventsKey, MetricsKey], cancellationToken).ConfigureAwait(false);
+        return new ShedduellerCleanupConfiguration(
+          ToJobRetention(documents, defaultConfiguration.JobRetention),
+          ToJobEvents(documents, defaultConfiguration.JobEvents),
+          ToMetrics(documents, defaultConfiguration.Metrics));
     }
 
     public static async ValueTask<JobRetentionCleanupConfiguration> GetJobRetentionAsync(
@@ -41,12 +37,8 @@ internal static class PostgresCleanupConfigurationOperation
     {
         Validate(defaultConfiguration);
 
-        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var configuration = await ReadJobRetentionAsync(context, connection, transaction, defaultConfiguration, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-        return configuration;
+        var documents = await ReadDocumentsAsync(context, [JobRetentionKey], cancellationToken).ConfigureAwait(false);
+        return ToJobRetention(documents, defaultConfiguration);
     }
 
     public static async ValueTask<JobEventCleanupConfiguration> GetJobEventsAsync(
@@ -56,12 +48,8 @@ internal static class PostgresCleanupConfigurationOperation
     {
         Validate(defaultConfiguration);
 
-        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var configuration = await ReadJobEventsAsync(context, connection, transaction, defaultConfiguration, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-        return configuration;
+        var documents = await ReadDocumentsAsync(context, [JobEventsKey], cancellationToken).ConfigureAwait(false);
+        return ToJobEvents(documents, defaultConfiguration);
     }
 
     public static async ValueTask<MetricsCleanupConfiguration> GetMetricsAsync(
@@ -71,12 +59,8 @@ internal static class PostgresCleanupConfigurationOperation
     {
         Validate(defaultConfiguration);
 
-        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var configuration = await ReadMetricsAsync(context, connection, transaction, defaultConfiguration, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-        return configuration;
+        var documents = await ReadDocumentsAsync(context, [MetricsKey], cancellationToken).ConfigureAwait(false);
+        return ToMetrics(documents, defaultConfiguration);
     }
 
     public static async ValueTask SetAsync(
@@ -96,69 +80,50 @@ internal static class PostgresCleanupConfigurationOperation
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async ValueTask<JobRetentionCleanupConfiguration> ReadJobRetentionAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        JobRetentionCleanupConfiguration defaultConfiguration,
-        CancellationToken cancellationToken)
+    private static JobRetentionCleanupConfiguration ToJobRetention(
+        IReadOnlyDictionary<string, string> documents,
+        JobRetentionCleanupConfiguration defaultConfiguration)
     {
-        await SeedAsync(context, connection, transaction, JobRetentionKey, ToDocument(defaultConfiguration), cancellationToken).ConfigureAwait(false);
-        var document = await ReadAsync<JobRetentionSettingsDocument>(context, connection, transaction, JobRetentionKey, cancellationToken).ConfigureAwait(false);
-        var configuration = document.ToConfiguration();
+        if (!documents.TryGetValue(JobRetentionKey, out var json))
+        {
+            return defaultConfiguration;
+        }
+
+        var configuration = Deserialize<JobRetentionSettingsDocument>(JobRetentionKey, json).ToConfiguration();
         Validate(configuration);
 
         return configuration;
     }
 
-    private static async ValueTask<JobEventCleanupConfiguration> ReadJobEventsAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        JobEventCleanupConfiguration defaultConfiguration,
-        CancellationToken cancellationToken)
+    private static JobEventCleanupConfiguration ToJobEvents(
+        IReadOnlyDictionary<string, string> documents,
+        JobEventCleanupConfiguration defaultConfiguration)
     {
-        await SeedAsync(context, connection, transaction, JobEventsKey, ToDocument(defaultConfiguration), cancellationToken).ConfigureAwait(false);
-        var document = await ReadAsync<JobEventSettingsDocument>(context, connection, transaction, JobEventsKey, cancellationToken).ConfigureAwait(false);
-        var configuration = document.ToConfiguration();
+        if (!documents.TryGetValue(JobEventsKey, out var json))
+        {
+            return defaultConfiguration;
+        }
+
+        var configuration = Deserialize<JobEventSettingsDocument>(JobEventsKey, json).ToConfiguration();
         Validate(configuration);
 
         return configuration;
     }
 
-    private static async ValueTask<MetricsCleanupConfiguration> ReadMetricsAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        MetricsCleanupConfiguration defaultConfiguration,
-        CancellationToken cancellationToken)
+    private static MetricsCleanupConfiguration ToMetrics(
+        IReadOnlyDictionary<string, string> documents,
+        MetricsCleanupConfiguration defaultConfiguration)
     {
-        await SeedAsync(context, connection, transaction, MetricsKey, ToDocument(defaultConfiguration), cancellationToken).ConfigureAwait(false);
-        var document = await ReadAsync<MetricsSettingsDocument>(context, connection, transaction, MetricsKey, cancellationToken).ConfigureAwait(false);
-        var configuration = document.ToConfiguration();
+        if (!documents.TryGetValue(MetricsKey, out var json))
+        {
+            return defaultConfiguration;
+        }
+
+        var configuration = Deserialize<MetricsSettingsDocument>(MetricsKey, json).ToConfiguration();
         Validate(configuration);
 
         return configuration;
     }
-
-    private static async ValueTask SeedAsync<TDocument>(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        string key,
-        TDocument document,
-        CancellationToken cancellationToken)
-      => await PostgresOperationContext.ExecuteCountAsync(
-        connection,
-        transaction,
-        $"""
-        insert into {context.Names.Settings} (setting_key, value, updated_at_utc)
-        values (@setting_key, @value, transaction_timestamp())
-        on conflict (setting_key) do nothing;
-        """,
-        command => AddSettingParameters(command, key, document),
-        cancellationToken)
-        .ConfigureAwait(false);
 
     private static async ValueTask UpsertAsync<TDocument>(
         PostgresOperationContext context,
@@ -181,25 +146,35 @@ internal static class PostgresCleanupConfigurationOperation
         cancellationToken)
         .ConfigureAwait(false);
 
-    private static async ValueTask<TDocument> ReadAsync<TDocument>(
+    private static async ValueTask<IReadOnlyDictionary<string, string>> ReadDocumentsAsync(
         PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        string key,
+        string[] keys,
         CancellationToken cancellationToken)
     {
+        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
         command.CommandText =
           $"""
-          select value::text
+          select setting_key, value::text
           from {context.Names.Settings}
-          where setting_key = @setting_key;
+          where setting_key = any(@setting_keys);
           """;
-        command.Parameters.AddWithValue("setting_key", key);
+        command.Parameters.AddWithValue("setting_keys", keys);
 
-        var json = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string
-          ?? throw new InvalidOperationException($"PostgreSQL cleanup setting '{key}' was not found.");
+        var documents = new Dictionary<string, string>(StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            documents.Add(reader.GetString(0), reader.GetString(1));
+        }
+
+        return documents;
+    }
+
+    private static TDocument Deserialize<TDocument>(
+        string key,
+        string json)
+    {
         try
         {
             return JsonSerializer.Deserialize<TDocument>(json)

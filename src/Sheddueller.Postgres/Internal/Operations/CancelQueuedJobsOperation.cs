@@ -97,7 +97,7 @@ internal static class CancelQueuedJobsOperation
               transaction_timestamp(),
               staged.attempt_number,
               null,
-              'Canceled',
+              @message,
               null,
               null
           from unnest(
@@ -114,6 +114,7 @@ internal static class CancelQueuedJobsOperation
                 canceledJobs.Select(static job => job.EventId).ToArray();
               command.Parameters.Add("attempt_numbers", NpgsqlDbType.Array | NpgsqlDbType.Integer).Value =
                 canceledJobs.Select(static job => job.AttemptNumber).ToArray();
+              command.Parameters.AddWithValue("message", PostgresJobEventMessages.Canceled);
           },
           cancellationToken)
           .ConfigureAwait(false);

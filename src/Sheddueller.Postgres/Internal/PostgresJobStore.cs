@@ -1,5 +1,8 @@
 namespace Sheddueller.Postgres.Internal;
 
+using System.Diagnostics.CodeAnalysis;
+
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Sheddueller;
@@ -13,7 +16,8 @@ using Sheddueller.Storage;
 
 internal sealed class PostgresJobStore(
     ShedduellerPostgresOptions options,
-    IOptions<ShedduellerOptions> shedduellerOptions)
+    IOptions<ShedduellerOptions> shedduellerOptions,
+    ILogger<PostgresJobStore> logger)
     : IJobStore,
     IJobInspectionReader,
     IJobEventSink,
@@ -27,6 +31,7 @@ internal sealed class PostgresJobStore(
 {
     private readonly PostgresOperationContext _context = new(options);
     private readonly IOptions<ShedduellerOptions> _shedduellerOptions = shedduellerOptions;
+    private readonly ILogger<PostgresJobStore> _logger = logger;
 
     public ValueTask<EnqueueJobResult> EnqueueAsync(
         EnqueueJobRequest request,
@@ -317,7 +322,11 @@ internal sealed class PostgresJobStore(
     public ValueTask<int> CleanupAsync(
         TimeSpan retention,
         CancellationToken cancellationToken = default)
-      => PostgresJobInspectionOperation.CleanupAsync(this._context, retention, cancellationToken);
+      => PostgresJobRetentionOperation.CleanupEventsAsync(
+        this._context,
+        retention,
+        PostgresJobRetentionOperation.JobEventCleanupBatchSize,
+        cancellationToken);
 
     public ValueTask<JobRetentionCleanupResult> CleanupTerminalJobsAsync(
         JobRetentionCleanupRequest request,
@@ -325,7 +334,7 @@ internal sealed class PostgresJobStore(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return PostgresJobRetentionOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return this.CleanupTerminalJobsCoreAsync(request, cancellationToken);
     }
 
     public ValueTask<ShedduellerCleanupConfiguration> GetCleanupConfigurationAsync(
@@ -417,6 +426,35 @@ internal sealed class PostgresJobStore(
         MetricsInspectionQuery query,
         CancellationToken cancellationToken = default)
       => this.GetMetricsCoreAsync(query, cancellationToken);
+
+    private async ValueTask<JobRetentionCleanupResult> CleanupTerminalJobsCoreAsync(
+        JobRetentionCleanupRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await PostgresJobRetentionOperation.ExecuteAsync(this._context, request, cancellationToken).ConfigureAwait(false);
+        await this.CleanupMetricsAsync(cancellationToken).ConfigureAwait(false);
+
+        return result;
+    }
+
+    // Metrics rollups have no cleanup service of their own. The job retention service runs on worker and dashboard
+    // hosts alike, so its passes prune metrics too; the cleanup itself keeps to the configured metrics interval.
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "A metrics cleanup failure must not fail the job retention pass that ran it.")]
+    private async ValueTask CleanupMetricsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var configuration = await PostgresCleanupConfigurationOperation
+              .GetMetricsAsync(this._context, MetricsCleanupConfiguration.Default, cancellationToken)
+              .ConfigureAwait(false);
+            await using var connection = await this._context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await PostgresMetricsRollups.CleanupAsync(this._context, connection, configuration, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            this._logger.PostgresMetricsCleanupFailed(exception, this._context.Options.SchemaName);
+        }
+    }
 
     private async ValueTask<MetricsInspectionSnapshot> GetMetricsCoreAsync(
         MetricsInspectionQuery query,

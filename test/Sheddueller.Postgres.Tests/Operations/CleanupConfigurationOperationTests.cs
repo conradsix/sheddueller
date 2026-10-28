@@ -11,7 +11,7 @@ using Shouldly;
 public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
 {
     [Fact]
-    public async Task GetCleanupConfiguration_MissingSettings_SeedsDefaults()
+    public async Task GetCleanupConfiguration_MissingSettings_ReturnsDefaultsWithoutWriting()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         var store = context.Provider.GetRequiredService<IShedduellerCleanupConfigurationStore>();
@@ -30,7 +30,21 @@ public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture) 
         var configuration = await store.GetCleanupConfigurationAsync(defaults);
 
         configuration.ShouldBe(defaults);
-        (await CountSettingsAsync(context)).ShouldBe(3);
+        (await CountSettingsAsync(context)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetCleanupConfiguration_DefaultsChangeBeforeAnySave_ReturnsCurrentDefaults()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        var store = context.Provider.GetRequiredService<IShedduellerCleanupConfigurationStore>();
+        await store.GetCleanupConfigurationAsync(CreateConfiguration(batchSize: 100));
+        var changedDefaults = CreateConfiguration(batchSize: 250, metricsRetention: TimeSpan.FromDays(3));
+
+        var configuration = await store.GetCleanupConfigurationAsync(changedDefaults);
+
+        configuration.ShouldBe(changedDefaults);
+        (await store.GetMetricsCleanupConfigurationAsync(MetricsCleanupConfiguration.Default)).ShouldBe(MetricsCleanupConfiguration.Default);
     }
 
     [Fact]
@@ -68,7 +82,7 @@ public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture) 
     }
 
     [Fact]
-    public async Task GetJobRetentionCleanupConfiguration_MissingSetting_SeedsOnlyJobRetention()
+    public async Task GetJobRetentionCleanupConfiguration_MissingSetting_ReturnsDefaultWithoutWriting()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         var store = context.Provider.GetRequiredService<IShedduellerCleanupConfigurationStore>();
@@ -77,7 +91,7 @@ public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture) 
         var configuration = await store.GetJobRetentionCleanupConfigurationAsync(defaults);
 
         configuration.ShouldBe(defaults);
-        (await CountSettingsAsync(context)).ShouldBe(1);
+        (await CountSettingsAsync(context)).ShouldBe(0);
     }
 
     [Fact]

@@ -1,7 +1,5 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
-using System.Globalization;
-
 using Npgsql;
 
 using Sheddueller.Storage;
@@ -171,7 +169,7 @@ internal static class PostgresClaimedJobs
           cancellationToken)
           .ConfigureAwait(false);
 
-        return retriesRemain ? "Retry scheduled" : "Failed";
+        return retriesRemain ? PostgresJobEventMessages.RetryScheduled : PostgresJobEventMessages.Failed;
     }
 
     public static async ValueTask<string?> TryMarkSupersededByQueuedDuplicateAsync(
@@ -224,7 +222,7 @@ internal static class PostgresClaimedJobs
           cancellationToken)
           .ConfigureAwait(false);
 
-        return CreateSupersededMessage(duplicateJobId.Value);
+        return PostgresJobEventMessages.SupersededFailure(duplicateJobId.Value);
     }
 
     private static async ValueTask LockIdempotencyKeyAsync(
@@ -271,7 +269,4 @@ internal static class PostgresClaimedJobs
           ? duplicateJobId
           : null;
     }
-
-    private static string CreateSupersededMessage(Guid duplicateJobId)
-      => string.Create(CultureInfo.InvariantCulture, $"Failed; superseded by queued idempotent job {duplicateJobId:D}");
 }

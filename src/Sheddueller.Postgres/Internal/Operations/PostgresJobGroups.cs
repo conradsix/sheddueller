@@ -72,15 +72,12 @@ internal static class PostgresJobGroups
         command.CommandText =
           $"""
           select
-              group_key,
-              effective_limit,
-              in_use_count,
-              effective_rate_permit_count,
-              rate_theoretical_arrival_at_utc is null
-                  or rate_theoretical_arrival_at_utc <= clock_timestamp() as rate_available
-          from {context.Names.ConcurrencyGroups}
-          where group_key = any(@group_keys)
-          order by group_key asc
+              concurrency_group.group_key,
+              {PostgresSqlFragments.GroupIsSaturated("concurrency_group")}
+                  or {PostgresSqlFragments.GroupIsRateLimited("concurrency_group", PostgresSqlFragments.ClockNow)} as is_blocked
+          from {context.Names.ConcurrencyGroups} concurrency_group
+          where concurrency_group.group_key = any(@group_keys)
+          order by concurrency_group.group_key asc
           for update;
           """;
         command.Parameters.AddWithValue("group_keys", groupKeys.ToArray());
@@ -91,10 +88,7 @@ internal static class PostgresJobGroups
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 lockCount++;
-                var effectiveLimit = reader.GetInt32(1);
-                var inUseCount = reader.GetInt32(2);
-                var rateAvailable = reader.IsDBNull(3) || reader.GetBoolean(4);
-                if (inUseCount >= effectiveLimit || !rateAvailable)
+                if (reader.GetBoolean(1))
                 {
                     return false;
                 }

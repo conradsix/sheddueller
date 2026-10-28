@@ -1,5 +1,7 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
+using System.Data;
+
 using Npgsql;
 
 internal sealed class PostgresOperationContext(ShedduellerPostgresOptions options)
@@ -30,9 +32,35 @@ internal sealed class PostgresOperationContext(ShedduellerPostgresOptions option
     public static object ToDbValue(object? value)
       => value ?? DBNull.Value;
 
+    /// <summary>
+    /// Begins a read-only REPEATABLE READ transaction, so every statement of a multi-statement read sees the same
+    /// snapshot and the same <c>transaction_timestamp()</c>.
+    /// </summary>
+    public static async ValueTask<NpgsqlTransaction> BeginReadSnapshotAsync(
+        NpgsqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var transaction = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ExecuteCountAsync(connection, transaction, "set transaction read only;", static _ => { }, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await transaction.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        return transaction;
+    }
+
+    /// <summary>
+    /// Reads <c>transaction_timestamp()</c>: the start of <paramref name="transaction" />, or of the connection's
+    /// current transaction when it is null, which is the "now" every other statement in that transaction sees.
+    /// </summary>
     public static async ValueTask<DateTimeOffset> ReadTransactionTimestampAsync(
         NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
