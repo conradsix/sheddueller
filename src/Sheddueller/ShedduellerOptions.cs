@@ -41,6 +41,12 @@ public sealed class ShedduellerOptions
     public TimeSpan? DeadNodeThreshold { get; set; }
 
     /// <summary>
+    /// Gets or sets how long after its last heartbeat a worker node is removed from the store. Null keeps nodes forever.
+    /// Must be longer than the dead node threshold, so a node shows as dead before it disappears.
+    /// </summary>
+    public TimeSpan? DeadNodeRetention { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
     /// Gets or sets the default retry policy applied when submissions and schedules do not specify one.
     /// </summary>
     public RetryPolicy? DefaultRetryPolicy { get; set; }

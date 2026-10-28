@@ -155,6 +155,7 @@ public static class ShedduellerPostgresBuilderExtensions
         services.Replace(ServiceDescriptor.Singleton<PostgresRetentionStore, PostgresRetentionStore>());
         services.Replace(ServiceDescriptor.Singleton<IJobEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresRetentionStore>()));
         services.Replace(ServiceDescriptor.Singleton<IJobRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresRetentionStore>()));
+        services.Replace(ServiceDescriptor.Singleton<IWorkerNodeRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresRetentionStore>()));
         services.Replace(ServiceDescriptor.Singleton<IShedduellerCleanupConfigurationStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresRetentionStore>()));
 
         services.Replace(ServiceDescriptor.Singleton<IPostgresMigrator, PostgresMigrator>());

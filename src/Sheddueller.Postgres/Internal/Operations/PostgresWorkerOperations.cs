@@ -142,4 +142,23 @@ internal static class PostgresWorkerOperations
           cancellationToken)
           .ConfigureAwait(false);
     }
+
+    // Heartbeats are stamped with the database clock, so the cutoff is measured on it too. A node that is still
+    // running simply inserts its row again on its next heartbeat.
+    public static async ValueTask<int> CleanupWorkerNodesAsync(
+        PostgresOperationContext context,
+        TimeSpan retention,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          $"""
+          delete from {context.Names.WorkerNodes}
+          where last_heartbeat_at_utc < transaction_timestamp() - @retention;
+          """,
+          command => command.Parameters.AddWithValue("retention", retention),
+          cancellationToken)
+          .ConfigureAwait(false);
+    }
 }

@@ -28,6 +28,7 @@ internal sealed class ShedduellerWorker(
 {
     private static readonly TimeSpan LoopRetryBaseDelay = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan LoopRetryMaxDelay = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan WorkerNodeCleanupInterval = TimeSpan.FromMinutes(1);
 
     private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly IOptions<ShedduellerOptions> _options = options;
@@ -37,7 +38,14 @@ internal sealed class ShedduellerWorker(
     private readonly ILogger<ShedduellerWorker> _logger = logger;
     private readonly JobInvoker _jobInvoker = new(scopeFactory, jobEventQueue, nodeIdProvider.NodeId, logger);
     private readonly ConcurrentDictionary<Task, byte> _runningJobs = new();
+
+    // Optional store capability. PublicationOnly does not cache a failed resolution, so it is retried next time.
+    private readonly Lazy<IWorkerNodeRetentionStore?> _workerNodeRetentionStore = new(
+        serviceProvider.GetService<IWorkerNodeRetentionStore>,
+        LazyThreadSafetyMode.PublicationOnly);
+
     private DateTimeOffset _nextPeriodicStoreWorkAtUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextWorkerNodeCleanupAtUtc = DateTimeOffset.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -307,7 +315,40 @@ internal sealed class ShedduellerWorker(
             this._logger.WorkerPeriodicStoreWorkCompleted(this._nodeIdProvider.NodeId, recovered, materialized);
         }
 
+        await this.CleanupWorkerNodesIfDueAsync(now, cancellationToken).ConfigureAwait(false);
+
         this._nextPeriodicStoreWorkAtUtc = now.Add(this._options.Value.IdlePollingInterval);
+    }
+
+    // Removes nodes whose last heartbeat is older than the dead node retention, so nodes from past deployments and
+    // restarts don't pile up. Every worker runs it, at most once a minute; it is housekeeping, so a failure is logged
+    // and retried next time rather than sending the claim loop into its backoff.
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Dead node cleanup is housekeeping; its failure must not stop or slow claiming.")]
+    private async ValueTask CleanupWorkerNodesIfDueAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (this._options.Value.DeadNodeRetention is not { } retention || now < this._nextWorkerNodeCleanupAtUtc)
+        {
+            return;
+        }
+
+        this._nextWorkerNodeCleanupAtUtc = now.Add(WorkerNodeCleanupInterval);
+        if (this._workerNodeRetentionStore.Value is not { } nodeRetentionStore)
+        {
+            return;
+        }
+
+        try
+        {
+            var removed = await nodeRetentionStore.CleanupWorkerNodesAsync(retention, cancellationToken).ConfigureAwait(false);
+            if (removed > 0)
+            {
+                this._logger.WorkerNodesRemoved(this._nodeIdProvider.NodeId, removed, retention);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            this._logger.WorkerNodeCleanupFailed(exception, this._nodeIdProvider.NodeId);
+        }
     }
 
     private void PruneCompletedJobs()

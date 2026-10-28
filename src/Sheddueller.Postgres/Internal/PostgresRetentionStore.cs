@@ -9,8 +9,8 @@ using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Storage;
 
 /// <summary>
-/// PostgreSQL retention: terminal job and job event cleanup, the metrics cleanup that rides on job retention, and
-/// the stored cleanup configuration.
+/// PostgreSQL retention: terminal job and job event cleanup, the metrics cleanup that rides on job retention, dead
+/// worker node removal, and the stored cleanup configuration.
 /// </summary>
 /// <param name="context">The provider's operation context.</param>
 /// <param name="logger">
@@ -21,6 +21,7 @@ internal sealed class PostgresRetentionStore(
     ILogger<PostgresJobStore> logger)
     : IJobEventRetentionStore,
     IJobRetentionStore,
+    IWorkerNodeRetentionStore,
     IShedduellerCleanupConfigurationStore
 {
     public ValueTask<int> CleanupAsync(
@@ -31,6 +32,15 @@ internal sealed class PostgresRetentionStore(
         retention,
         PostgresJobRetentionOperation.JobEventCleanupBatchSize,
         cancellationToken);
+
+    public ValueTask<int> CleanupWorkerNodesAsync(
+        TimeSpan retention,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(retention, TimeSpan.Zero);
+
+        return PostgresWorkerOperations.CleanupWorkerNodesAsync(context, retention, cancellationToken);
+    }
 
     public ValueTask<JobRetentionCleanupResult> CleanupTerminalJobsAsync(
         JobRetentionCleanupRequest request,

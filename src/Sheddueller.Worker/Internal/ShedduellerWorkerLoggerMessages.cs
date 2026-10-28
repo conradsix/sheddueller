@@ -170,6 +170,25 @@ internal static partial class ShedduellerWorkerLoggerMessages
         int materializedCount);
 
     [LoggerMessage(
+        EventIdStart + 41,
+        LogLevel.Information,
+        "Worker node {NodeId} removed {RemovedCount} worker nodes with no heartbeat for {Retention}.")]
+    public static partial void WorkerNodesRemoved(
+        this ILogger logger,
+        string nodeId,
+        int removedCount,
+        TimeSpan retention);
+
+    [LoggerMessage(
+        EventIdStart + 42,
+        LogLevel.Warning,
+        "Worker node {NodeId} couldn't remove dead worker nodes; it tries again in a minute.")]
+    public static partial void WorkerNodeCleanupFailed(
+        this ILogger logger,
+        Exception exception,
+        string nodeId);
+
+    [LoggerMessage(
         EventIdStart + 50,
         LogLevel.Debug,
         "Worker job retention cleanup skipped because no retention store is registered.")]
