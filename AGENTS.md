@@ -46,3 +46,5 @@ Pull requests should include a concise description, the affected behavior or API
 ## Agent-Specific Instructions
 
 Do not commit build artifacts, `bin/`, `obj/`, `TestResults/`, or `*.lscache`. Avoid public API renames unless the specs are updated at the same time.
+
+Each package records its public API in `PublicAPI.Shipped.txt`; the build fails on any public change that isn't recorded. Add new public API to `PublicAPI.Unshipped.txt` deliberately, and treat removals or signature changes as breaking.
