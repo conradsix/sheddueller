@@ -92,6 +92,60 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_NewStepOnCurrentSchema_RunsOnlyThatStep()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid(), priority: 7));
+        var jobData = await ReadJobDataAsync(context);
+        var constraintIds = await ReadConstraintIdsAsync(context);
+
+        await this.CreateMigrator(context.SchemaName, MarkerStep(1)).ApplyAsync();
+
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresMigrationSteps.BaselineVersion + 1);
+        await AssertTableExistsAsync(context, "step_marker_1");
+        (await ReadJobDataAsync(context)).ShouldBe(jobData);
+        (await ReadConstraintIdsAsync(context)).ShouldBe(constraintIds);
+    }
+
+    [Fact]
+    public async Task Migration_FreshSchema_AppliesBaselineThenSteps()
+    {
+        await using var context = PostgresTestContext.CreateUnmigrated(fixture);
+
+        await this.CreateMigrator(context.SchemaName, MarkerStep(1)).ApplyAsync();
+
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresMigrationSteps.BaselineVersion + 1);
+        await AssertTableExistsAsync(context, "jobs");
+        await AssertTableExistsAsync(context, "step_marker_1");
+    }
+
+    [Fact]
+    public async Task Migration_SchemaPartWayThroughSteps_RunsOnlyTheRemainingSteps()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await this.CreateMigrator(context.SchemaName, MarkerStep(1)).ApplyAsync();
+
+        // Re-running step 1 would fail: its table already exists.
+        await this.CreateMigrator(context.SchemaName, MarkerStep(1), MarkerStep(2)).ApplyAsync();
+
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresMigrationSteps.BaselineVersion + 2);
+        await AssertTableExistsAsync(context, "step_marker_2");
+    }
+
+    [Fact]
+    public void MigrationSteps_Versions_FollowTheBaselineUpToTheExpectedVersion()
+    {
+        var steps = PostgresMigrationSteps.All;
+
+        steps.Select(step => step.Version).ShouldBe(Enumerable.Range(PostgresMigrationSteps.BaselineVersion + 1, steps.Count));
+        (steps.Count == 0 ? PostgresMigrationSteps.BaselineVersion : steps[^1].Version).ShouldBe(PostgresNames.ExpectedSchemaVersion);
+    }
+
+    [Fact]
+    public void MigrationSteps_GapAfterTheBaseline_IsRejected()
+        => Should.Throw<ArgumentException>(() => this.CreateMigrator("sheddueller_gap", MarkerStep(2)));
+
+    [Fact]
     public async Task Migration_ConcurrentInitializations_CreatesSchemaOnce()
     {
         var schemaName = "sheddueller_" + Guid.NewGuid().ToString("N");
@@ -390,6 +444,15 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
           """))
           .ShouldBeTrue();
     }
+
+    // A step that creates an unconstrained table, so it leaves the schema's constraints alone and fails if run twice.
+    private static PostgresMigrationStep MarkerStep(int stepNumber)
+      => new(
+        PostgresMigrationSteps.BaselineVersion + stepNumber,
+        names => $"create table {names.Schema}.step_marker_{stepNumber} (id integer);");
+
+    private PostgresMigrator CreateMigrator(string schemaName, params PostgresMigrationStep[] steps)
+      => new(new ShedduellerPostgresOptions { DataSource = fixture.DataSource, SchemaName = schemaName }, steps);
 
     private static async ValueTask<string> ReadJobDataAsync(PostgresTestContext context)
       => await ScalarAsync<string>(context, $"select row_to_json(job)::text from {context.Table("jobs")} job;");
