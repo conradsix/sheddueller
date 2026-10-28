@@ -15,33 +15,16 @@ internal static class PostgresSchedules
         string scheduleKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
-              schedule.schedule_key,
-              schedule.cron_expression,
-              schedule.is_paused,
-              schedule.overlap_mode,
-              schedule.priority,
-              schedule.service_type,
-              schedule.method_name,
-              schedule.method_parameter_types,
-              schedule.invocation_target_kind,
-              schedule.method_parameter_bindings,
-              schedule.serialized_arguments_content_type,
-              schedule.serialized_arguments,
-              schedule.retry_policy_configured,
-              schedule.max_attempts,
-              schedule.retry_backoff_kind,
-              schedule.retry_base_delay_ms,
-              schedule.retry_max_delay_ms,
-              schedule.next_fire_at_utc
+              {PostgresReaders.ScheduleDefinitionColumnsSql}
           from {context.Names.RecurringSchedules} schedule
           where schedule.schedule_key = @schedule_key
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
 
         PostgresScheduleDefinition? schedule = null;
@@ -49,7 +32,7 @@ internal static class PostgresSchedules
         {
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                schedule = PostgresReaders.ReadScheduleDefinition(reader, [], []);
+                schedule = PostgresReaders.ReadScheduleDefinition(reader);
             }
         }
 
@@ -58,11 +41,9 @@ internal static class PostgresSchedules
             return null;
         }
 
-        var groupKeys = await ReadScheduleGroupKeysAsync(context, connection, transaction, schedule.ScheduleKey, cancellationToken)
+        var schedules = await AttachGroupsAndTagsAsync(context, connection, transaction, [schedule], cancellationToken)
           .ConfigureAwait(false);
-        var tags = await PostgresScheduleTags.ReadScheduleTagsAsync(context, connection, transaction, schedule.ScheduleKey, cancellationToken)
-          .ConfigureAwait(false);
-        return schedule with { ConcurrencyGroupKeys = groupKeys, Tags = tags };
+        return schedules[0];
     }
 
     public static async ValueTask InsertScheduleAsync(
@@ -188,8 +169,9 @@ internal static class PostgresSchedules
         Action<NpgsqlCommand> configure,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
               schedule.schedule_key,
@@ -209,7 +191,7 @@ internal static class PostgresSchedules
           {whereClause}
           group by schedule.schedule_key
           order by schedule.schedule_key asc;
-          """;
+          """);
         configure(command);
 
         var schedules = new List<RecurringScheduleInfo>();
@@ -234,11 +216,16 @@ internal static class PostgresSchedules
 
         await reader.DisposeAsync().ConfigureAwait(false);
 
+        var tagsByKey = await PostgresScheduleTags.ReadScheduleTagsByKeyAsync(
+          context,
+          connection,
+          transaction: null,
+          [.. schedules.Select(static schedule => schedule.ScheduleKey)],
+          cancellationToken)
+          .ConfigureAwait(false);
         for (var i = 0; i < schedules.Count; i++)
         {
-            var tags = await PostgresScheduleTags.ReadScheduleTagsAsync(context, connection, transaction: null, schedules[i].ScheduleKey, cancellationToken)
-              .ConfigureAwait(false);
-            schedules[i] = schedules[i] with { Tags = tags };
+            schedules[i] = schedules[i] with { Tags = tagsByKey.TryGetValue(schedules[i].ScheduleKey, out var tags) ? tags : [] };
         }
 
         return schedules;
@@ -250,55 +237,29 @@ internal static class PostgresSchedules
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
-              schedule.schedule_key,
-              schedule.cron_expression,
-              schedule.is_paused,
-              schedule.overlap_mode,
-              schedule.priority,
-              schedule.service_type,
-              schedule.method_name,
-              schedule.method_parameter_types,
-              schedule.invocation_target_kind,
-              schedule.method_parameter_bindings,
-              schedule.serialized_arguments_content_type,
-              schedule.serialized_arguments,
-              schedule.retry_policy_configured,
-              schedule.max_attempts,
-              schedule.retry_backoff_kind,
-              schedule.retry_base_delay_ms,
-              schedule.retry_max_delay_ms,
-              schedule.next_fire_at_utc
+              {PostgresReaders.ScheduleDefinitionColumnsSql}
           from {context.Names.RecurringSchedules} schedule
           where schedule.is_paused = false
             and schedule.next_fire_at_utc <= transaction_timestamp()
           order by schedule.next_fire_at_utc asc, schedule.schedule_key asc
           for update skip locked;
-          """;
+          """);
 
         var schedules = new List<PostgresScheduleDefinition>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                schedules.Add(PostgresReaders.ReadScheduleDefinition(reader, [], []));
+                schedules.Add(PostgresReaders.ReadScheduleDefinition(reader));
             }
         }
 
-        for (var i = 0; i < schedules.Count; i++)
-        {
-            var groupKeys = await ReadScheduleGroupKeysAsync(context, connection, transaction, schedules[i].ScheduleKey, cancellationToken)
-              .ConfigureAwait(false);
-            var tags = await PostgresScheduleTags.ReadScheduleTagsAsync(context, connection, transaction, schedules[i].ScheduleKey, cancellationToken)
-              .ConfigureAwait(false);
-            schedules[i] = schedules[i] with { ConcurrencyGroupKeys = groupKeys, Tags = tags };
-        }
-
-        return schedules;
+        return await AttachGroupsAndTagsAsync(context, connection, transaction, schedules, cancellationToken).ConfigureAwait(false);
     }
 
     public static async ValueTask<bool> HasNonTerminalOccurrenceAsync(
@@ -308,22 +269,26 @@ internal static class PostgresSchedules
         string scheduleKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select exists (
               select 1
               from {context.Names.Jobs}
               where source_schedule_key = @schedule_key
                 and state in ('Queued', 'Claimed'));
-          """;
+          """);
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
 
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false);
     }
 
-    public static async ValueTask<long> InsertMaterializedJobAsync(
+    /// <summary>
+    /// Enqueues an occurrence of the schedule, inside the caller's transaction, as a job built from the schedule's
+    /// definition.
+    /// </summary>
+    public static ValueTask<EnqueueJobResult> EnqueueOccurrenceAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -333,90 +298,31 @@ internal static class PostgresSchedules
         DateTimeOffset? scheduledFireAtUtc,
         ScheduleOccurrenceKind occurrenceKind,
         CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-          $"""
-          insert into {context.Names.Jobs} (
-              job_id,
-              state,
-              priority,
-              enqueued_at_utc,
-              service_type,
-              method_name,
-              method_parameter_types,
-              invocation_target_kind,
-              method_parameter_bindings,
-              serialized_arguments_content_type,
-              serialized_arguments,
-              attempt_count,
-              max_attempts,
-              retry_backoff_kind,
-              retry_base_delay_ms,
-              retry_max_delay_ms,
-              source_schedule_key,
-              scheduled_fire_at_utc,
-              schedule_occurrence_kind)
-          values (
-              @job_id,
-              'Queued',
-              @priority,
-              transaction_timestamp(),
-              @service_type,
-              @method_name,
-              @method_parameter_types,
-              @invocation_target_kind,
-              @method_parameter_bindings,
-              @serialized_arguments_content_type,
-              @serialized_arguments,
-              0,
-              @max_attempts,
-              @retry_backoff_kind,
-              @retry_base_delay_ms,
-              @retry_max_delay_ms,
-              @source_schedule_key,
-              @scheduled_fire_at_utc,
-              @schedule_occurrence_kind)
-          returning enqueue_sequence;
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-        command.Parameters.AddWithValue("priority", schedule.Priority);
-        command.Parameters.AddWithValue("service_type", schedule.ServiceType);
-        command.Parameters.AddWithValue("method_name", schedule.MethodName);
-        command.Parameters.AddWithValue("method_parameter_types", schedule.MethodParameterTypes.ToArray());
-        command.Parameters.AddWithValue("invocation_target_kind", PostgresConversion.ToText(schedule.InvocationTargetKind));
-        command.Parameters.AddWithValue(
-          "method_parameter_bindings",
-          NpgsqlDbType.Array | NpgsqlDbType.Text,
-          PostgresOperationContext.ToDbValue(schedule.MethodParameterBindings?.Select(PostgresConversion.ToText).ToArray()));
-        command.Parameters.AddWithValue("serialized_arguments_content_type", schedule.SerializedArguments.ContentType);
-        command.Parameters.AddWithValue("serialized_arguments", schedule.SerializedArguments.Data);
-        command.Parameters.AddWithValue("max_attempts", retry.MaxAttempts);
-        command.Parameters.AddWithValue("retry_backoff_kind", PostgresOperationContext.ToDbValue(PostgresConversion.ToText(retry.BackoffKind)));
-        command.Parameters.AddWithValue("retry_base_delay_ms", PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(retry.BaseDelay)));
-        command.Parameters.AddWithValue("retry_max_delay_ms", PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(retry.MaxDelay)));
-        command.Parameters.AddWithValue("source_schedule_key", schedule.ScheduleKey);
-        command.Parameters.AddWithValue("scheduled_fire_at_utc", PostgresOperationContext.ToDbValue(scheduledFireAtUtc));
-        command.Parameters.AddWithValue("schedule_occurrence_kind", PostgresConversion.ToText(occurrenceKind));
-
-        var enqueueSequence = (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-          ?? throw new InvalidOperationException("PostgreSQL did not return an enqueue sequence for the materialized job."));
-
-        await PostgresJobGroups.ReplaceJobGroupsAsync(context, connection, transaction, jobId, schedule.ConcurrencyGroupKeys, cancellationToken)
-          .ConfigureAwait(false);
-        await PostgresJobTags.ReplaceJobTagsAsync(context, connection, transaction, jobId, schedule.Tags, cancellationToken)
-          .ConfigureAwait(false);
-        await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
-          context,
-          connection,
-          transaction,
-          new AppendJobEventRequest(jobId, JobEventKind.Lifecycle, AttemptNumber: 0, Message: PostgresJobEventMessages.Queued),
-          cancellationToken)
-          .ConfigureAwait(false);
-
-        return enqueueSequence;
-    }
+      => EnqueueJobOperation.EnqueueInTransactionAsync(
+        context,
+        connection,
+        transaction,
+        new EnqueueJobRequest(
+          jobId,
+          schedule.Priority,
+          schedule.ServiceType,
+          schedule.MethodName,
+          schedule.MethodParameterTypes,
+          schedule.SerializedArguments,
+          schedule.ConcurrencyGroupKeys,
+          // The job's enqueue time is the transaction's; the store doesn't read this.
+          EnqueuedAtUtc: default,
+          MaxAttempts: retry.MaxAttempts,
+          RetryBackoffKind: retry.BackoffKind,
+          RetryBaseDelay: retry.BaseDelay,
+          RetryMaxDelay: retry.MaxDelay,
+          SourceScheduleKey: schedule.ScheduleKey,
+          ScheduledFireAtUtc: scheduledFireAtUtc,
+          Tags: schedule.Tags,
+          ScheduleOccurrenceKind: occurrenceKind,
+          InvocationTargetKind: schedule.InvocationTargetKind,
+          MethodParameterBindings: schedule.MethodParameterBindings),
+        cancellationToken);
 
     private static async ValueTask ReplaceScheduleGroupsAsync(
         PostgresOperationContext context,
@@ -426,52 +332,101 @@ internal static class PostgresSchedules
         IReadOnlyList<string> groupKeys,
         CancellationToken cancellationToken)
     {
-        foreach (var groupKey in groupKeys.Distinct(StringComparer.Ordinal))
+        var distinctGroupKeys = groupKeys.Distinct(StringComparer.Ordinal).ToArray();
+        if (distinctGroupKeys.Length == 0)
         {
-            await PostgresOperationContext.ExecuteCountAsync(
-              connection,
-              transaction,
-              $"""
-              insert into {context.Names.ScheduleConcurrencyGroups} (schedule_key, group_key)
-              values (@schedule_key, @group_key)
-              on conflict (schedule_key, group_key) do nothing;
-              """,
-              command =>
-              {
-                  command.Parameters.AddWithValue("schedule_key", scheduleKey);
-                  command.Parameters.AddWithValue("group_key", groupKey);
-              },
-              cancellationToken)
-              .ConfigureAwait(false);
+            return;
         }
+
+        await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          insert into {context.Names.ScheduleConcurrencyGroups} (schedule_key, group_key)
+          select @schedule_key, group_key
+          from unnest(@group_keys::text[]) as schedule_group(group_key)
+          on conflict (schedule_key, group_key) do nothing;
+          """,
+          command =>
+          {
+              command.Parameters.AddWithValue("schedule_key", scheduleKey);
+              command.Parameters.Add("group_keys", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = distinctGroupKeys;
+          },
+          cancellationToken)
+          .ConfigureAwait(false);
     }
 
-    private static async ValueTask<IReadOnlyList<string>> ReadScheduleGroupKeysAsync(
+    /// <summary>
+    /// Reads the concurrency groups and tags of the schedules, with one query each, and returns the schedules with
+    /// them attached.
+    /// </summary>
+    private static async ValueTask<List<PostgresScheduleDefinition>> AttachGroupsAndTagsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        string scheduleKey,
+        List<PostgresScheduleDefinition> schedules,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-          $"""
-          select group_key
-          from {context.Names.ScheduleConcurrencyGroups}
-          where schedule_key = @schedule_key
-          order by group_key asc;
-          """;
-        command.Parameters.AddWithValue("schedule_key", scheduleKey);
+        if (schedules.Count == 0)
+        {
+            return schedules;
+        }
 
-        var groupKeys = new List<string>();
+        var scheduleKeys = schedules.Select(static schedule => schedule.ScheduleKey).ToArray();
+        var groupKeysByKey = await ReadScheduleGroupKeysByKeyAsync(context, connection, transaction, scheduleKeys, cancellationToken)
+          .ConfigureAwait(false);
+        var tagsByKey = await PostgresScheduleTags.ReadScheduleTagsByKeyAsync(context, connection, transaction, scheduleKeys, cancellationToken)
+          .ConfigureAwait(false);
+        for (var i = 0; i < schedules.Count; i++)
+        {
+            var scheduleKey = schedules[i].ScheduleKey;
+            schedules[i] = schedules[i] with
+            {
+                ConcurrencyGroupKeys = groupKeysByKey.TryGetValue(scheduleKey, out var groupKeys) ? groupKeys : [],
+                Tags = tagsByKey.TryGetValue(scheduleKey, out var tags) ? tags : [],
+            };
+        }
+
+        return schedules;
+    }
+
+    /// <summary>
+    /// Reads the concurrency groups of each schedule, in key order, with one query. A schedule without groups has no
+    /// entry.
+    /// </summary>
+    private static async ValueTask<IReadOnlyDictionary<string, List<string>>> ReadScheduleGroupKeysByKeyAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string[] scheduleKeys,
+        CancellationToken cancellationToken)
+    {
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          $"""
+          select schedule_key, group_key
+          from {context.Names.ScheduleConcurrencyGroups}
+          where schedule_key = any(@schedule_keys)
+          order by schedule_key asc, group_key asc;
+          """);
+        command.Parameters.Add("schedule_keys", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = scheduleKeys;
+
+        var groupKeysByKey = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            groupKeys.Add(reader.GetString(0));
+            var scheduleKey = reader.GetString(0);
+            if (!groupKeysByKey.TryGetValue(scheduleKey, out var groupKeys))
+            {
+                groupKeys = [];
+                groupKeysByKey.Add(scheduleKey, groupKeys);
+            }
+
+            groupKeys.Add(reader.GetString(1));
         }
 
-        return groupKeys;
+        return groupKeysByKey;
     }
 
     private static void AddScheduleParameters(

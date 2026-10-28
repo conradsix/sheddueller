@@ -1,12 +1,13 @@
 namespace Sheddueller.Postgres.Tests.Operations;
 
 using Sheddueller.Inspection.Jobs;
+using Sheddueller.Postgres.Internal;
 using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class JobRetentionOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task CleanupTerminalJobs_DeletedJob_RemovesCascadingRows()
@@ -28,7 +29,7 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClass
         (await context.ReadJobGroupKeysAsync(jobId)).ShouldNotBeEmpty();
         (await context.CountJobEventsAsync(jobId)).ShouldBeGreaterThan(0);
 
-        var result = await ((IJobRetentionStore)context.Store).CleanupTerminalJobsAsync(
+        var result = await context.RetentionStore.CleanupTerminalJobsAsync(
           new JobRetentionCleanupRequest(
             DateTimeOffset.UtcNow.AddDays(-1),
             failedBeforeUtc: null,
@@ -36,7 +37,7 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClass
             batchSize: 10));
 
         result.DeletedCount.ShouldBe(1);
-        (await ((IJobInspectionReader)context.Store).GetJobAsync(jobId)).ShouldBeNull();
+        (await context.InspectionReader.GetJobAsync(jobId)).ShouldBeNull();
         (await context.ReadJobTagsAsync(jobId)).ShouldBeEmpty();
         (await context.ReadJobGroupKeysAsync(jobId)).ShouldBeEmpty();
         (await context.CountJobEventsAsync(jobId)).ShouldBe(0);
@@ -64,13 +65,13 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClass
           now.AddDays(-10),
           PostgresTestData.CreateFailure()))).ShouldBeTrue();
 
-        var result = await ((IJobRetentionStore)context.Store).CleanupTerminalJobsAsync(
+        var result = await context.RetentionStore.CleanupTerminalJobsAsync(
           new JobRetentionCleanupRequest(now.AddDays(-1), now.AddDays(-1), now.AddDays(-1), batchSize: 10));
 
         result.DeletedCount.ShouldBe(1);
         (await context.ReadJobAsync(canceledAfterRetry)).State.ShouldBe("Canceled");
         (await context.ReadJobAsync(completedAfterRetry)).State.ShouldBe("Completed");
-        (await ((IJobInspectionReader)context.Store).GetJobAsync(failedLongAgo)).ShouldBeNull();
+        (await context.InspectionReader.GetJobAsync(failedLongAgo)).ShouldBeNull();
     }
 
     [Fact]
@@ -85,7 +86,7 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClass
         (await context.Store.CancelAsync(new CancelJobRequest(canceledLongAgo, now.AddDays(-2)))).ShouldBe(JobCancellationResult.Canceled);
         var retainedEventCount = await context.CountJobEventsAsync(canceledAfterRetry);
 
-        var deleted = await ((IJobEventRetentionStore)context.Store).CleanupAsync(TimeSpan.FromDays(1));
+        var deleted = await context.EventRetentionStore.CleanupAsync(TimeSpan.FromDays(1));
 
         deleted.ShouldBe(2);
         (await context.CountJobEventsAsync(canceledLongAgo)).ShouldBe(0);
@@ -109,7 +110,7 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClass
         var recentEventCount = await context.CountJobEventsAsync(recent);
         var queuedEventCount = await context.CountJobEventsAsync(queued);
 
-        var deleted = await ((IJobEventRetentionStore)context.Store).CleanupAsync(TimeSpan.FromDays(1));
+        var deleted = await context.EventRetentionStore.CleanupAsync(TimeSpan.FromDays(1));
 
         deleted.ShouldBe(expiredEventCount);
         (await context.CountJobEventsAsync(expired)).ShouldBe(0);
@@ -123,7 +124,7 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClass
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         var expired = await CompleteAsync(context, DateTimeOffset.UtcNow.AddDays(-2));
         var eventCount = await context.CountJobEventsAsync(expired);
-        var retentionStore = (IJobEventRetentionStore)context.Store;
+        var retentionStore = context.EventRetentionStore;
 
         await using (var connection = await context.DataSource.OpenConnectionAsync())
         await using (var transaction = await connection.BeginTransactionAsync())
@@ -132,7 +133,7 @@ public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClass
             {
                 command.Transaction = transaction;
                 command.CommandText = "select pg_advisory_xact_lock(@lock_key, hashtext(@schema_name));";
-                command.Parameters.AddWithValue("lock_key", PostgresJobRetentionOperation.RetentionAdvisoryLockKey);
+                command.Parameters.AddWithValue("lock_key", PostgresAdvisoryLocks.RetentionLockKey);
                 command.Parameters.AddWithValue("schema_name", context.SchemaName);
                 await command.ExecuteNonQueryAsync();
             }

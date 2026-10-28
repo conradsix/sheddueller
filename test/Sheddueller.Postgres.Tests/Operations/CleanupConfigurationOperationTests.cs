@@ -8,7 +8,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task GetCleanupConfiguration_MissingSettings_ReturnsDefaultsWithoutWriting()

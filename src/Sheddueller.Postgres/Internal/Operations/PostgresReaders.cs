@@ -4,8 +4,81 @@ using Npgsql;
 
 using Sheddueller.Storage;
 
+/// <summary>
+/// Row mappers shared by several queries, each next to the column list it reads.
+/// </summary>
 internal static class PostgresReaders
 {
+    /// <summary>
+    /// The columns that <see cref="ReadClaimedJob" /> reads, in ordinal order, unqualified for a <c>returning</c>
+    /// clause.
+    /// </summary>
+    public const string ClaimedJobColumnsSql =
+      """
+      job_id,
+      enqueue_sequence,
+      priority,
+      service_type,
+      method_name,
+      method_parameter_types,
+      invocation_target_kind,
+      method_parameter_bindings,
+      serialized_arguments_content_type,
+      serialized_arguments,
+      attempt_count,
+      max_attempts,
+      lease_token,
+      lease_expires_at_utc,
+      retry_backoff_kind,
+      retry_base_delay_ms,
+      retry_max_delay_ms,
+      source_schedule_key,
+      scheduled_fire_at_utc
+      """;
+
+    /// <summary>
+    /// The columns that <see cref="ReadPostgresClaimedJob" /> reads, in ordinal order, from the jobs table aliased
+    /// <c>job</c>.
+    /// </summary>
+    public static string PostgresClaimedJobColumnsSql(PostgresNames names)
+      => $"""
+         job.job_id,
+         job.attempt_count,
+         job.max_attempts,
+         job.retry_backoff_kind,
+         job.retry_base_delay_ms,
+         job.retry_max_delay_ms,
+         job.idempotency_key,
+         {PostgresJobGroups.GroupKeysSql(names, "job")},
+         job.cancellation_requested_at_utc
+         """;
+
+    /// <summary>
+    /// The columns that <see cref="ReadScheduleDefinition" /> reads, in ordinal order, from the recurring schedules
+    /// table aliased <c>schedule</c>.
+    /// </summary>
+    public const string ScheduleDefinitionColumnsSql =
+      """
+      schedule.schedule_key,
+      schedule.cron_expression,
+      schedule.is_paused,
+      schedule.overlap_mode,
+      schedule.priority,
+      schedule.service_type,
+      schedule.method_name,
+      schedule.method_parameter_types,
+      schedule.invocation_target_kind,
+      schedule.method_parameter_bindings,
+      schedule.serialized_arguments_content_type,
+      schedule.serialized_arguments,
+      schedule.retry_policy_configured,
+      schedule.max_attempts,
+      schedule.retry_backoff_kind,
+      schedule.retry_base_delay_ms,
+      schedule.retry_max_delay_ms,
+      schedule.next_fire_at_utc
+      """;
+
     public static ClaimedJob ReadClaimedJob(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
       => new(
         reader.GetGuid(0),
@@ -28,7 +101,7 @@ internal static class PostgresReaders
         PostgresConversion.ToInvocationTargetKind(reader.GetValue(6)),
         PostgresConversion.ToParameterBindings(reader.GetValue(7)));
 
-    public static PostgresClaimedJob ReadPostgresClaimedJob(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
+    public static PostgresClaimedJob ReadPostgresClaimedJob(NpgsqlDataReader reader)
       => new(
         reader.GetGuid(0),
         reader.GetInt32(1),
@@ -37,12 +110,13 @@ internal static class PostgresReaders
         PostgresConversion.FromMilliseconds(reader.GetValue(4)),
         PostgresConversion.FromMilliseconds(reader.GetValue(5)),
         reader.IsDBNull(6) ? null : reader.GetString(6),
-        groupKeys);
+        reader.GetFieldValue<string[]>(7),
+        reader.IsDBNull(8) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(8)));
 
-    public static PostgresScheduleDefinition ReadScheduleDefinition(
-        NpgsqlDataReader reader,
-        IReadOnlyList<string> groupKeys,
-        IReadOnlyList<JobTag> tags)
+    /// <summary>
+    /// Reads a schedule definition without its concurrency groups and tags, which live in their own tables.
+    /// </summary>
+    public static PostgresScheduleDefinition ReadScheduleDefinition(NpgsqlDataReader reader)
       => new(
         reader.GetString(0),
         reader.GetString(1),
@@ -55,8 +129,8 @@ internal static class PostgresReaders
         PostgresConversion.ToInvocationTargetKind(reader.GetValue(8)),
         PostgresConversion.ToParameterBindings(reader.GetValue(9)),
         PostgresConversion.ToPayload(reader.GetValue(10), reader.GetValue(11)),
-        groupKeys,
-        tags,
+        ConcurrencyGroupKeys: [],
+        Tags: [],
         PostgresConversion.ToRetryPolicy(
           reader.GetBoolean(12),
           reader.GetInt32(13),

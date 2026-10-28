@@ -2,7 +2,7 @@ namespace Sheddueller.Postgres.Tests.Operations;
 
 using Shouldly;
 
-public sealed class PauseRecurringScheduleOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PauseRecurringScheduleOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task PauseRecurringSchedule_ExistingSchedule_SetsPausedAndClearsNextFire()

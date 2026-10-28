@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task MaterializeDueRecurringSchedules_NoDueSchedules_ReturnsZero()
@@ -40,6 +40,41 @@ public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixtu
         claimed.MaxAttempts.ShouldBe(3);
         claimed.RetryBackoffKind.ShouldBe(RetryBackoffKind.Fixed);
         claimed.RetryBaseDelay.ShouldBe(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task MaterializeDueRecurringSchedules_DueSchedules_WriteQueuedEventsTagsAndEnqueueMetrics()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule(
+          "schedule-a",
+          groupKeys: ["beta", "alpha"],
+          tags: [new JobTag("tenant", "acme"), new JobTag("area", "billing")]));
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule("schedule-b"));
+        await context.MakeScheduleDueAsync("schedule-a");
+        await context.MakeScheduleDueAsync("schedule-b");
+
+        (await context.Store.MaterializeDueRecurringSchedulesAsync(new MaterializeDueRecurringSchedulesRequest(DateTimeOffset.UtcNow, null))).ShouldBe(2);
+
+        var first = (await PostgresTestData.ClaimAsync(context.Store)).JobId;
+        var second = (await PostgresTestData.ClaimAsync(context.Store)).JobId;
+        foreach (var jobId in new[] { first, second })
+        {
+            var job = await context.ReadJobAsync(jobId);
+            job.ScheduleOccurrenceKind.ShouldBe(nameof(ScheduleOccurrenceKind.Automatic));
+            job.ScheduledFireAtUtc.ShouldNotBeNull();
+            (await context.ReadJobEventsAsync(jobId))[0].ShouldSatisfyAllConditions(
+              jobEvent => jobEvent.EventSequence.ShouldBe(1),
+              jobEvent => jobEvent.Kind.ShouldBe(JobEventKind.Lifecycle),
+              jobEvent => jobEvent.AttemptNumber.ShouldBe(0),
+              jobEvent => jobEvent.Message.ShouldBe("Queued"));
+        }
+
+        var scheduleAJob = (await context.ReadJobAsync(first)).SourceScheduleKey == "schedule-a" ? first : second;
+        (await context.ReadJobGroupKeysAsync(scheduleAJob)).ShouldBe(["alpha", "beta"]);
+        (await context.ReadJobTagsAsync(scheduleAJob)).ShouldBe([new JobTag("tenant", "acme"), new JobTag("area", "billing")]);
+        (await context.SumEnqueuedMetricAsync()).ShouldBe(2);
+        (await context.SumHistogramSamplesAsync("schedule_fire_lag")).ShouldBe(2);
     }
 
     [Fact]

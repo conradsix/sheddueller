@@ -5,7 +5,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class EnqueueJobOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class EnqueueJobOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task Enqueue_PersistsJobFieldsAndGroupRows()
@@ -44,6 +44,69 @@ public sealed class EnqueueJobOperationTests(PostgresFixture fixture) : IClassFi
         job.RetryBaseDelayMs.ShouldBe(2000);
         job.RetryMaxDelayMs.ShouldBe(9000);
         (await context.ReadJobGroupKeysAsync(jobId)).ShouldBe(["alpha", "beta"]);
+    }
+
+    [Fact]
+    public async Task Enqueue_SingleJobAndBatch_WriteTheSameRowsEventsAndMetrics()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        var single = Guid.NewGuid();
+        var batched = Guid.NewGuid();
+        static EnqueueJobRequest CreateRequest(Guid jobId)
+          => PostgresTestData.CreateRequest(
+            jobId,
+            priority: 4,
+            notBeforeUtc: DateTimeOffset.UtcNow.AddMinutes(5),
+            maxAttempts: 2,
+            retryBackoffKind: RetryBackoffKind.Fixed,
+            retryBaseDelay: TimeSpan.FromSeconds(3),
+            groupKeys: ["beta", "alpha", "alpha"],
+            tags: [new JobTag(" tenant ", "acme"), new JobTag("area", "billing"), new JobTag("tenant", "acme")],
+            invocationTargetKind: JobInvocationTargetKind.Static,
+            methodParameterBindings: [new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken)]);
+
+        (await context.Store.EnqueueAsync(CreateRequest(single))).WasEnqueued.ShouldBeTrue();
+        (await context.Store.EnqueueManyAsync([CreateRequest(batched), PostgresTestData.CreateRequest(Guid.NewGuid())]))
+          .ShouldAllBe(result => result.WasEnqueued);
+
+        var singleJob = await context.ReadJobAsync(single);
+        var batchedJob = await context.ReadJobAsync(batched);
+        batchedJob.State.ShouldBe(singleJob.State);
+        batchedJob.Priority.ShouldBe(singleJob.Priority);
+        batchedJob.ServiceType.ShouldBe(singleJob.ServiceType);
+        batchedJob.MethodName.ShouldBe(singleJob.MethodName);
+        batchedJob.MethodParameterTypes.ShouldBe(singleJob.MethodParameterTypes);
+        batchedJob.InvocationTargetKind.ShouldBe(singleJob.InvocationTargetKind);
+        batchedJob.MethodParameterBindings.ShouldBe(singleJob.MethodParameterBindings);
+        batchedJob.SerializedArgumentsContentType.ShouldBe(singleJob.SerializedArgumentsContentType);
+        batchedJob.SerializedArguments.ShouldBe(singleJob.SerializedArguments);
+        batchedJob.AttemptCount.ShouldBe(singleJob.AttemptCount);
+        batchedJob.MaxAttempts.ShouldBe(singleJob.MaxAttempts);
+        batchedJob.RetryBackoffKind.ShouldBe(singleJob.RetryBackoffKind);
+        batchedJob.RetryBaseDelayMs.ShouldBe(singleJob.RetryBaseDelayMs);
+        batchedJob.RetryMaxDelayMs.ShouldBe(singleJob.RetryMaxDelayMs);
+        batchedJob.SourceScheduleKey.ShouldBe(singleJob.SourceScheduleKey);
+        batchedJob.ScheduleOccurrenceKind.ShouldBe(singleJob.ScheduleOccurrenceKind);
+        batchedJob.IdempotencyKey.ShouldBe(singleJob.IdempotencyKey);
+        singleJob.NotBeforeUtc.ShouldNotBeNull();
+        batchedJob.NotBeforeUtc.ShouldNotBeNull();
+
+        foreach (var jobId in new[] { single, batched })
+        {
+            (await context.ReadJobGroupKeysAsync(jobId)).ShouldBe(["alpha", "beta"]);
+            (await context.ReadJobTagsAsync(jobId)).ShouldBe([new JobTag("tenant", "acme"), new JobTag("area", "billing")]);
+            (await context.ReadJobEventSequenceAsync(jobId)).ShouldBe(1);
+            var jobEvent = (await context.ReadJobEventsAsync(jobId)).ShouldHaveSingleItem();
+            jobEvent.EventSequence.ShouldBe(1);
+            jobEvent.Kind.ShouldBe(JobEventKind.Lifecycle);
+            jobEvent.AttemptNumber.ShouldBe(0);
+            jobEvent.Message.ShouldBe("Queued");
+            jobEvent.LogLevel.ShouldBeNull();
+            jobEvent.ProgressPercent.ShouldBeNull();
+            jobEvent.Fields.ShouldBeNull();
+        }
+
+        (await context.SumEnqueuedMetricAsync()).ShouldBe(3);
     }
 
     [Fact]

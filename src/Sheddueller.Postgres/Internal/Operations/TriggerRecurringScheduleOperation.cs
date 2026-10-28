@@ -36,7 +36,7 @@ internal static class TriggerRecurringScheduleOperation
 
         var retry = PostgresRetryPolicies.Normalize(schedule.RetryPolicy ?? request.DefaultRetryPolicy);
         var jobId = Guid.NewGuid();
-        var enqueueSequence = await PostgresSchedules.InsertMaterializedJobAsync(
+        var enqueued = await PostgresSchedules.EnqueueOccurrenceAsync(
           context,
           connection,
           transaction,
@@ -51,6 +51,6 @@ internal static class TriggerRecurringScheduleOperation
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new RecurringScheduleTriggerResult(RecurringScheduleTriggerStatus.Enqueued, jobId, enqueueSequence);
+        return new RecurringScheduleTriggerResult(RecurringScheduleTriggerStatus.Enqueued, jobId, enqueued.EnqueueSequence);
     }
 }

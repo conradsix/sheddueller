@@ -10,7 +10,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresJobInspectionTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task JobDetail_SingleConnectionPool_ReadsWholeDetailOnOneConnection()
@@ -27,7 +27,7 @@ public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClass
           groupKeys: ["shared"],
           tags: [new JobTag("tenant", "acme"), new JobTag("domain", "payments")]));
         await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(claimable, priority: 50));
-        await ((IJobEventSink)context.Store).AppendAsync(new AppendJobEventRequest(
+        await context.EventSink.AppendAsync(new AppendJobEventRequest(
           blocked,
           JobEventKind.Progress,
           AttemptNumber: 0,
@@ -63,7 +63,7 @@ public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClass
     public async Task QueuePosition_RateLimitedGroup_ReportsTheJobTheClaimSkips()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var reader = (IJobInspectionReader)context.Store;
+        var reader = context.InspectionReader;
         await context.Store.SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest("api", 10, DateTimeOffset.UtcNow));
         await context.Store.SetConcurrencyDefaultRateLimitAsync(new SetConcurrencyDefaultRateLimitRequest(
           "api",
@@ -81,7 +81,7 @@ public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClass
         var claimablePosition = await reader.GetQueuePositionAsync(claimable);
         var page = await reader.SearchJobsAsync(new JobInspectionQuery(States: [JobState.Queued]));
         var overview = await reader.GetOverviewAsync();
-        var group = await ((IConcurrencyGroupInspectionReader)context.Store).GetConcurrencyGroupAsync("api");
+        var group = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("api");
 
         blockedPosition.Kind.ShouldBe(JobQueuePositionKind.BlockedByConcurrency);
         blockedPosition.Position.ShouldBeNull();
@@ -98,7 +98,7 @@ public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClass
     public async Task Overview_UnfinishedPrerequisite_ListsOnlyClaimableQueuedJobs()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var reader = (IJobInspectionReader)context.Store;
+        var reader = context.InspectionReader;
         var prerequisite = Guid.NewGuid();
         var dependent = Guid.NewGuid();
         await context.Store.EnqueueManyAsync([
@@ -117,7 +117,7 @@ public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClass
     public async Task SearchJobs_UnfinishedPrerequisite_SortsDependentAfterClaimableJobs()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var reader = (IJobInspectionReader)context.Store;
+        var reader = context.InspectionReader;
         var prerequisite = Guid.NewGuid();
         var dependent = Guid.NewGuid();
         await context.Store.EnqueueManyAsync([
@@ -138,7 +138,7 @@ public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClass
     public async Task SearchJobs_CanceledAfterFailedAttempt_SortsByCancellationTime()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var reader = (IJobInspectionReader)context.Store;
+        var reader = context.InspectionReader;
         var now = DateTimeOffset.UtcNow;
         var canceledAfterRetry = Guid.NewGuid();
         var completedYesterday = Guid.NewGuid();

@@ -87,8 +87,9 @@ internal static class PostgresMetricsInspectionOperation
         TimeSpan deadThreshold,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           with queued_counts as (
               select
@@ -123,7 +124,7 @@ internal static class PostgresMetricsInspectionOperation
               node_counts.stale_node_count,
               node_counts.dead_node_count
           from queued_counts, claimed_counts, saturated_groups, node_counts;
-          """;
+          """);
         command.Parameters.AddWithValue("stale_threshold", staleThreshold);
         command.Parameters.AddWithValue("dead_threshold", deadThreshold);
 
@@ -149,8 +150,9 @@ internal static class PostgresMetricsInspectionOperation
         TimeSpan window,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
               coalesce(sum(enqueued_count), 0),
@@ -161,7 +163,7 @@ internal static class PostgresMetricsInspectionOperation
               coalesce(sum(retry_event_count), 0)
           from {context.Names.MetricsBuckets}
           where bucket_started_at_utc >= {PostgresMetricsRollups.BucketStartedAtSql("transaction_timestamp() - @window")};
-          """;
+          """);
         command.Parameters.AddWithValue("window", window);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -185,8 +187,9 @@ internal static class PostgresMetricsInspectionOperation
         TimeSpan window,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           with histogram as (
               select
@@ -211,7 +214,7 @@ internal static class PostgresMetricsInspectionOperation
               min(bin_index) filter (where cumulative_count >= ceiling(total_count * 0.95)) as p95_bin
           from ordered
           group by metric;
-          """;
+          """);
         command.Parameters.AddWithValue("window", window);
 
         TimeSpan? queueLatencyP50 = null;

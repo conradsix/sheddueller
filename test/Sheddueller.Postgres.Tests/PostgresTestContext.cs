@@ -10,7 +10,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 using Sheddueller;
+using Sheddueller.Inspection.ConcurrencyGroups;
 using Sheddueller.Inspection.Jobs;
+using Sheddueller.Inspection.Metrics;
+using Sheddueller.Inspection.Nodes;
+using Sheddueller.Inspection.Schedules;
 using Sheddueller.Postgres;
 using Sheddueller.Storage;
 
@@ -26,6 +30,22 @@ internal sealed class PostgresTestContext(
     public string SchemaName { get; } = schemaName;
 
     public IJobStore Store => this.Provider.GetRequiredService<IJobStore>();
+
+    public IJobEventSink EventSink => this.Provider.GetRequiredService<IJobEventSink>();
+
+    public IJobInspectionReader InspectionReader => this.Provider.GetRequiredService<IJobInspectionReader>();
+
+    public IScheduleInspectionReader ScheduleReader => this.Provider.GetRequiredService<IScheduleInspectionReader>();
+
+    public IConcurrencyGroupInspectionReader ConcurrencyGroupReader => this.Provider.GetRequiredService<IConcurrencyGroupInspectionReader>();
+
+    public INodeInspectionReader NodeReader => this.Provider.GetRequiredService<INodeInspectionReader>();
+
+    public IMetricsInspectionReader MetricsReader => this.Provider.GetRequiredService<IMetricsInspectionReader>();
+
+    public IJobRetentionStore RetentionStore => this.Provider.GetRequiredService<IJobRetentionStore>();
+
+    public IJobEventRetentionStore EventRetentionStore => this.Provider.GetRequiredService<IJobEventRetentionStore>();
 
     public static async ValueTask<PostgresTestContext> CreateMigratedAsync(PostgresFixture fixture)
     {
@@ -82,6 +102,23 @@ internal sealed class PostgresTestContext(
         where job_id = @job_id;
         """,
         command => command.Parameters.AddWithValue("job_id", jobId));
+
+    /// <summary>
+    /// Moves a group's rate-limit state back by <paramref name="elapsed" />, as if that much time had passed since its
+    /// last permit was taken.
+    /// </summary>
+    public async ValueTask AdvanceRateLimitClockAsync(string groupKey, TimeSpan elapsed)
+      => await this.ExecuteAsync(
+        $"""
+        update {this.Table("concurrency_groups")}
+        set rate_theoretical_arrival_at_utc = rate_theoretical_arrival_at_utc - @elapsed
+        where group_key = @group_key;
+        """,
+        command =>
+        {
+            command.Parameters.AddWithValue("group_key", groupKey);
+            command.Parameters.AddWithValue("elapsed", elapsed);
+        });
 
     public async ValueTask<int?> ReadSchemaVersionAsync()
     {
@@ -282,6 +319,30 @@ internal sealed class PostgresTestContext(
         return tags;
     }
 
+    public async ValueTask<long> ReadJobEventSequenceAsync(Guid jobId)
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select job_event_sequence from {this.Table("jobs")} where job_id = @job_id;",
+          command => command.Parameters.AddWithValue("job_id", jobId));
+        return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
+    public async ValueTask<long> SumEnqueuedMetricAsync()
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select coalesce(sum(enqueued_count), 0) from {this.Table("metrics_buckets")};",
+          _ => { });
+        return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
+    public async ValueTask<long> SumHistogramSamplesAsync(string metric)
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select coalesce(sum(sample_count), 0) from {this.Table("metrics_histogram_bins")} where metric = @metric;",
+          command => command.Parameters.AddWithValue("metric", metric));
+        return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
     public async ValueTask<int> CountJobEventsAsync(Guid jobId)
     {
         var result = await this.ExecuteScalarAsync(
@@ -327,10 +388,8 @@ internal sealed class PostgresTestContext(
 
     public async ValueTask<IReadOnlyList<JobEvent>> ReadJobEventsAsync(Guid jobId)
     {
-        var inspectionReader = this.Store as IJobInspectionReader
-          ?? throw new InvalidOperationException("Postgres store must provide job inspection.");
         var events = new List<JobEvent>();
-        await foreach (var jobEvent in inspectionReader.ReadEventsAsync(jobId))
+        await foreach (var jobEvent in this.InspectionReader.ReadEventsAsync(jobId))
         {
             events.Add(jobEvent);
         }
@@ -437,7 +496,7 @@ internal sealed class PostgresTestContext(
         return values;
     }
 
-    private async ValueTask ExecuteAsync(
+    public async ValueTask ExecuteAsync(
         string commandText,
         Action<NpgsqlCommand> configure)
     {

@@ -4,9 +4,14 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Npgsql;
 
+using Sheddueller.Inspection.ConcurrencyGroups;
 using Sheddueller.Inspection.Jobs;
+using Sheddueller.Inspection.Metrics;
+using Sheddueller.Inspection.Nodes;
+using Sheddueller.Inspection.Schedules;
 using Sheddueller.Postgres;
 using Sheddueller.Postgres.Internal;
+using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Runtime;
 using Sheddueller.Storage;
 
@@ -25,10 +30,17 @@ public sealed class PostgresRegistrationTests
         await using var provider = services.BuildServiceProvider();
 
         provider.GetRequiredService<ShedduellerPostgresOptions>().SchemaName.ShouldBe("sheddueller");
+        provider.GetRequiredService<PostgresOperationContext>().Options.ShouldBeSameAs(provider.GetRequiredService<ShedduellerPostgresOptions>());
         provider.GetRequiredService<IJobStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
-        provider.GetRequiredService<IJobInspectionReader>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
-        provider.GetRequiredService<IJobRetentionStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
-        provider.GetRequiredService<IShedduellerCleanupConfigurationStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
+        provider.GetRequiredService<IJobEventSink>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
+        provider.GetRequiredService<IJobInspectionReader>().ShouldBeSameAs(provider.GetRequiredService<PostgresInspectionReader>());
+        provider.GetRequiredService<IScheduleInspectionReader>().ShouldBeSameAs(provider.GetRequiredService<PostgresInspectionReader>());
+        provider.GetRequiredService<IConcurrencyGroupInspectionReader>().ShouldBeSameAs(provider.GetRequiredService<PostgresInspectionReader>());
+        provider.GetRequiredService<INodeInspectionReader>().ShouldBeSameAs(provider.GetRequiredService<PostgresInspectionReader>());
+        provider.GetRequiredService<IMetricsInspectionReader>().ShouldBeSameAs(provider.GetRequiredService<PostgresInspectionReader>());
+        provider.GetRequiredService<IJobRetentionStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresRetentionStore>());
+        provider.GetRequiredService<IJobEventRetentionStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresRetentionStore>());
+        provider.GetRequiredService<IShedduellerCleanupConfigurationStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresRetentionStore>());
         provider.GetRequiredService<IPostgresMigrator>().ShouldBeOfType<PostgresMigrator>();
         provider.GetRequiredService<IShedduellerWakeSignal>().ShouldBeOfType<PostgresWakeSignal>();
     }

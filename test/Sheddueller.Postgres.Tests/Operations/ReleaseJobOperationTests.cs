@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class ReleaseJobOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class ReleaseJobOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task ReleaseJob_CurrentLease_RequeuesWithoutRetryConsumptionAndDecrementsGroups()

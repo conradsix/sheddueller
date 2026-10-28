@@ -41,9 +41,9 @@ internal static class CancelQueuedJobsOperation
         CancelQueuedJobsRequest request,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           update {context.Names.Jobs}
           set state = 'Canceled',
@@ -51,7 +51,7 @@ internal static class CancelQueuedJobsOperation
               job_event_sequence = job_event_sequence + 1
           where state = 'Queued'
           returning job_id, job_event_sequence, attempt_count;
-          """;
+          """);
         command.Parameters.AddWithValue("canceled_at_utc", request.CanceledAtUtc);
 
         var canceledJobs = new List<CanceledQueuedJob>();

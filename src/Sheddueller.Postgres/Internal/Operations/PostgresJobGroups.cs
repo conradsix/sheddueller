@@ -2,35 +2,22 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
+using NpgsqlTypes;
+
 internal static class PostgresJobGroups
 {
-    public static async ValueTask<IReadOnlyList<string>> ReadJobGroupKeysAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction? transaction,
-        Guid jobId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-          $"""
-          select group_key
-          from {context.Names.JobConcurrencyGroups}
-          where job_id = @job_id
-          order by group_key asc;
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-
-        var groupKeys = new List<string>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            groupKeys.Add(reader.GetString(0));
-        }
-
-        return groupKeys;
-    }
+    /// <summary>
+    /// A <c>text[]</c> expression of the job's concurrency group keys in key order, for the select list of a query
+    /// over the jobs table aliased <paramref name="job" />. A job's groups never change after it is enqueued.
+    /// </summary>
+    public static string GroupKeysSql(PostgresNames names, string job)
+      => $"""
+         array(
+             select job_group.group_key
+             from {names.JobConcurrencyGroups} job_group
+             where job_group.job_id = {job}.job_id
+             order by job_group.group_key asc)
+         """;
 
     public static async ValueTask EnsureGroupRowsAsync(
         PostgresOperationContext context,
@@ -39,20 +26,23 @@ internal static class PostgresJobGroups
         IReadOnlyList<string> groupKeys,
         CancellationToken cancellationToken)
     {
-        foreach (var groupKey in groupKeys)
+        if (groupKeys.Count == 0)
         {
-            await PostgresOperationContext.ExecuteCountAsync(
-              connection,
-              transaction,
-              $"""
-              insert into {context.Names.ConcurrencyGroups} (group_key, configured_limit, in_use_count, updated_at_utc)
-              values (@group_key, null, 0, transaction_timestamp())
-              on conflict (group_key) do nothing;
-              """,
-              command => command.Parameters.AddWithValue("group_key", groupKey),
-              cancellationToken)
-              .ConfigureAwait(false);
+            return;
         }
+
+        await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          insert into {context.Names.ConcurrencyGroups} (group_key, configured_limit, in_use_count, updated_at_utc)
+          select group_key, null, 0, transaction_timestamp()
+          from unnest(@group_keys::text[]) as concurrency_group(group_key)
+          on conflict (group_key) do nothing;
+          """,
+          command => command.Parameters.Add("group_keys", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = groupKeys.ToArray(),
+          cancellationToken)
+          .ConfigureAwait(false);
     }
 
     public static async ValueTask<bool> TryReserveGroupsAsync(
@@ -67,9 +57,9 @@ internal static class PostgresJobGroups
             return true;
         }
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
               concurrency_group.group_key,
@@ -79,7 +69,7 @@ internal static class PostgresJobGroups
           where concurrency_group.group_key = any(@group_keys)
           order by concurrency_group.group_key asc
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("group_keys", groupKeys.ToArray());
 
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -163,7 +153,7 @@ internal static class PostgresJobGroups
           .ConfigureAwait(false);
     }
 
-    public static async ValueTask ReplaceJobGroupsAsync(
+    public static async ValueTask InsertJobGroupsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -171,23 +161,27 @@ internal static class PostgresJobGroups
         IReadOnlyList<string> groupKeys,
         CancellationToken cancellationToken)
     {
-        foreach (var groupKey in groupKeys.Distinct(StringComparer.Ordinal))
+        var distinctGroupKeys = groupKeys.Distinct(StringComparer.Ordinal).ToArray();
+        if (distinctGroupKeys.Length == 0)
         {
-            await PostgresOperationContext.ExecuteCountAsync(
-              connection,
-              transaction,
-              $"""
-              insert into {context.Names.JobConcurrencyGroups} (job_id, group_key)
-              values (@job_id, @group_key)
-              on conflict (job_id, group_key) do nothing;
-              """,
-              command =>
-              {
-                  command.Parameters.AddWithValue("job_id", jobId);
-                  command.Parameters.AddWithValue("group_key", groupKey);
-              },
-              cancellationToken)
-              .ConfigureAwait(false);
+            return;
         }
+
+        await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          insert into {context.Names.JobConcurrencyGroups} (job_id, group_key)
+          select @job_id, group_key
+          from unnest(@group_keys::text[]) as job_group(group_key)
+          on conflict (job_id, group_key) do nothing;
+          """,
+          command =>
+          {
+              command.Parameters.AddWithValue("job_id", jobId);
+              command.Parameters.Add("group_keys", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = distinctGroupKeys;
+          },
+          cancellationToken)
+          .ConfigureAwait(false);
     }
 }

@@ -1,7 +1,5 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
-using System.Globalization;
-
 using Sheddueller.Storage;
 
 internal static class PostgresWorkerOperations
@@ -12,8 +10,9 @@ internal static class PostgresWorkerOperations
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select cancellation_requested_at_utc
           from {context.Names.Jobs}
@@ -22,7 +21,7 @@ internal static class PostgresWorkerOperations
             and claimed_by_node_id = @node_id
             and lease_token = @lease_token
             and lease_expires_at_utc > transaction_timestamp();
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", request.JobId);
         command.Parameters.AddWithValue("node_id", request.NodeId);
         command.Parameters.AddWithValue("lease_token", request.LeaseToken);
@@ -38,7 +37,7 @@ internal static class PostgresWorkerOperations
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var job = await PostgresClaimedJobs.TryReadCurrentClaimForFailureAsync(
+        var job = await PostgresClaimedJobs.TryLockCurrentClaimAsync(
           context,
           connection,
           transaction,
@@ -47,7 +46,7 @@ internal static class PostgresWorkerOperations
           request.LeaseToken,
           cancellationToken)
           .ConfigureAwait(false);
-        if (job is null || !await HasCancellationRequestAsync(context, connection, transaction, request.JobId, cancellationToken).ConfigureAwait(false))
+        if (job?.CancellationRequestedAtUtc is null)
         {
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return false;
@@ -142,25 +141,5 @@ internal static class PostgresWorkerOperations
           },
           cancellationToken)
           .ConfigureAwait(false);
-    }
-
-    private static async ValueTask<bool> HasCancellationRequestAsync(
-        PostgresOperationContext context,
-        Npgsql.NpgsqlConnection connection,
-        Npgsql.NpgsqlTransaction transaction,
-        Guid jobId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-          $"""
-          select cancellation_requested_at_utc is not null
-          from {context.Names.Jobs}
-          where job_id = @job_id;
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-
-        return Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
     }
 }

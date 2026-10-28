@@ -11,6 +11,24 @@ using Sheddueller.Storage;
 
 internal static class PostgresJobEvents
 {
+    /// <summary>
+    /// The columns that <see cref="ReadEvent" /> reads, in ordinal order, from the job events table aliased
+    /// <c>job_event</c>.
+    /// </summary>
+    public const string EventColumnsSql =
+      """
+      job_event.event_id,
+      job_event.job_id,
+      job_event.event_sequence,
+      job_event.kind,
+      job_event.occurred_at_utc,
+      job_event.attempt_number,
+      job_event.log_level,
+      job_event.message,
+      job_event.progress_percent,
+      job_event.fields
+      """;
+
     public static async ValueTask<JobEvent> AppendAsync(
         PostgresOperationContext context,
         AppendJobEventRequest request,
@@ -60,20 +78,12 @@ internal static class PostgresJobEvents
         }
 
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
-              job_event.event_id,
-              job_event.job_id,
-              job_event.event_sequence,
-              job_event.kind,
-              job_event.occurred_at_utc,
-              job_event.attempt_number,
-              job_event.log_level,
-              job_event.message,
-              job_event.progress_percent,
-              job_event.fields,
+              {EventColumnsSql},
               requested.ordinal
           from unnest(
               @job_ids::uuid[],
@@ -82,7 +92,7 @@ internal static class PostgresJobEvents
           join {context.Names.JobEvents} job_event
             on job_event.job_id = requested.job_id
            and job_event.event_sequence = requested.event_sequence;
-          """;
+          """);
         command.Parameters.AddWithValue("job_ids", jobIds);
         command.Parameters.AddWithValue("event_sequences", eventSequences);
 
@@ -109,6 +119,25 @@ internal static class PostgresJobEvents
         reader.IsDBNull(8) ? null : reader.GetDouble(8),
         reader.IsDBNull(9) ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(9)));
 
+    /// <summary>
+    /// Writes an event at a sequence the caller has already reserved on the job row, records its metric and notifies
+    /// listeners on commit.
+    /// </summary>
+    public static async ValueTask<JobEvent> InsertAndNotifyInTransactionAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        AppendJobEventRequest request,
+        long eventSequence,
+        CancellationToken cancellationToken)
+    {
+        ValidateRequest(request);
+        var jobEvent = await InsertInTransactionAsync(context, connection, transaction, request, eventSequence, cancellationToken).ConfigureAwait(false);
+        await NotifyAsync(context, connection, transaction, jobEvent, cancellationToken).ConfigureAwait(false);
+
+        return jobEvent;
+    }
+
     private static async ValueTask<JobEvent> AppendInTransactionAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -118,10 +147,21 @@ internal static class PostgresJobEvents
     {
         ValidateRequest(request);
         var eventSequence = await IncrementEventSequenceAsync(context, connection, transaction, request.JobId, cancellationToken).ConfigureAwait(false);
+        return await InsertInTransactionAsync(context, connection, transaction, request, eventSequence, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<JobEvent> InsertInTransactionAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        AppendJobEventRequest request,
+        long eventSequence,
+        CancellationToken cancellationToken)
+    {
         var eventId = Guid.NewGuid();
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           insert into {context.Names.JobEvents} (
               job_id,
@@ -146,7 +186,7 @@ internal static class PostgresJobEvents
               @progress_percent,
               @fields)
           returning occurred_at_utc;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", request.JobId);
         command.Parameters.AddWithValue("event_sequence", eventSequence);
         command.Parameters.AddWithValue("event_id", eventId);
@@ -197,15 +237,15 @@ internal static class PostgresJobEvents
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           update {context.Names.Jobs}
           set job_event_sequence = job_event_sequence + 1
           where job_id = @job_id
           returning job_event_sequence;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
 
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)

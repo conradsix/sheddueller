@@ -152,13 +152,14 @@ internal static class PostgresCleanupConfigurationOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select setting_key, value::text
           from {context.Names.Settings}
           where setting_key = any(@setting_keys);
-          """;
+          """);
         command.Parameters.AddWithValue("setting_keys", keys);
 
         var documents = new Dictionary<string, string>(StringComparer.Ordinal);

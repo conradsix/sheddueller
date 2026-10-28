@@ -15,15 +15,6 @@ internal static class PostgresJobRetentionOperation
     /// </summary>
     public const int JobEventCleanupBatchSize = 1000;
 
-    /// <summary>
-    /// The advisory lock that cleanup holds, per schema, for each transaction.
-    /// </summary>
-    /// <remarks>
-    /// Terminal job cleanup and job event cleanup both delete job events, the first through the cascade from jobs, so
-    /// they share this lock: one cleanup at a time per schema, and a cleanup that finds it held skips its turn.
-    /// </remarks>
-    public const int RetentionAdvisoryLockKey = 7870834;
-
     public static async ValueTask<JobRetentionCleanupResult> ExecuteAsync(
         PostgresOperationContext context,
         JobRetentionCleanupRequest request,
@@ -85,21 +76,17 @@ internal static class PostgresJobRetentionOperation
         }
     }
 
-    private static async ValueTask<bool> TryAcquireCleanupLockAsync(
+    private static ValueTask<bool> TryAcquireCleanupLockAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "select pg_try_advisory_xact_lock(@lock_key, hashtext(@schema_name));";
-        command.Parameters.AddWithValue("lock_key", RetentionAdvisoryLockKey);
-        command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
-
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-          ?? throw new InvalidOperationException("PostgreSQL did not return an advisory lock result."));
-    }
+      => PostgresAdvisoryLocks.TryAcquireTransactionLockAsync(
+        connection,
+        transaction,
+        PostgresAdvisoryLocks.RetentionLockKey,
+        context.Options.SchemaName,
+        cancellationToken);
 
     private static async ValueTask<int> DeleteTerminalJobsAsync(
         PostgresOperationContext context,
@@ -108,9 +95,9 @@ internal static class PostgresJobRetentionOperation
         JobRetentionCleanupRequest request,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           with candidates as (
               select job_id
@@ -135,7 +122,7 @@ internal static class PostgresJobRetentionOperation
               returning 1
           )
           select count(*) from deleted_jobs;
-          """;
+          """);
         AddNullableTimestampParameter(command, "completed_before_utc", request.CompletedBeforeUtc);
         AddNullableTimestampParameter(command, "failed_before_utc", request.FailedBeforeUtc);
         AddNullableTimestampParameter(command, "canceled_before_utc", request.CanceledBeforeUtc);

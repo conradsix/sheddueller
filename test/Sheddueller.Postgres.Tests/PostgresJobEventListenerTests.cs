@@ -7,12 +7,13 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 
 using Sheddueller.Postgres.Internal;
+using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Storage;
 using Sheddueller.Tests.Logging;
 
 using Shouldly;
 
-public sealed class PostgresJobEventListenerTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresJobEventListenerTests(PostgresFixture fixture)
 {
     private const int ListenerStartedEventId = 1210;
 
@@ -36,11 +37,11 @@ public sealed class PostgresJobEventListenerTests(PostgresFixture fixture) : ICl
           .AddProvider(logs));
         var notifier = new RecordingJobEventNotifier();
         var listener = new PostgresJobEventListener(
-          new ShedduellerPostgresOptions
+          new PostgresOperationContext(new ShedduellerPostgresOptions
           {
               DataSource = listenerDataSource,
               SchemaName = context.SchemaName,
-          },
+          }),
           notifier,
           loggerFactory.CreateLogger<PostgresJobEventListener>());
         using var stopping = new CancellationTokenSource();
@@ -50,7 +51,7 @@ public sealed class PostgresJobEventListenerTests(PostgresFixture fixture) : ICl
         // One bulk enqueue notifies an event per job in a single transaction; the per-job appends then interleave.
         var jobIds = Enumerable.Range(0, 10).Select(_ => Guid.NewGuid()).ToArray();
         await context.Store.EnqueueManyAsync([.. jobIds.Select(jobId => PostgresTestData.CreateRequest(jobId))]);
-        var eventSink = (IJobEventSink)context.Store;
+        var eventSink = context.EventSink;
         await Task.WhenAll(jobIds.Select(async jobId =>
         {
             for (var i = 0; i < 49; i++)

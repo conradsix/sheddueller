@@ -13,7 +13,7 @@ using Sheddueller.Tests.Logging;
 
 using Shouldly;
 
-public sealed class PostgresMetricsRollupTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresMetricsRollupTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task MetricsRead_OldRollupBuckets_RemovesExpiredBucketsAndHistogramBins()
@@ -89,9 +89,8 @@ public sealed class PostgresMetricsRollupTests(PostgresFixture fixture) : IClass
 
         using var logs = new TestLoggerProvider();
         using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
-        var store = new PostgresJobStore(
-          context.Provider.GetRequiredService<ShedduellerPostgresOptions>(),
-          Options.Create(new ShedduellerOptions()),
+        var store = new PostgresRetentionStore(
+          context.Provider.GetRequiredService<PostgresOperationContext>(),
           loggerFactory.CreateLogger<PostgresJobStore>());
 
         var result = await store.CleanupTerminalJobsAsync(new JobRetentionCleanupRequest(
@@ -182,7 +181,7 @@ public sealed class PostgresMetricsRollupTests(PostgresFixture fixture) : IClass
       => PostgresMetricsRollups.ClassifyJobEvent(kind, message).ToString().ShouldBe(expectedMetric);
 
     private static async ValueTask RunRetentionPassAsync(PostgresTestContext context)
-      => (await ((IJobRetentionStore)context.Store).CleanupTerminalJobsAsync(
+      => (await context.RetentionStore.CleanupTerminalJobsAsync(
           new JobRetentionCleanupRequest(
             DateTimeOffset.UtcNow.AddDays(-1),
             DateTimeOffset.UtcNow.AddDays(-1),

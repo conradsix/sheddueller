@@ -10,7 +10,7 @@ using Sheddueller.Postgres.Internal;
 
 using Shouldly;
 
-public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresMigrationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task Migration_FreshSchema_CreatesSchemaAndStampsVersion()

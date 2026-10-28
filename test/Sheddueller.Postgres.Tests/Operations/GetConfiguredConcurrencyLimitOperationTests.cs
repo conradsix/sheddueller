@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class GetConfiguredConcurrencyLimitOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class GetConfiguredConcurrencyLimitOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task GetConfiguredConcurrencyLimit_MissingGroup_ReturnsNull()

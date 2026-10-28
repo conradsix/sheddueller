@@ -9,6 +9,36 @@ using Sheddueller.Storage;
 
 internal static class EnqueueJobOperation
 {
+    /// <summary>
+    /// The jobs table columns that every job insert writes, in the order of its values.
+    /// </summary>
+    private const string JobInsertColumnsSql =
+      """
+      job_id,
+      state,
+      priority,
+      enqueued_at_utc,
+      not_before_utc,
+      service_type,
+      method_name,
+      method_parameter_types,
+      invocation_target_kind,
+      method_parameter_bindings,
+      serialized_arguments_content_type,
+      serialized_arguments,
+      attempt_count,
+      max_attempts,
+      retry_backoff_kind,
+      retry_base_delay_ms,
+      retry_max_delay_ms,
+      source_schedule_key,
+      scheduled_fire_at_utc,
+      retry_clone_source_job_id,
+      schedule_occurrence_kind,
+      idempotency_key,
+      job_event_sequence
+      """;
+
     public static async ValueTask<EnqueueJobResult> ExecuteAsync(
         PostgresOperationContext context,
         EnqueueJobRequest request,
@@ -45,16 +75,219 @@ internal static class EnqueueJobOperation
             }
         }
 
+        foreach (var request in requestSnapshot)
+        {
+            foreach (var groupKey in request.ConcurrencyGroupKeys.Distinct(StringComparer.Ordinal))
+            {
+                SubmissionValidator.ValidateConcurrencyGroupKey(groupKey);
+            }
+        }
+
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
+        var results = requestSnapshot.Length == 1
+          ? [await EnqueueOneAsync(context, connection, transaction, requestSnapshot[0], cancellationToken).ConfigureAwait(false)]
+          : await EnqueueBatchAsync(context, connection, transaction, requestSnapshot, cancellationToken).ConfigureAwait(false);
+        await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return results;
+    }
+
+    /// <summary>
+    /// Enqueues one job inside the caller's transaction, as <see cref="ExecuteAsync" /> does, but without waking
+    /// workers: the caller wakes them once, after its other changes.
+    /// </summary>
+    /// <remarks>
+    /// The caller validates the request; a recurring schedule's occurrence comes from a definition validated when it
+    /// was stored.
+    /// </remarks>
+    public static ValueTask<EnqueueJobResult> EnqueueInTransactionAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        EnqueueJobRequest request,
+        CancellationToken cancellationToken)
+      => EnqueueOneAsync(context, connection, transaction, request, cancellationToken);
+
+    /// <summary>
+    /// Enqueues a single job with direct statements, which a batch's staging tables would only slow down. A single
+    /// job has no dependencies: a prerequisite must be in the same batch, and a job cannot depend on itself.
+    /// </summary>
+    private static async ValueTask<EnqueueJobResult> EnqueueOneAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        EnqueueJobRequest request,
+        CancellationToken cancellationToken)
+    {
+        var tags = SubmissionValidator.NormalizeJobTags(request.Tags);
+        await EnsureJobDoesNotExistAsync(context, connection, transaction, request.JobId, cancellationToken).ConfigureAwait(false);
+
+        if (request.IdempotencyKey is { } idempotencyKey)
+        {
+            await PostgresAdvisoryLocks.LockIdempotencyKeyAsync(connection, transaction, context.Options.SchemaName, idempotencyKey, cancellationToken)
+              .ConfigureAwait(false);
+            if (await ReadQueuedIdempotentJobAsync(context, connection, transaction, idempotencyKey, cancellationToken).ConfigureAwait(false) is { } existing)
+            {
+                return existing;
+            }
+        }
+
+        var enqueueSequence = await InsertJobAsync(context, connection, transaction, request, cancellationToken).ConfigureAwait(false);
+        await PostgresJobGroups.InsertJobGroupsAsync(context, connection, transaction, request.JobId, request.ConcurrencyGroupKeys, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresJobTags.InsertJobTagsAsync(context, connection, transaction, request.JobId, tags, cancellationToken)
+          .ConfigureAwait(false);
+
+        // The job row starts with its first event sequence reserved for this event, as a batch's jobs do.
+        await PostgresJobEvents.InsertAndNotifyInTransactionAsync(
+          context,
+          connection,
+          transaction,
+          new AppendJobEventRequest(request.JobId, JobEventKind.Lifecycle, AttemptNumber: 0, Message: PostgresJobEventMessages.Queued),
+          eventSequence: 1,
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        return new EnqueueJobResult(request.JobId, enqueueSequence, WasEnqueued: true);
+    }
+
+    private static async ValueTask EnsureJobDoesNotExistAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid jobId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          $"select exists (select 1 from {context.Names.Jobs} where job_id = @job_id);");
+        command.Parameters.AddWithValue("job_id", jobId);
+
+        if ((bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false))
+        {
+            throw new InvalidOperationException($"Job '{jobId}' already exists.");
+        }
+    }
+
+    /// <summary>
+    /// Reads the oldest queued job with the idempotency key, which a new job with that key joins instead of being
+    /// enqueued.
+    /// </summary>
+    private static async ValueTask<EnqueueJobResult?> ReadQueuedIdempotentJobAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          $"""
+          select job.job_id, job.enqueue_sequence
+          from {context.Names.Jobs} job
+          where job.idempotency_key = @idempotency_key
+            and job.state = 'Queued'
+          order by job.enqueue_sequence asc
+          limit 1;
+          """);
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+          ? new EnqueueJobResult(reader.GetGuid(0), reader.GetInt64(1), WasEnqueued: false)
+          : null;
+    }
+
+    private static async ValueTask<long> InsertJobAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        EnqueueJobRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          $"""
+          insert into {context.Names.Jobs} (
+              {JobInsertColumnsSql})
+          values (
+              @job_id,
+              'Queued',
+              @priority,
+              transaction_timestamp(),
+              @not_before_utc,
+              @service_type,
+              @method_name,
+              @method_parameter_types,
+              @invocation_target_kind,
+              @method_parameter_bindings,
+              @serialized_arguments_content_type,
+              @serialized_arguments,
+              0,
+              @max_attempts,
+              @retry_backoff_kind,
+              @retry_base_delay_ms,
+              @retry_max_delay_ms,
+              @source_schedule_key,
+              @scheduled_fire_at_utc,
+              @retry_clone_source_job_id,
+              @schedule_occurrence_kind,
+              @idempotency_key,
+              1)
+          returning enqueue_sequence;
+          """);
+        var parameters = command.Parameters;
+        parameters.Add("job_id", NpgsqlDbType.Uuid).Value = request.JobId;
+        parameters.Add("priority", NpgsqlDbType.Integer).Value = request.Priority;
+        parameters.Add("not_before_utc", NpgsqlDbType.TimestampTz).Value = PostgresOperationContext.ToDbValue(request.NotBeforeUtc);
+        parameters.Add("service_type", NpgsqlDbType.Text).Value = request.ServiceType;
+        parameters.Add("method_name", NpgsqlDbType.Text).Value = request.MethodName;
+        parameters.Add("method_parameter_types", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = request.MethodParameterTypes.ToArray();
+        parameters.Add("invocation_target_kind", NpgsqlDbType.Text).Value = PostgresConversion.ToText(request.InvocationTargetKind);
+        parameters.Add("method_parameter_bindings", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
+          PostgresOperationContext.ToDbValue(request.MethodParameterBindings?.Select(PostgresConversion.ToText).ToArray());
+        parameters.Add("serialized_arguments_content_type", NpgsqlDbType.Text).Value = request.SerializedArguments.ContentType;
+        parameters.Add("serialized_arguments", NpgsqlDbType.Bytea).Value = request.SerializedArguments.Data;
+        parameters.Add("max_attempts", NpgsqlDbType.Integer).Value = request.MaxAttempts;
+        parameters.Add("retry_backoff_kind", NpgsqlDbType.Text).Value = PostgresOperationContext.ToDbValue(PostgresConversion.ToText(request.RetryBackoffKind));
+        parameters.Add("retry_base_delay_ms", NpgsqlDbType.Bigint).Value = PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(request.RetryBaseDelay));
+        parameters.Add("retry_max_delay_ms", NpgsqlDbType.Bigint).Value = PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(request.RetryMaxDelay));
+        parameters.Add("source_schedule_key", NpgsqlDbType.Text).Value = PostgresOperationContext.ToDbValue(request.SourceScheduleKey);
+        parameters.Add("scheduled_fire_at_utc", NpgsqlDbType.TimestampTz).Value = PostgresOperationContext.ToDbValue(request.ScheduledFireAtUtc);
+        parameters.Add("retry_clone_source_job_id", NpgsqlDbType.Uuid).Value = PostgresOperationContext.ToDbValue(request.RetryCloneSourceJobId);
+        parameters.Add("schedule_occurrence_kind", NpgsqlDbType.Text).Value =
+          PostgresOperationContext.ToDbValue(request.ScheduleOccurrenceKind is { } occurrenceKind ? PostgresConversion.ToText(occurrenceKind) : null);
+        parameters.Add("idempotency_key", NpgsqlDbType.Text).Value = PostgresOperationContext.ToDbValue(request.IdempotencyKey);
+
+        return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+          ?? throw new InvalidOperationException("PostgreSQL did not return an enqueue sequence for the job."));
+    }
+
+    /// <summary>
+    /// Enqueues a batch through staging tables that the batch is copied into, so that a large batch costs a fixed
+    /// number of statements.
+    /// </summary>
+    private static async ValueTask<IReadOnlyList<EnqueueJobResult>> EnqueueBatchAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        EnqueueJobRequest[] requestSnapshot,
+        CancellationToken cancellationToken)
+    {
         await CreateStagingTablesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await CopyJobsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await CopyGroupsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await CopyDependenciesAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await CopyTagsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await CopyEventsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
-        await EnsureNoDuplicateJobIdsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
+        await EnsureStagedJobsDoNotExistAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await LockIdempotencyKeysAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
 
         var results = await InsertStagedJobsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -66,9 +299,6 @@ internal static class EnqueueJobOperation
           .ConfigureAwait(false);
 
         await NotifyStagedEventsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
-        await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return results;
     }
@@ -229,7 +459,6 @@ internal static class EnqueueJobOperation
         {
             foreach (var groupKey in request.ConcurrencyGroupKeys.Distinct(StringComparer.Ordinal))
             {
-                SubmissionValidator.ValidateConcurrencyGroupKey(groupKey);
                 await importer.StartRowAsync(cancellationToken).ConfigureAwait(false);
                 await importer.WriteAsync(request.JobId, NpgsqlDbType.Uuid, cancellationToken).ConfigureAwait(false);
                 await importer.WriteAsync(groupKey, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
@@ -328,37 +557,21 @@ internal static class EnqueueJobOperation
         await importer.CompleteAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async ValueTask EnsureNoDuplicateJobIdsAsync(
+    private static async ValueTask EnsureStagedJobsDoNotExistAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var duplicateCommand = connection.CreateCommand();
-        duplicateCommand.Transaction = transaction;
-        duplicateCommand.CommandText =
-          """
-          select job_id
-          from sheddueller_enqueue_jobs
-          group by job_id
-          having count(*) > 1
-          limit 1;
-          """;
-
-        if (await duplicateCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid duplicateJobId)
-        {
-            throw new InvalidOperationException($"Job '{duplicateJobId}' appears more than once in the batch.");
-        }
-
-        await using var existingCommand = connection.CreateCommand();
-        existingCommand.Transaction = transaction;
-        existingCommand.CommandText =
+        await using var existingCommand = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select staged.job_id
           from sheddueller_enqueue_jobs staged
           join {context.Names.Jobs} job on job.job_id = staged.job_id
           limit 1;
-          """;
+          """);
 
         if (await existingCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid existingJobId)
         {
@@ -375,7 +588,7 @@ internal static class EnqueueJobOperation
           connection,
           transaction,
           """
-          select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || idempotency_key, 7870834))
+          select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || idempotency_key, @idempotency_key_hash_seed))
           from (
               select distinct idempotency_key
               from sheddueller_enqueue_jobs
@@ -383,7 +596,11 @@ internal static class EnqueueJobOperation
               order by idempotency_key
           ) keys;
           """,
-          command => command.Parameters.AddWithValue("schema_name", context.Options.SchemaName),
+          command =>
+          {
+              command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
+              command.Parameters.AddWithValue("idempotency_key_hash_seed", PostgresAdvisoryLocks.IdempotencyKeyHashSeed);
+          },
           cancellationToken)
           .ConfigureAwait(false);
 
@@ -411,29 +628,7 @@ internal static class EnqueueJobOperation
           ) existing_job on true;
 
           insert into {context.Names.Jobs} (
-              job_id,
-              state,
-              priority,
-              enqueued_at_utc,
-              not_before_utc,
-              service_type,
-              method_name,
-              method_parameter_types,
-              invocation_target_kind,
-              method_parameter_bindings,
-              serialized_arguments_content_type,
-              serialized_arguments,
-              attempt_count,
-              max_attempts,
-              retry_backoff_kind,
-              retry_base_delay_ms,
-              retry_max_delay_ms,
-              source_schedule_key,
-              scheduled_fire_at_utc,
-              retry_clone_source_job_id,
-              schedule_occurrence_kind,
-              idempotency_key,
-              job_event_sequence)
+              {JobInsertColumnsSql})
           select
               job_id,
               'Queued',
@@ -512,14 +707,14 @@ internal static class EnqueueJobOperation
           cancellationToken)
           .ConfigureAwait(false);
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           """
           select job_id, enqueue_sequence, was_enqueued
           from sheddueller_enqueue_results
           order by ordinal;
-          """;
+          """);
 
         var results = new List<EnqueueJobResult>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

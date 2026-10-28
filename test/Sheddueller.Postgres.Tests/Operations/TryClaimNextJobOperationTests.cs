@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task TryClaim_NoQueuedJobs_ReturnsNoJobAvailable()
@@ -50,7 +50,7 @@ public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture) : ICl
         await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId, notBeforeUtc: DateTimeOffset.UtcNow.AddMilliseconds(250)));
 
         (await context.Store.TryClaimNextAsync(PostgresTestData.ClaimRequest())).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
-        await Task.Delay(TimeSpan.FromMilliseconds(350));
+        await context.MakeJobDueAsync(jobId);
 
         (await PostgresTestData.ClaimAsync(context.Store)).JobId.ShouldBe(jobId);
     }
@@ -71,7 +71,7 @@ public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture) : ICl
     }
 
     [Fact]
-    public async Task TryClaim_SaturatedGroup_ClaimsNextEligibleTask()
+    public async Task TryClaim_SaturatedGroup_ClaimsNextEligibleJob()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         var running = Guid.NewGuid();
@@ -89,7 +89,7 @@ public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture) : ICl
     }
 
     [Fact]
-    public async Task TryClaim_SaturatedGroupPrefixBeyondOldCandidateLimit_ClaimsLaterEligibleTask()
+    public async Task TryClaim_SaturatedGroupPrefixBeyondOldCandidateLimit_ClaimsLaterEligibleJob()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         var running = Guid.NewGuid();
@@ -135,7 +135,7 @@ public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture) : ICl
           .ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
 
         unavailable.NextClaimAtUtc.ShouldNotBeNull().ShouldBeGreaterThan(blockedAt);
-        await Task.Delay(TimeSpan.FromMilliseconds(550));
+        await context.AdvanceRateLimitClockAsync("rate", TimeSpan.FromMilliseconds(550));
         _ = await PostgresTestData.ClaimAsync(context.Store);
     }
 
@@ -146,8 +146,11 @@ public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture) : ICl
         await ConfigureRateAsync(context, "rate", new ConcurrencyGroupRateLimit(2, TimeSpan.FromSeconds(1)));
         await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid(), groupKeys: ["rate"]));
         await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid(), groupKeys: ["rate"]));
-        await Task.Delay(TimeSpan.FromMilliseconds(600));
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid(), groupKeys: ["rate"]));
+        await PostgresTestData.ClaimAsync(context.Store);
 
+        // A long idle spell after the first claim: the next claim may take one permit, but no saved-up burst.
+        await context.AdvanceRateLimitClockAsync("rate", TimeSpan.FromSeconds(10));
         await PostgresTestData.ClaimAsync(context.Store);
 
         (await context.Store.TryClaimNextAsync(PostgresTestData.ClaimRequest()))
@@ -238,13 +241,13 @@ public sealed class TryClaimNextJobOperationTests(PostgresFixture fixture) : ICl
         var first = await PostgresTestData.ClaimAsync(context.Store);
         await context.Store.MarkFailedAsync(
           new FailJobRequest(jobId, "node-1", first.LeaseToken, DateTimeOffset.UtcNow, PostgresTestData.CreateFailure()));
-        await Task.Delay(TimeSpan.FromMilliseconds(20));
+        await context.MakeJobDueAsync(jobId);
 
         (await context.Store.TryClaimNextAsync(PostgresTestData.ClaimRequest()))
           .ShouldBeOfType<ClaimJobResult.NoJobAvailable>()
           .NextClaimAtUtc.ShouldNotBeNull();
 
-        await Task.Delay(TimeSpan.FromMilliseconds(330));
+        await context.AdvanceRateLimitClockAsync("rate", TimeSpan.FromMilliseconds(330));
         (await PostgresTestData.ClaimAsync(context.Store)).AttemptCount.ShouldBe(2);
     }
 

@@ -9,6 +9,55 @@ using Sheddueller.Storage;
 
 internal static class PostgresScheduleInspectionOperation
 {
+    /// <summary>
+    /// How many of a schedule's most recent occurrences its detail lists.
+    /// </summary>
+    private const int RecentOccurrenceLimit = 20;
+
+    /// <summary>
+    /// The columns that <see cref="ReadSummary" /> reads, in ordinal order, from the recurring schedules table aliased
+    /// <c>schedule</c> left joined to its groups aliased <c>schedule_group</c>, grouped by schedule.
+    /// </summary>
+    private const string SummaryColumnsSql =
+      """
+      schedule.schedule_key,
+      schedule.service_type,
+      schedule.method_name,
+      schedule.cron_expression,
+      schedule.is_paused,
+      schedule.overlap_mode,
+      schedule.next_fire_at_utc,
+      schedule.priority,
+      coalesce(array_agg(schedule_group.group_key order by schedule_group.group_key) filter (where schedule_group.group_key is not null), array[]::text[]) as group_keys,
+      schedule.updated_at_utc
+      """;
+
+    /// <summary>
+    /// The retry policy columns that the detail read selects after <see cref="SummaryColumnsSql" />, in ordinal order.
+    /// </summary>
+    private const string RetryPolicyColumnsSql =
+      """
+      schedule.retry_policy_configured,
+      schedule.max_attempts,
+      schedule.retry_backoff_kind,
+      schedule.retry_base_delay_ms,
+      schedule.retry_max_delay_ms
+      """;
+
+    /// <summary>
+    /// The columns that <see cref="ReadOccurrence" /> reads, in ordinal order, from the jobs table.
+    /// </summary>
+    private const string OccurrenceColumnsSql =
+      """
+      job_id,
+      scheduled_fire_at_utc,
+      coalesce(schedule_occurrence_kind, 'Automatic'),
+      state,
+      enqueued_at_utc,
+      completed_at_utc,
+      failed_at_utc
+      """;
+
     public static async ValueTask<ScheduleInspectionPage> SearchSchedulesAsync(
         PostgresOperationContext context,
         ScheduleInspectionQuery query,
@@ -17,36 +66,56 @@ internal static class PostgresScheduleInspectionOperation
         ValidateQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
-        await using var countCommand = connection.CreateCommand();
-        var countConditions = new List<string>();
-        ConfigureFilters(context, countCommand, countConditions, query);
-        countCommand.CommandText =
-          $"""
-          select count(*)
-          from {context.Names.RecurringSchedules} schedule
-          {CreateFilterWhereClause(countConditions)};
-          """;
+        await using var countCommand = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              ConfigureFilters(context, built, conditions, query);
+              return $"""
+                select count(*)
+                from {context.Names.RecurringSchedules} schedule
+                {PostgresSql.WhereClause(conditions)};
+                """;
+          });
         var totalCount = Convert.ToInt64(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
 
-        await using var command = connection.CreateCommand();
-        var conditions = new List<string>();
-        ConfigureFilters(context, command, conditions, query);
-        if (query.ContinuationToken is not null)
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              ConfigureFilters(context, built, conditions, query);
+              if (query.ContinuationToken is not null)
+              {
+                  conditions.Add("schedule.schedule_key > @after_schedule_key");
+                  built.Parameters.AddWithValue("after_schedule_key", query.ContinuationToken);
+              }
+
+              built.Parameters.AddWithValue("limit", query.PageSize + 1);
+              return $"""
+                select
+                    {SummaryColumnsSql}
+                {ScheduleFromSql(context)}
+                {PostgresSql.WhereClause(conditions)}
+                group by schedule.schedule_key
+                order by schedule.schedule_key asc
+                limit @limit;
+                """;
+          });
+
+        var rows = new List<ScheduleInspectionSummary>();
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
-            conditions.Add("schedule.schedule_key > @after_schedule_key");
-            command.Parameters.AddWithValue("after_schedule_key", query.ContinuationToken);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                rows.Add(ReadSummary(reader));
+            }
         }
 
-        command.Parameters.AddWithValue("limit", query.PageSize + 1);
-        command.CommandText =
-          $"""
-          {ScheduleSelectSql(context)}
-          {CreateWhereClause(conditions)}
-          order by schedule.schedule_key asc
-          limit @limit;
-          """;
-
-        var rows = await ReadScheduleRowsAsync(context, connection, command, cancellationToken).ConfigureAwait(false);
+        await AttachTagsAsync(context, connection, rows, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         var pageRows = rows.Take(query.PageSize).ToArray();
         return new ScheduleInspectionPage(
@@ -62,31 +131,43 @@ internal static class PostgresScheduleInspectionOperation
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
-          {ScheduleSelectSql(context)}
+          select
+              {SummaryColumnsSql},
+              {RetryPolicyColumnsSql}
+          {ScheduleFromSql(context)}
           where schedule.schedule_key = @schedule_key
           group by schedule.schedule_key;
-          """;
+          """);
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
 
-        var rows = await ReadScheduleRowsAsync(context, connection, command, cancellationToken).ConfigureAwait(false);
-        if (rows.Count == 0)
+        ScheduleInspectionSummary summary;
+        RetryPolicy? retryPolicy;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
-            return null;
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            summary = ReadSummary(reader);
+            retryPolicy = PostgresConversion.ToRetryPolicy(
+              reader.GetBoolean(10),
+              reader.GetInt32(11),
+              reader.GetValue(12),
+              reader.GetValue(13),
+              reader.GetValue(14));
         }
 
-        var occurrences = await ReadOccurrencesAsync(context, connection, scheduleKey, cancellationToken).ConfigureAwait(false);
-        var retryPolicy = await ReadRetryPolicyAsync(context, connection, scheduleKey, cancellationToken).ConfigureAwait(false);
+        List<ScheduleInspectionSummary> rows = [summary];
+        await AttachTagsAsync(context, connection, rows, cancellationToken).ConfigureAwait(false);
+        var (recent, lastCompleted, lastFailed) = await ReadOccurrencesAsync(context, connection, scheduleKey, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new ScheduleInspectionDetail(
-          rows[0],
-          retryPolicy,
-          [.. occurrences.Take(20)],
-          occurrences.FirstOrDefault(occurrence => occurrence.State == JobState.Completed),
-          occurrences.FirstOrDefault(occurrence => occurrence.State == JobState.Failed));
+        return new ScheduleInspectionDetail(rows[0], retryPolicy, recent, lastCompleted, lastFailed);
     }
 
     private static void ConfigureFilters(
@@ -127,132 +208,132 @@ internal static class PostgresScheduleInspectionOperation
         }
     }
 
-    private static async ValueTask<IReadOnlyList<ScheduleInspectionSummary>> ReadScheduleRowsAsync(
+    private static ScheduleInspectionSummary ReadSummary(NpgsqlDataReader reader)
+      => new(
+        reader.GetString(0),
+        reader.GetString(1),
+        reader.GetString(2),
+        reader.GetString(3),
+        reader.GetBoolean(4),
+        PostgresConversion.ToRecurringOverlapMode(reader.GetValue(5)),
+        reader.IsDBNull(6) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(6)),
+        reader.GetInt32(7),
+        reader.GetFieldValue<string[]>(8),
+        [],
+        PostgresConversion.ToDateTimeOffset(reader.GetValue(9)));
+
+    private static async ValueTask AttachTagsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        NpgsqlCommand command,
+        List<ScheduleInspectionSummary> rows,
         CancellationToken cancellationToken)
     {
-        var rows = new List<ScheduleInspectionSummary>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            rows.Add(new ScheduleInspectionSummary(
-              reader.GetString(0),
-              reader.GetString(1),
-              reader.GetString(2),
-              reader.GetString(3),
-              reader.GetBoolean(4),
-              PostgresConversion.ToRecurringOverlapMode(reader.GetValue(5)),
-              reader.IsDBNull(6) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(6)),
-              reader.GetInt32(7),
-              reader.GetFieldValue<string[]>(8),
-              [],
-              PostgresConversion.ToDateTimeOffset(reader.GetValue(9))));
-        }
-
-        await reader.DisposeAsync().ConfigureAwait(false);
+        var tagsByKey = await PostgresScheduleTags.ReadScheduleTagsByKeyAsync(
+          context,
+          connection,
+          transaction: null,
+          [.. rows.Select(static row => row.ScheduleKey)],
+          cancellationToken)
+          .ConfigureAwait(false);
         for (var i = 0; i < rows.Count; i++)
         {
-            var tags = await PostgresScheduleTags.ReadScheduleTagsAsync(context, connection, transaction: null, rows[i].ScheduleKey, cancellationToken)
-              .ConfigureAwait(false);
-            rows[i] = rows[i] with { Tags = tags };
+            rows[i] = rows[i] with { Tags = tagsByKey.TryGetValue(rows[i].ScheduleKey, out var tags) ? tags : [] };
         }
-
-        return rows;
     }
 
-    private static async ValueTask<IReadOnlyList<ScheduleInspectionOccurrence>> ReadOccurrencesAsync(
+    /// <summary>
+    /// Reads the schedule's most recent occurrences, newest first, and its most recent completed and failed
+    /// occurrences, however old, with one query.
+    /// </summary>
+    private static async ValueTask<(IReadOnlyList<ScheduleInspectionOccurrence> Recent, ScheduleInspectionOccurrence? LastCompleted, ScheduleInspectionOccurrence? LastFailed)> ReadOccurrencesAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         string scheduleKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-          $"""
-          select
-              job_id,
-              scheduled_fire_at_utc,
-              coalesce(schedule_occurrence_kind, 'Automatic'),
-              state,
-              enqueued_at_utc,
-              completed_at_utc,
-              failed_at_utc
-          from {context.Names.Jobs}
-          where source_schedule_key = @schedule_key
-          order by enqueue_sequence desc;
-          """;
-        command.Parameters.AddWithValue("schedule_key", scheduleKey);
+        // The values of the query's part column.
+        const int Recent = 0;
+        const int LastCompleted = 1;
+        const int LastFailed = 2;
 
-        var occurrences = new List<ScheduleInspectionOccurrence>();
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          $"""
+          select occurrence.*
+          from (
+              (
+                  select 0 as part, enqueue_sequence, {OccurrenceColumnsSql}
+                  from {context.Names.Jobs}
+                  where source_schedule_key = @schedule_key
+                  order by enqueue_sequence desc
+                  limit @recent_limit
+              )
+              union all
+              (
+                  select 1, enqueue_sequence, {OccurrenceColumnsSql}
+                  from {context.Names.Jobs}
+                  where source_schedule_key = @schedule_key
+                    and state = 'Completed'
+                  order by enqueue_sequence desc
+                  limit 1
+              )
+              union all
+              (
+                  select 2, enqueue_sequence, {OccurrenceColumnsSql}
+                  from {context.Names.Jobs}
+                  where source_schedule_key = @schedule_key
+                    and state = 'Failed'
+                  order by enqueue_sequence desc
+                  limit 1
+              )
+          ) occurrence
+          order by occurrence.part asc, occurrence.enqueue_sequence desc;
+          """);
+        command.Parameters.AddWithValue("schedule_key", scheduleKey);
+        command.Parameters.AddWithValue("recent_limit", RecentOccurrenceLimit);
+
+        var recent = new List<ScheduleInspectionOccurrence>();
+        ScheduleInspectionOccurrence? lastCompleted = null;
+        ScheduleInspectionOccurrence? lastFailed = null;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            occurrences.Add(new ScheduleInspectionOccurrence(
-              reader.GetGuid(0),
-              reader.IsDBNull(1) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(1)),
-              Enum.Parse<ScheduleOccurrenceKind>(reader.GetString(2)),
-              PostgresConversion.ToJobState(reader.GetValue(3)),
-              PostgresConversion.ToDateTimeOffset(reader.GetValue(4)),
-              reader.IsDBNull(5) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(5)),
-              reader.IsDBNull(6) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(6))));
+            var occurrence = ReadOccurrence(reader, ordinal: 2);
+            switch (reader.GetInt32(0))
+            {
+                case Recent:
+                    recent.Add(occurrence);
+                    break;
+
+                case LastCompleted:
+                    lastCompleted = occurrence;
+                    break;
+
+                case LastFailed:
+                    lastFailed = occurrence;
+                    break;
+            }
         }
 
-        return occurrences;
+        return (recent, lastCompleted, lastFailed);
     }
 
-    private static async ValueTask<RetryPolicy?> ReadRetryPolicyAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        string scheduleKey,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-          $"""
-          select retry_policy_configured, max_attempts, retry_backoff_kind, retry_base_delay_ms, retry_max_delay_ms
-          from {context.Names.RecurringSchedules}
-          where schedule_key = @schedule_key;
-          """;
-        command.Parameters.AddWithValue("schedule_key", scheduleKey);
+    private static ScheduleInspectionOccurrence ReadOccurrence(NpgsqlDataReader reader, int ordinal)
+      => new(
+        reader.GetGuid(ordinal),
+        reader.IsDBNull(ordinal + 1) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(ordinal + 1)),
+        Enum.Parse<ScheduleOccurrenceKind>(reader.GetString(ordinal + 2)),
+        PostgresConversion.ToJobState(reader.GetValue(ordinal + 3)),
+        PostgresConversion.ToDateTimeOffset(reader.GetValue(ordinal + 4)),
+        reader.IsDBNull(ordinal + 5) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(ordinal + 5)),
+        reader.IsDBNull(ordinal + 6) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(ordinal + 6)));
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            return null;
-        }
-
-        return PostgresConversion.ToRetryPolicy(
-          reader.GetBoolean(0),
-          reader.GetInt32(1),
-          reader.GetValue(2),
-          reader.GetValue(3),
-          reader.GetValue(4));
-    }
-
-    private static string ScheduleSelectSql(PostgresOperationContext context)
+    private static string ScheduleFromSql(PostgresOperationContext context)
       => $"""
-         select
-             schedule.schedule_key,
-             schedule.service_type,
-             schedule.method_name,
-             schedule.cron_expression,
-             schedule.is_paused,
-             schedule.overlap_mode,
-             schedule.next_fire_at_utc,
-             schedule.priority,
-             coalesce(array_agg(schedule_group.group_key order by schedule_group.group_key) filter (where schedule_group.group_key is not null), array[]::text[]) as group_keys,
-             schedule.updated_at_utc
          from {context.Names.RecurringSchedules} schedule
          left join {context.Names.ScheduleConcurrencyGroups} schedule_group on schedule_group.schedule_key = schedule.schedule_key
          """;
-
-    private static string CreateWhereClause(List<string> conditions)
-      => $"{CreateFilterWhereClause(conditions)} group by schedule.schedule_key";
-
-    private static string CreateFilterWhereClause(List<string> conditions)
-      => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
 
     private static void ValidateQuery(ScheduleInspectionQuery query)
     {
@@ -271,5 +352,4 @@ internal static class PostgresScheduleInspectionOperation
             throw new ArgumentException("Inspection tag filters must have non-empty name and value.", nameof(query));
         }
     }
-
 }

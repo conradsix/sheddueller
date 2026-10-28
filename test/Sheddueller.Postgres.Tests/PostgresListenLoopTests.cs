@@ -9,7 +9,7 @@ using Sheddueller.Postgres.Internal;
 
 using Shouldly;
 
-public sealed class PostgresListenLoopTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresListenLoopTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task ListenLoop_QuietPastKeepAliveInterval_ProbesConnectionAndKeepsListening()

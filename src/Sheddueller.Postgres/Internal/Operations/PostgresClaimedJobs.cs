@@ -6,7 +6,12 @@ using Sheddueller.Storage;
 
 internal static class PostgresClaimedJobs
 {
-    public static async ValueTask<IReadOnlyList<string>?> TryLockCurrentClaimGroupsAsync(
+    /// <summary>
+    /// Locks the job for the rest of the transaction and reads it, if the node still holds an unexpired claim on it
+    /// with the lease token; otherwise returns null. Completion, failure, release and observed cancellation all
+    /// start here.
+    /// </summary>
+    public static async ValueTask<PostgresClaimedJob?> TryLockCurrentClaimAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -15,32 +20,12 @@ internal static class PostgresClaimedJobs
         Guid leaseToken,
         CancellationToken cancellationToken)
     {
-        var job = await TryReadCurrentClaimForFailureAsync(context, connection, transaction, jobId, nodeId, leaseToken, cancellationToken)
-          .ConfigureAwait(false);
-        return job?.GroupKeys;
-    }
-
-    public static async ValueTask<PostgresClaimedJob?> TryReadCurrentClaimForFailureAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid jobId,
-        string nodeId,
-        Guid leaseToken,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
-              job.job_id,
-              job.attempt_count,
-              job.max_attempts,
-              job.retry_backoff_kind,
-              job.retry_base_delay_ms,
-              job.retry_max_delay_ms,
-              job.idempotency_key
+              {PostgresReaders.PostgresClaimedJobColumnsSql(context.Names)}
           from {context.Names.Jobs} job
           where job.job_id = @job_id
             and job.state = 'Claimed'
@@ -48,28 +33,15 @@ internal static class PostgresClaimedJobs
             and job.lease_token = @lease_token
             and job.lease_expires_at_utc > transaction_timestamp()
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
         command.Parameters.AddWithValue("node_id", nodeId);
         command.Parameters.AddWithValue("lease_token", leaseToken);
 
-        PostgresClaimedJob? job = null;
-        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                job = PostgresReaders.ReadPostgresClaimedJob(reader, []);
-            }
-        }
-
-        if (job is null)
-        {
-            return null;
-        }
-
-        var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, job.JobId, cancellationToken)
-          .ConfigureAwait(false);
-        return job with { GroupKeys = groupKeys };
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+          ? PostgresReaders.ReadPostgresClaimedJob(reader)
+          : null;
     }
 
     public static async ValueTask<IReadOnlyList<PostgresClaimedJob>> ReadExpiredClaimsAsync(
@@ -78,39 +50,24 @@ internal static class PostgresClaimedJobs
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
-              job.job_id,
-              job.attempt_count,
-              job.max_attempts,
-              job.retry_backoff_kind,
-              job.retry_base_delay_ms,
-              job.retry_max_delay_ms,
-              job.idempotency_key
+              {PostgresReaders.PostgresClaimedJobColumnsSql(context.Names)}
           from {context.Names.Jobs} job
           where job.state = 'Claimed'
             and job.lease_expires_at_utc <= transaction_timestamp()
           order by job.lease_expires_at_utc asc, job.enqueue_sequence asc
           for update skip locked;
-          """;
+          """);
 
         var jobs = new List<PostgresClaimedJob>();
-        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                jobs.Add(PostgresReaders.ReadPostgresClaimedJob(reader, []));
-            }
-        }
-
-        for (var i = 0; i < jobs.Count; i++)
-        {
-            var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, jobs[i].JobId, cancellationToken)
-              .ConfigureAwait(false);
-            jobs[i] = jobs[i] with { GroupKeys = groupKeys };
+            jobs.Add(PostgresReaders.ReadPostgresClaimedJob(reader));
         }
 
         return jobs;
@@ -186,7 +143,8 @@ internal static class PostgresClaimedJobs
             return null;
         }
 
-        await LockIdempotencyKeyAsync(context, connection, transaction, job.IdempotencyKey, cancellationToken).ConfigureAwait(false);
+        await PostgresAdvisoryLocks.LockIdempotencyKeyAsync(connection, transaction, context.Options.SchemaName, job.IdempotencyKey, cancellationToken)
+          .ConfigureAwait(false);
         var duplicateJobId = await ReadQueuedDuplicateJobIdAsync(context, connection, transaction, job, cancellationToken).ConfigureAwait(false);
         if (duplicateJobId is null)
         {
@@ -225,24 +183,6 @@ internal static class PostgresClaimedJobs
         return PostgresJobEventMessages.SupersededFailure(duplicateJobId.Value);
     }
 
-    private static async ValueTask LockIdempotencyKeyAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        string idempotencyKey,
-        CancellationToken cancellationToken)
-      => await PostgresOperationContext.ExecuteCountAsync(
-          connection,
-          transaction,
-          "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, 7870834));",
-          command =>
-          {
-              command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
-              command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
-          },
-          cancellationToken)
-          .ConfigureAwait(false);
-
     private static async ValueTask<Guid?> ReadQueuedDuplicateJobIdAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -250,9 +190,9 @@ internal static class PostgresClaimedJobs
         PostgresClaimedJob job,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select job_id
           from {context.Names.Jobs}
@@ -261,7 +201,7 @@ internal static class PostgresClaimedJobs
             and job_id <> @job_id
           order by enqueue_sequence asc
           limit 1;
-          """;
+          """);
         command.Parameters.AddWithValue("idempotency_key", job.IdempotencyKey!);
         command.Parameters.AddWithValue("job_id", job.JobId);
 

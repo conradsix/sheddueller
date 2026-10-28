@@ -10,8 +10,10 @@ internal static class GetConfiguredConcurrencyLimitOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"select configured_limit from {context.Names.ConcurrencyGroups} where group_key = @group_key;";
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          $"select configured_limit from {context.Names.ConcurrencyGroups} where group_key = @group_key;");
         command.Parameters.AddWithValue("group_key", groupKey);
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
 

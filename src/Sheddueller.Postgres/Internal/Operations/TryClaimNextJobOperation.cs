@@ -25,10 +25,8 @@ internal static class TryClaimNextJobOperation
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
 
         var candidates = await ReadClaimCandidatesAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
-        foreach (var jobId in candidates)
+        foreach (var (jobId, groupKeys) in candidates)
         {
-            var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, jobId, cancellationToken)
-              .ConfigureAwait(false);
             await PostgresJobGroups.EnsureGroupRowsAsync(context, connection, transaction, groupKeys, cancellationToken).ConfigureAwait(false);
 
             if (!await PostgresJobGroups.TryReserveGroupsAsync(context, connection, transaction, groupKeys, cancellationToken).ConfigureAwait(false))
@@ -36,55 +34,13 @@ internal static class TryClaimNextJobOperation
                 continue;
             }
 
-            var leaseToken = Guid.NewGuid();
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText =
-              $"""
-              update {context.Names.Jobs}
-              set state = 'Claimed',
-                  attempt_count = attempt_count + 1,
-                  claimed_by_node_id = @node_id,
-                  claimed_at_utc = transaction_timestamp(),
-                  lease_token = @lease_token,
-                  lease_expires_at_utc = transaction_timestamp() + @lease_duration,
-                  last_heartbeat_at_utc = null
-              where job_id = @job_id
-                and state = 'Queued'
-              returning
-                  job_id,
-                  enqueue_sequence,
-                  priority,
-                  service_type,
-                  method_name,
-                  method_parameter_types,
-                  invocation_target_kind,
-                  method_parameter_bindings,
-                  serialized_arguments_content_type,
-                  serialized_arguments,
-                  attempt_count,
-                  max_attempts,
-                  lease_token,
-                  lease_expires_at_utc,
-                  retry_backoff_kind,
-                  retry_base_delay_ms,
-                  retry_max_delay_ms,
-                  source_schedule_key,
-                  scheduled_fire_at_utc;
-              """;
-            command.Parameters.AddWithValue("job_id", jobId);
-            command.Parameters.AddWithValue("node_id", request.NodeId);
-            command.Parameters.AddWithValue("lease_token", leaseToken);
-            command.Parameters.AddWithValue("lease_duration", leaseDuration);
-
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            var claimed = await ClaimCandidateAsync(context, connection, transaction, request, jobId, groupKeys, leaseDuration, cancellationToken)
+              .ConfigureAwait(false);
+            if (claimed is null)
             {
                 continue;
             }
 
-            var claimed = PostgresReaders.ReadClaimedJob(reader, groupKeys);
-            await reader.DisposeAsync().ConfigureAwait(false);
             await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
@@ -102,33 +58,80 @@ internal static class TryClaimNextJobOperation
         return new ClaimJobResult.NoJobAvailable(nextClaimAtUtc);
     }
 
-    private static async ValueTask<IReadOnlyList<Guid>> ReadClaimCandidatesAsync(
+    /// <summary>
+    /// Claims a locked candidate whose groups were reserved, or returns null when it is no longer queued.
+    /// </summary>
+    private static async ValueTask<ClaimedJob?> ClaimCandidateAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ClaimJobRequest request,
+        Guid jobId,
+        IReadOnlyList<string> groupKeys,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          $"""
+          update {context.Names.Jobs}
+          set state = 'Claimed',
+              attempt_count = attempt_count + 1,
+              claimed_by_node_id = @node_id,
+              claimed_at_utc = transaction_timestamp(),
+              lease_token = @lease_token,
+              lease_expires_at_utc = transaction_timestamp() + @lease_duration,
+              last_heartbeat_at_utc = null
+          where job_id = @job_id
+            and state = 'Queued'
+          returning
+              {PostgresReaders.ClaimedJobColumnsSql};
+          """);
+        command.Parameters.AddWithValue("job_id", jobId);
+        command.Parameters.AddWithValue("node_id", request.NodeId);
+        command.Parameters.AddWithValue("lease_token", Guid.NewGuid());
+        command.Parameters.AddWithValue("lease_duration", leaseDuration);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+          ? PostgresReaders.ReadClaimedJob(reader, groupKeys)
+          : null;
+    }
+
+    /// <summary>
+    /// Locks the first claimable jobs in claim order, skipping jobs other claims hold, and reads each with its group
+    /// keys.
+    /// </summary>
+    private static async ValueTask<IReadOnlyList<(Guid JobId, string[] GroupKeys)>> ReadClaimCandidatesAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
-          select job.job_id
+          select
+              job.job_id,
+              {PostgresJobGroups.GroupKeysSql(context.Names, "job")}
           from {context.Names.Jobs} job
           where {PostgresSqlFragments.JobIsClaimable(context.Names, "job", PostgresSqlFragments.ClockNow)}
           order by {PostgresSqlFragments.ClaimOrder("job")}
           for update of job skip locked
           limit @candidate_limit;
-          """;
+          """);
         command.Parameters.AddWithValue("candidate_limit", ClaimCandidateLimit);
 
-        var jobIds = new List<Guid>();
+        var candidates = new List<(Guid JobId, string[] GroupKeys)>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            jobIds.Add(reader.GetGuid(0));
+            candidates.Add((reader.GetGuid(0), reader.GetFieldValue<string[]>(1)));
         }
 
-        return jobIds;
+        return candidates;
     }
 
     private static async ValueTask<DateTimeOffset?> ReadNextRateLimitedClaimAtAsync(
@@ -137,9 +140,9 @@ internal static class TryClaimNextJobOperation
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select min(rate_blocked.next_claim_at_utc)
           from (
@@ -152,7 +155,7 @@ internal static class TryClaimNextJobOperation
                 and {PostgresSqlFragments.GroupIsRateLimited("concurrency_group", PostgresSqlFragments.ClockNow)}
               group by job.job_id
           ) rate_blocked;
-          """;
+          """);
 
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return value is null or DBNull ? null : PostgresConversion.ToDateTimeOffset(value);

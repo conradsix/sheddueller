@@ -102,16 +102,6 @@ internal static class PostgresConversion
           FromMilliseconds(maxDelayMs));
     }
 
-    public static JobFailureInfo? ToFailure(object typeName, object message, object stackTrace)
-    {
-        if (typeName is DBNull || message is DBNull)
-        {
-            return null;
-        }
-
-        return new JobFailureInfo((string)typeName, (string)message, stackTrace is DBNull ? null : (string)stackTrace);
-    }
-
     private static JobMethodParameterBinding ToParameterBinding(string value)
     {
         const string ServicePrefix = "Service\n";

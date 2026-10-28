@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class RecoverExpiredLeasesOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class RecoverExpiredLeasesOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task RecoverExpiredLeases_NoExpiredClaims_ReturnsZero()

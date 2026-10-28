@@ -94,8 +94,12 @@ internal sealed class PostgresMigrator : IPostgresMigrator
         await ExecuteAsync(
           connection,
           transaction,
-          "select pg_advisory_xact_lock(7870833, hashtext(@schema_name));",
-          command => command.Parameters.AddWithValue("schema_name", this._options.SchemaName),
+          "select pg_advisory_xact_lock(@lock_key, hashtext(@schema_name));",
+          command =>
+          {
+              command.Parameters.AddWithValue("lock_key", PostgresAdvisoryLocks.MigrationLockKey);
+              command.Parameters.AddWithValue("schema_name", this._options.SchemaName);
+          },
           cancellationToken)
           .ConfigureAwait(false);
 
@@ -629,9 +633,10 @@ internal sealed class PostgresMigrator : IPostgresMigrator
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = $"select schema_version from {this._names.SchemaInfo} where singleton_id = 1;";
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          $"select schema_version from {this._names.SchemaInfo} where singleton_id = 1;");
 
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return result is null or DBNull ? 0 : Convert.ToInt32(result, CultureInfo.InvariantCulture);
@@ -643,9 +648,7 @@ internal sealed class PostgresMigrator : IPostgresMigrator
         string commandText,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = commandText;
+        await using var command = PostgresCommands.Create(connection, transaction, commandText);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -656,9 +659,7 @@ internal sealed class PostgresMigrator : IPostgresMigrator
         Action<NpgsqlCommand> configure,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = commandText;
+        await using var command = PostgresCommands.Create(connection, transaction, commandText);
         configure(command);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

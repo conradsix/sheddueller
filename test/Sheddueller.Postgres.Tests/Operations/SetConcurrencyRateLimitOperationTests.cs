@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class SetConcurrencyRateLimitOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class SetConcurrencyRateLimitOperationTests(PostgresFixture fixture)
 {
     private static readonly ConcurrencyGroupRateLimit DefaultRate = new(2, TimeSpan.FromSeconds(1));
     private static readonly ConcurrencyGroupRateLimit OverrideRate = new(3, TimeSpan.FromSeconds(2));

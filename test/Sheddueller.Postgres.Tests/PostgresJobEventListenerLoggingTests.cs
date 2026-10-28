@@ -3,6 +3,7 @@ namespace Sheddueller.Postgres.Tests;
 using Microsoft.Extensions.Logging;
 
 using Sheddueller.Postgres.Internal;
+using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Storage;
 using Sheddueller.Tests.Logging;
 
@@ -18,11 +19,11 @@ public sealed class PostgresJobEventListenerLoggingTests
           .SetMinimumLevel(LogLevel.Trace)
           .AddProvider(logs));
         var listener = new PostgresJobEventListener(
-          new ShedduellerPostgresOptions
+          new PostgresOperationContext(new ShedduellerPostgresOptions
           {
               DataSource = null!,
               SchemaName = "sheddueller",
-          },
+          }),
           new NoOpJobEventNotifier(),
           loggerFactory.CreateLogger<PostgresJobEventListener>());
 
@@ -42,11 +43,11 @@ public sealed class PostgresJobEventListenerLoggingTests
           .SetMinimumLevel(LogLevel.Trace)
           .AddProvider(logs));
         var listener = new PostgresJobEventListener(
-          new ShedduellerPostgresOptions
+          new PostgresOperationContext(new ShedduellerPostgresOptions
           {
               DataSource = null!,
               SchemaName = "sheddueller",
-          },
+          }),
           new NoOpJobEventNotifier(),
           loggerFactory.CreateLogger<PostgresJobEventListener>());
         var jobId = Guid.NewGuid();
