@@ -798,6 +798,8 @@ Sheddueller.ShedduellerCleanupConfiguration.Metrics.get -> Sheddueller.MetricsCl
 Sheddueller.ShedduellerCleanupConfiguration.Metrics.init -> void
 Sheddueller.ShedduellerCleanupConfiguration.ShedduellerCleanupConfiguration(Sheddueller.JobRetentionCleanupConfiguration! JobRetention, Sheddueller.JobEventCleanupConfiguration! JobEvents, Sheddueller.MetricsCleanupConfiguration! Metrics) -> void
 Sheddueller.ShedduellerOptions
+Sheddueller.ShedduellerOptions.DeadNodeRetention.get -> System.TimeSpan?
+Sheddueller.ShedduellerOptions.DeadNodeRetention.set -> void
 Sheddueller.ShedduellerOptions.DeadNodeThreshold.get -> System.TimeSpan?
 Sheddueller.ShedduellerOptions.DeadNodeThreshold.set -> void
 Sheddueller.ShedduellerOptions.DefaultRetryPolicy.get -> Sheddueller.RetryPolicy?
@@ -1085,6 +1087,8 @@ Sheddueller.Storage.IShedduellerCleanupConfigurationStore.GetJobEventCleanupConf
 Sheddueller.Storage.IShedduellerCleanupConfigurationStore.GetJobRetentionCleanupConfigurationAsync(Sheddueller.JobRetentionCleanupConfiguration! defaultConfiguration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Sheddueller.JobRetentionCleanupConfiguration!>
 Sheddueller.Storage.IShedduellerCleanupConfigurationStore.GetMetricsCleanupConfigurationAsync(Sheddueller.MetricsCleanupConfiguration! defaultConfiguration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Sheddueller.MetricsCleanupConfiguration!>
 Sheddueller.Storage.IShedduellerCleanupConfigurationStore.SetCleanupConfigurationAsync(Sheddueller.ShedduellerCleanupConfiguration! configuration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Sheddueller.Storage.IWorkerNodeRetentionStore
+Sheddueller.Storage.IWorkerNodeRetentionStore.CleanupWorkerNodesAsync(System.TimeSpan retention, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>
 Sheddueller.Storage.JobCancellationStatusRequest
 Sheddueller.Storage.JobCancellationStatusRequest.<Clone>$() -> Sheddueller.Storage.JobCancellationStatusRequest!
 Sheddueller.Storage.JobCancellationStatusRequest.Deconstruct(out System.Guid JobId, out string! NodeId, out System.Guid LeaseToken, out System.DateTimeOffset ObservedAtUtc) -> void
