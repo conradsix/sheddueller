@@ -119,11 +119,11 @@
 
   .jobs-table tbody tr:hover :is(.jobs-table__select, .jobs-table__actions),
   .jobs-table tbody tr.sd-row--active :is(.jobs-table__select, .jobs-table__actions) {
-    background: color-mix(in oklch, var(--muted) 55%, var(--card));
+    background: color-mix(in oklab, var(--muted) 55%, var(--card));
   }
 
   .jobs-table tbody tr[aria-selected="true"] :is(.jobs-table__select, .jobs-table__actions) {
-    background: color-mix(in oklch, var(--primary) 6%, var(--card));
+    background: color-mix(in oklab, var(--primary) 6%, var(--card));
   }
 
   .jobs-table__number {

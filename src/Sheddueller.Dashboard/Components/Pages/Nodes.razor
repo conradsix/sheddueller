@@ -2,529 +2,186 @@
 @inherits DashboardPageComponent
 @inject INodeInspectionReader NodeReader
 
-<div class="nodes-page">
-    <header class="nodes-header">
-        <div>
-            <h1>Nodes</h1>
-            <p>Real-time liveness monitoring and local capacity tracking across the cluster.</p>
-        </div>
-    </header>
+<div class="sd-page nodes-page">
+    <PageHeader Title="Nodes" Description="Workers that send heartbeats to this job store, with their health and how much work each one is running." />
+
+    <nav class="nodes-health" aria-label="Filter nodes by health">
+        @foreach (var tile in HealthTiles)
+        {
+            var selected = IsTileSelected(tile.State);
+            <a class="@TileClass(tile)" href="@TileHref(tile.State)" aria-current="@(selected ? "true" : null)"
+               title="@TileTitle(tile, selected)" @key="tile.Label">
+                <span class="nodes-health__label">
+                    @if (tile.State is not null)
+                    {
+                        <span class="nodes-health__dot" aria-hidden="true"></span>
+                    }
+                    @tile.Label
+                </span>
+                @if (_healthCounts is null && _loadError is null)
+                {
+                    <Skeleton Width="48px" Height="30px" />
+                }
+                else
+                {
+                    <span class="nodes-health__count">@DashboardFormat.Count(TileCount(tile.State))</span>
+                }
+                <span class="nodes-health__caption">@tile.Caption</span>
+            </a>
+        }
+    </nav>
+
+    <div class="sd-toolbar nodes-toolbar">
+        <SearchInput Class="nodes-search" Value="@_filters.NodeId" ValueChanged="SetNodeIdFilter" Placeholder="Filter by node ID"
+                     Label="Filter loaded nodes by node ID" Shortcut="true" />
+        @if (HasFilters)
+        {
+            <Button Variant="ButtonVariant.Ghost" Icon="x" OnClick="ResetFiltersAsync">Reset</Button>
+        }
+    </div>
 
     @if (_loadError is not null)
     {
-        <section class="nodes-message nodes-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h2>Nodes failed to load</h2>
-                <p>@_loadError</p>
-            </div>
-        </section>
+        <Alert Tone="AlertTone.Destructive" Title="Nodes couldn't be loaded">
+            <ChildContent>@_loadError</ChildContent>
+            <Actions>
+                <Button Size="ButtonSize.Small" Icon="@(_isLoading ? "loader-circle" : "refresh-cw")" Disabled="_isLoading"
+                        OnClick="LoadAsync">Try again</Button>
+            </Actions>
+        </Alert>
     }
-    else if (_isLoading && _nodePage is null)
+    else if (LiveRefresh.RefreshError is not null)
     {
-        <section class="nodes-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h2>Loading nodes</h2>
-                <p>Reading worker heartbeat records.</p>
-            </div>
-        </section>
+        <Alert Tone="AlertTone.Warning" Title="Live refresh failed">
+            Showing the nodes from the last successful refresh. @LiveRefresh.RefreshError
+        </Alert>
     }
-    else
+
+    @if (_nodePage is not null || _loadError is null)
     {
         var visibleNodes = FilteredNodes;
 
-        <section class="nodes-summary-grid" aria-label="Node health summary">
-            <article class="nodes-summary-card">
-                <span class="nodes-summary-card__label">Total Nodes</span>
-                <div>
-                    <strong>@DashboardFormat.Count(TotalNodeCount)</strong>
-                    <span>cluster-wide</span>
-                </div>
-            </article>
-            <article class="nodes-summary-card">
-                <span class="nodes-summary-card__label nodes-summary-card__label--active">
-                    <span aria-hidden="true"></span>
-                    Active
-                </span>
-                <div>
-                    <strong>@DashboardFormat.Count(ActiveNodeCount)</strong>
-                    <span>@HealthPercent(ActiveNodeCount)</span>
-                </div>
-            </article>
-            <article class="nodes-summary-card">
-                <span class="nodes-summary-card__label nodes-summary-card__label--stale">
-                    <span aria-hidden="true"></span>
-                    Stale
-                </span>
-                <div>
-                    <strong>@DashboardFormat.Count(StaleNodeCount)</strong>
-                    <span>missed heartbeat</span>
-                </div>
-            </article>
-            <article class="nodes-summary-card nodes-summary-card--dead">
-                <span class="nodes-summary-card__label nodes-summary-card__label--dead">
-                    <span aria-hidden="true"></span>
-                    Dead
-                </span>
-                <div>
-                    <strong>@DashboardFormat.Count(DeadNodeCount)</strong>
-                    <span>requires intervention</span>
-                </div>
-            </article>
-        </section>
-
-        @if (LiveRefresh.RefreshError is not null)
-        {
-            <DashboardInlineAlert CssClass="nodes-inline-alert nodes-inline-alert--error" Icon="warning">
-                <span>Refresh failed: @LiveRefresh.RefreshError</span>
-            </DashboardInlineAlert>
-        }
-
-        <DashboardTableShell Title="Node Registry" ResultText="@ResultRangeText"
-                             ShowLoadMore="@(_nodePage?.ContinuationToken is not null)" IsLoadingMore="@_isLoadingMore"
-                             OnLoadMore="LoadMoreAsync">
-            <Toolbar>
-                <select class="sd-table-select nodes-health-filter" aria-label="Filter by health state"
-                        value="@_filters.State" @onchange="SetStateFilterAsync" disabled="@_isLoading">
-                    <option value="">All States</option>
-                    @foreach (var state in Enum.GetValues<NodeHealthState>())
-                    {
-                        <option value="@state">@state</option>
-                    }
-                </select>
-                <DashboardSearchBox Value="@_filters.NodeId" ValueChanged="SetNodeIdFilter" Placeholder="Filter node ID..."
-                                    AriaLabel="Filter node ID" />
-            </Toolbar>
-            <ChildContent>
-                <table class="nodes-table">
+        <Card Flush="true" Class="@TableCardClass">
+            <div class="nodes-table-wrap">
+                <table class="sd-table nodes-table" aria-busy="@(_isLoading ? "true" : "false")">
                     <colgroup>
-                        <col class="nodes-table__col--node" />
-                        <col class="nodes-table__col--state" />
-                        <col class="nodes-table__col--timestamp" />
-                        <col class="nodes-table__col--timestamp" />
-                        <col class="nodes-table__col--count" />
-                        <col class="nodes-table__col--concurrency" />
+                        <col />
+                        <col class="nodes-table__col-health" />
+                        <col class="nodes-table__col-time" />
+                        <col class="nodes-table__col-time" />
+                        <col class="nodes-table__col-running" />
+                        <col class="nodes-table__col-claimed" />
                     </colgroup>
                     <thead>
                         <tr>
-                            <th>Node ID</th>
-                            <th>Health State</th>
-                            <th>First Seen</th>
-                            <th>Last Heartbeat</th>
-                            <th class="nodes-table__number">Claimed Jobs</th>
-                            <th class="nodes-table__number">Local Concurrency</th>
+                            <th scope="col">Node</th>
+                            <th scope="col">Health</th>
+                            <th scope="col">Last heartbeat</th>
+                            <th scope="col">First seen</th>
+                            <th scope="col" class="nodes-table__num" title="Jobs executing on the node now, out of its execution slots">Running</th>
+                            <th scope="col" class="nodes-table__num" title="Jobs the node has claimed">Claimed</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @if (visibleNodes.Count == 0)
+                        @if (_nodePage is null)
                         {
-                            <tr>
-                                <td class="nodes-empty-row" colspan="6">@EmptyText</td>
+                            @for (var row = 0; row < SkeletonRowCount; row++)
+                            {
+                                <tr class="nodes-table__skeleton" aria-hidden="true">
+                                    <td><Skeleton Width="@(row % 2 == 0 ? "62%" : "48%")" /></td>
+                                    <td><Skeleton Width="64px" /></td>
+                                    <td><Skeleton Width="70%" /></td>
+                                    <td><Skeleton Width="70%" /></td>
+                                    <td><Skeleton Width="80%" /></td>
+                                    <td><Skeleton Width="40%" /></td>
+                                </tr>
+                            }
+                        }
+                        else if (visibleNodes.Count == 0)
+                        {
+                            <tr class="nodes-table__empty">
+                                <td colspan="6">
+                                    <EmptyState Flat="true" Icon="@(HasFilters ? "search-x" : "server")" Title="@EmptyTitle">
+                                        <ChildContent>@EmptyText</ChildContent>
+                                        <Actions>
+                                            @if (HasFilters)
+                                            {
+                                                <Button OnClick="ResetFiltersAsync">Reset filters</Button>
+                                            }
+                                        </Actions>
+                                    </EmptyState>
+                                </td>
                             </tr>
                         }
                         else
                         {
                             @foreach (var node in visibleNodes)
                             {
-                                <tr class="@NodeRowClass(node)" @key="node.NodeId">
+                                <tr @key="node.NodeId">
                                     <td>
-                                        <span class="nodes-id" title="@node.NodeId">@node.NodeId</span>
-                                    </td>
-                                    <td>
-                                        <span class="@NodeStateClass(node.State)">
-                                            <span aria-hidden="true"></span>
-                                            @node.State
+                                        <span class="nodes-id-cell">
+                                            <span class="nodes-id" title="@node.NodeId">@node.NodeId</span>
+                                            <span class="nodes-copy"><CopyButton Value="@node.NodeId" Label="node ID" /></span>
                                         </span>
                                     </td>
                                     <td>
-                                        <TimestampBlock BaseClass="nodes-timestamp" Value="node.FirstSeenAtUtc"
-                                                        AllowFutureRelative="false" />
+                                        <span class="@HealthBadgeClass(node.State)">
+                                            <span class="sd-status__dot" aria-hidden="true"></span>
+                                            @HealthLabel(node.State)
+                                        </span>
                                     </td>
-                                    <td>
-                                        <TimestampBlock BaseClass="nodes-timestamp" Value="node.LastHeartbeatAtUtc"
-                                                        AllowFutureRelative="false" />
+                                    <td><TimestampBlock BaseClass="sd-timestamp" Value="node.LastHeartbeatAtUtc" AllowFutureRelative="false" Inline /></td>
+                                    <td><TimestampBlock BaseClass="sd-timestamp" Value="node.FirstSeenAtUtc" AllowFutureRelative="false" Inline /></td>
+                                    <td class="nodes-table__num">
+                                        <span class="nodes-load" title="@RunningTitle(node)">
+                                            <Progress Value="@LoadPercent(node)" Class="@LoadBarClass(node)" Label="@RunningTitle(node)" />
+                                            <span class="nodes-load__text">@RunningText(node)</span>
+                                        </span>
                                     </td>
-                                    <td class="nodes-table__number nodes-count">@DashboardFormat.Count(node.ClaimedJobCount)</td>
-                                    <td>
-                                        <div class="nodes-concurrency">
-                                            <span class="nodes-concurrency__track" aria-hidden="true">
-                                                <span class="@ConcurrencyBarClass(node)"
-                                                      style="@ConcurrencyWidthStyle(node)"></span>
-                                            </span>
-                                            <span>@ConcurrencyText(node)</span>
-                                        </div>
-                                    </td>
+                                    <td class="nodes-table__num">@DashboardFormat.Count(node.ClaimedJobCount)</td>
                                 </tr>
                             }
                         }
                     </tbody>
                 </table>
-            </ChildContent>
-        </DashboardTableShell>
+            </div>
+            <footer class="sd-table__footer">
+                <span class="sd-num">@FooterText</span>
+                <span class="nodes-footer-actions">
+                    @if (_loadMoreError is not null)
+                    {
+                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
+                    }
+                    @if (_nodePage?.ContinuationToken is not null)
+                    {
+                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
+                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
+                    }
+                </span>
+            </footer>
+        </Card>
     }
 </div>
-
-<style>
-    .nodes-page {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sd-gutter);
-    }
-
-    .nodes-header,
-    .nodes-summary-card div,
-    .nodes-concurrency {
-        display: flex;
-        align-items: center;
-    }
-
-    .nodes-header {
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .nodes-header p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .nodes-summary-card__label {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .nodes-message,
-    .nodes-inline-alert {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .nodes-message .sd-icon,
-    .nodes-inline-alert .sd-icon {
-        color: var(--sd-primary);
-    }
-
-    .nodes-message--error,
-    .nodes-inline-alert--error {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .nodes-message--error .sd-icon,
-    .nodes-inline-alert--error .sd-icon {
-        color: var(--sd-error);
-    }
-
-    .nodes-message p,
-    .nodes-inline-alert {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .nodes-inline-alert--error {
-        color: var(--sd-on-error-container);
-    }
-
-    .nodes-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: var(--sd-gutter);
-    }
-
-    .nodes-summary-card {
-        display: flex;
-        min-height: 96px;
-        flex-direction: column;
-        justify-content: space-between;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .nodes-summary-card--dead {
-        border-color: var(--sd-error-container);
-        border-left: 4px solid var(--sd-error);
-    }
-
-    .nodes-summary-card__label {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .nodes-summary-card__label span {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    .nodes-summary-card__label--active span {
-        background: var(--sd-secondary);
-    }
-
-    .nodes-summary-card__label--stale span {
-        background: var(--sd-warning);
-    }
-
-    .nodes-summary-card__label--dead span {
-        background: var(--sd-error);
-    }
-
-    .nodes-summary-card--dead strong {
-        color: var(--sd-error);
-    }
-
-    .nodes-summary-card div {
-        gap: 8px;
-    }
-
-    .nodes-summary-card strong {
-        color: var(--sd-on-surface);
-        font-family: var(--font-sans);
-        font-size: 24px;
-        font-weight: 600;
-        line-height: 32px;
-    }
-
-    .nodes-summary-card div span {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .nodes-health-filter {
-        width: 152px;
-    }
-
-    .nodes-table {
-        min-width: 1120px;
-        table-layout: fixed;
-        white-space: nowrap;
-    }
-
-    .nodes-table__col--node {
-        width: 300px;
-    }
-
-    .nodes-table__col--state {
-        width: 144px;
-    }
-
-    .nodes-table__col--timestamp {
-        width: 184px;
-    }
-
-    .nodes-table__col--count {
-        width: 128px;
-    }
-
-    .nodes-table__col--concurrency {
-        width: 220px;
-    }
-
-    .nodes-table thead {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background: var(--sd-surface-low);
-    }
-
-    .nodes-table th,
-    .nodes-table td {
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 6px 8px;
-        text-align: left;
-        vertical-align: middle;
-    }
-
-    .nodes-table th {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .nodes-table td {
-        height: 40px;
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .nodes-table tbody tr:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .nodes-row--stale {
-        background: color-mix(in srgb, var(--sd-warning-container) 28%, transparent);
-    }
-
-    .nodes-row--dead {
-        background: color-mix(in srgb, var(--sd-error) 10%, transparent);
-    }
-
-    .nodes-table__number {
-        text-align: right;
-    }
-
-    .nodes-id,
-    .nodes-count,
-    .nodes-concurrency span:last-child,
-    .nodes-timestamp__absolute {
-        font-family: var(--font-mono);
-    }
-
-    .nodes-id {
-        display: block;
-        overflow: hidden;
-        color: var(--sd-primary);
-        font-size: 13px;
-        line-height: 18px;
-        text-overflow: ellipsis;
-    }
-
-    .nodes-state {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        padding: 2px 8px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .nodes-state span {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    .nodes-state--active {
-        border-color: var(--sd-secondary-container);
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .nodes-state--active span {
-        background: var(--sd-secondary);
-    }
-
-    .nodes-state--stale {
-        border-color: var(--sd-warning-container);
-        background: var(--sd-warning-container);
-        color: var(--sd-warning);
-    }
-
-    .nodes-state--stale span {
-        background: var(--sd-warning);
-    }
-
-    .nodes-state--dead {
-        border-color: var(--sd-error);
-        background: color-mix(in srgb, var(--sd-error) 14%, var(--sd-surface-lowest));
-        color: var(--sd-error);
-    }
-
-    .nodes-state--dead span {
-        background: var(--sd-error);
-    }
-
-    .nodes-timestamp {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-    }
-
-    .nodes-timestamp__relative {
-        color: var(--sd-on-surface);
-    }
-
-    .nodes-timestamp__absolute,
-    .nodes-empty-row {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .nodes-concurrency {
-        justify-content: flex-end;
-        gap: 8px;
-    }
-
-    .nodes-concurrency__track {
-        display: block;
-        width: 72px;
-        height: 6px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-    }
-
-    .nodes-concurrency__bar {
-        display: block;
-        height: 100%;
-        border-radius: inherit;
-        background: var(--sd-secondary);
-    }
-
-    .nodes-concurrency__bar--hot {
-        background: var(--sd-warning);
-    }
-
-    .nodes-concurrency__bar--inactive {
-        background: var(--sd-outline-variant);
-    }
-
-    .nodes-empty-row {
-        height: 96px;
-        text-align: center;
-    }
-
-    @@media (max-width: 1120px) {
-        .nodes-summary-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .nodes-header {
-            align-items: stretch;
-            flex-direction: column;
-        }
-    }
-
-    @@media (max-width: 720px) {
-        .nodes-summary-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
 
 @code {
     private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(5);
     private const int DefaultPageSize = 25;
+    private const int SkeletonRowCount = 4;
+
+    private static readonly IReadOnlyList<HealthTile> HealthTiles =
+    [
+        new(null, "All nodes", "Every node with a heartbeat record", "all"),
+        new(NodeHealthState.Active, "Active", "Heartbeating on time", "success"),
+        new(NodeHealthState.Stale, "Stale", "Missed recent heartbeats", "warning"),
+        new(NodeHealthState.Dead, "Dead", "Stopped heartbeating", "destructive"),
+    ];
 
     private readonly List<NodeInspectionSummary> _nodes = [];
     private readonly DashboardNodeFilters _filters = new();
     private NodeInspectionPage? _nodePage;
     private NodeHealthCounts? _healthCounts;
     private string? _loadError;
+    private string? _loadMoreError;
     private bool _isLoading;
     private bool _isLoadingMore;
 
@@ -543,25 +200,65 @@
     private int TotalNodeCount
       => this._healthCounts?.TotalNodeCount ?? this.ActiveNodeCount + this.StaleNodeCount + this.DeadNodeCount;
 
-    private string EmptyText
-      => this._nodes.Count == 0
-        ? "No worker nodes matched the current query."
-        : "No loaded worker nodes matched the node ID filter.";
+    private bool HasNodeIdFilter
+      => !string.IsNullOrWhiteSpace(this._filters.NodeId);
 
-    private string ResultRangeText
+    private bool HasFilters
+      => this._filters.StateFilter is not null || this.HasNodeIdFilter;
+
+    private string TableCardClass
+      => this._isLoading && this._nodePage is not null
+        ? "sd-table-card nodes-table-card sd-table-card--loading"
+        : "sd-table-card nodes-table-card";
+
+    private string EmptyTitle
+    {
+        get
+        {
+            if (this._nodes.Count > 0)
+            {
+                return string.Concat("No loaded nodes match “", this._filters.NodeId.Trim(), "”");
+            }
+
+            return this._filters.StateFilter is { } state
+              ? string.Concat("No ", HealthLabel(state).ToLowerInvariant(), " nodes")
+              : this.HasNodeIdFilter ? "No nodes match" : "No nodes yet";
+        }
+    }
+
+    private string EmptyText
+    {
+        get
+        {
+            if (this._nodes.Count > 0)
+            {
+                return this._nodePage?.ContinuationToken is not null
+                  ? "The node ID filter only checks nodes that are loaded. Load more nodes, or reset the filters."
+                  : "Try a different node ID, or reset the filters.";
+            }
+
+            return this._filters.StateFilter is { } state
+              ? string.Concat("No nodes are ", HealthLabel(state).ToLowerInvariant(), " right now.")
+              : "Nodes appear here once a worker sends its first heartbeat.";
+        }
+    }
+
+    private string FooterText
     {
         get
         {
             var loadedCount = this._nodes.Count;
-            var visibleCount = this.FilteredNodes.Count;
-            var totalCount = this._nodePage?.TotalCount ?? Math.Max(this.TotalNodeCount, loadedCount);
-            var filteredText = visibleCount == loadedCount
-              ? string.Empty
-              : string.Create(CultureInfo.InvariantCulture, $" ({DashboardFormat.Count(visibleCount)} visible after node ID filter)");
+            var totalCount = this._nodePage?.TotalCount ?? loadedCount;
+            if (this.HasNodeIdFilter)
+            {
+                return string.Create(
+                  CultureInfo.InvariantCulture,
+                  $"{DashboardFormat.Count(this.FilteredNodes.Count)} of {DashboardFormat.Count(loadedCount)} loaded nodes match the node ID filter");
+            }
 
-            return loadedCount == 0
-              ? string.Create(CultureInfo.InvariantCulture, $"Showing 0 of {DashboardFormat.Count(totalCount)} nodes{filteredText}")
-              : string.Create(CultureInfo.InvariantCulture, $"Showing 1-{DashboardFormat.Count(loadedCount)} of {DashboardFormat.Count(totalCount)} nodes{filteredText}");
+            return string.Create(
+              CultureInfo.InvariantCulture,
+              $"Showing {DashboardFormat.Count(loadedCount)} of {DashboardFormat.Count(totalCount)} {(totalCount == 1 ? "node" : "nodes")}");
         }
     }
 
@@ -581,26 +278,26 @@
         this.StartPeriodicRefresh(PageRefreshInterval);
     }
 
-    private async Task SetStateFilterAsync(ChangeEventArgs eventArgs)
-    {
-        var state = eventArgs.Value?.ToString() ?? string.Empty;
-        if (string.Equals(this._filters.State, state, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        this._filters.State = state;
-        this.NavigateToLocation(DashboardNodeFilterQuery.ToHref(this._filters), replace: false);
-
-        await this.LoadAsync();
-    }
-
     private void SetNodeIdFilter(string value)
     {
         this._filters.NodeId = value;
         this.NavigateToLocation(DashboardNodeFilterQuery.ToHref(this._filters), replace: true);
     }
 
+    private async Task ResetFiltersAsync()
+    {
+        var stateChanged = this._filters.StateFilter is not null;
+        this._filters.State = string.Empty;
+        this._filters.NodeId = string.Empty;
+        this.NavigateToLocation(DashboardNodeFilterQuery.ToHref(this._filters), replace: false);
+
+        if (stateChanged)
+        {
+            await this.LoadAsync();
+        }
+    }
+
+    // Health tiles are links: following one changes the URL, and the location tracker applies the new state.
     private async Task ApplyLocationAsync(string location)
     {
         var next = DashboardNodeFilterQuery.ParseUri(location);
@@ -614,6 +311,7 @@
     private async Task LoadAsync()
     {
         this._loadError = null;
+        this._loadMoreError = null;
         this.LiveRefresh.ClearError();
         this._isLoading = true;
 
@@ -645,7 +343,7 @@
             return;
         }
 
-        this._loadError = null;
+        this._loadMoreError = null;
         this._isLoadingMore = true;
 
         try
@@ -660,7 +358,7 @@
         }
         catch (Exception exception)
         {
-            this._loadError = exception.Message;
+            this._loadMoreError = exception.Message;
         }
         finally
         {
@@ -731,47 +429,88 @@
         this._loadError = null;
     }
 
-    private string HealthPercent(int count)
-      => this.TotalNodeCount == 0
-        ? "0%"
-        : string.Create(CultureInfo.InvariantCulture, $"{((double)count / this.TotalNodeCount) * 100:0.#}%");
+    private bool IsTileSelected(NodeHealthState? state)
+      => this._filters.StateFilter == state;
 
-    private static string NodeRowClass(NodeInspectionSummary node)
-      => node.State switch
+    private int TileCount(NodeHealthState? state)
+      => state switch
       {
-          NodeHealthState.Stale => "nodes-row--stale",
-          NodeHealthState.Dead => "nodes-row--dead",
-          _ => string.Empty,
+          NodeHealthState.Active => this.ActiveNodeCount,
+          NodeHealthState.Stale => this.StaleNodeCount,
+          NodeHealthState.Dead => this.DeadNodeCount,
+          _ => this.TotalNodeCount,
       };
 
-    private static string NodeStateClass(NodeHealthState state)
-      => string.Concat("nodes-state nodes-state--", state.ToString().ToLowerInvariant());
+    // Selecting the active tile again clears the health filter; the node ID filter is kept either way.
+    private string TileHref(NodeHealthState? state)
+      => DashboardNodeFilterQuery.ToHref(new DashboardNodeFilters
+      {
+          State = state is { } value && !this.IsTileSelected(value) ? value.ToString() : string.Empty,
+          NodeId = this._filters.NodeId,
+      });
 
-    private static string ConcurrencyText(NodeInspectionSummary node)
+    private string TileClass(HealthTile tile)
+      => string.Concat(
+        "nodes-health__tile nodes-health__tile--",
+        tile.Tone,
+        (tile.State is NodeHealthState.Stale or NodeHealthState.Dead) && this.TileCount(tile.State) > 0
+          ? " nodes-health__tile--attention"
+          : string.Empty);
+
+    private static string TileTitle(HealthTile tile, bool selected)
+      => tile.State is null || selected
+        ? "Show all nodes"
+        : string.Concat("Show only ", tile.Label.ToLowerInvariant(), " nodes");
+
+    private static string HealthLabel(NodeHealthState state)
+      => state switch
+      {
+          NodeHealthState.Active => "Active",
+          NodeHealthState.Stale => "Stale",
+          NodeHealthState.Dead => "Dead",
+          _ => state.ToString(),
+      };
+
+    private static string HealthBadgeClass(NodeHealthState state)
+      => state switch
+      {
+          NodeHealthState.Active => "sd-badge sd-status nodes-badge nodes-badge--success",
+          NodeHealthState.Stale => "sd-badge sd-status nodes-badge nodes-badge--warning",
+          NodeHealthState.Dead => "sd-badge sd-status nodes-badge nodes-badge--destructive",
+          _ => "sd-badge sd-status nodes-badge",
+      };
+
+    private static string RunningText(NodeInspectionSummary node)
       => string.Create(CultureInfo.InvariantCulture, $"{DashboardFormat.Count(node.CurrentExecutionCount)} / {DashboardFormat.Count(node.MaxConcurrentExecutionsPerNode)}");
 
-    private static string ConcurrencyWidthStyle(NodeInspectionSummary node)
-    {
-        var percent = node.MaxConcurrentExecutionsPerNode <= 0
-          ? 0
-          : Math.Clamp((double)node.CurrentExecutionCount / node.MaxConcurrentExecutionsPerNode * 100, 0, 100);
-        return string.Create(CultureInfo.InvariantCulture, $"width: {percent:0.##}%");
-    }
+    private static string RunningTitle(NodeInspectionSummary node)
+      => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{DashboardFormat.Count(node.CurrentExecutionCount)} of {DashboardFormat.Count(node.MaxConcurrentExecutionsPerNode)} execution slots in use");
 
-    private static string ConcurrencyBarClass(NodeInspectionSummary node)
+    private static double LoadPercent(NodeInspectionSummary node)
+      => node.MaxConcurrentExecutionsPerNode <= 0
+        ? 0
+        : Math.Clamp((double)node.CurrentExecutionCount / node.MaxConcurrentExecutionsPerNode * 100, 0, 100);
+
+    // Muted when the node isn't heartbeating or has nothing running; amber from 80% of its slots.
+    private static string LoadBarClass(NodeInspectionSummary node)
     {
         if (node.CurrentExecutionCount <= 0 || node.State != NodeHealthState.Active)
         {
-            return "nodes-concurrency__bar nodes-concurrency__bar--inactive";
+            return "nodes-load__bar nodes-load__bar--idle";
         }
 
-        var usage = node.MaxConcurrentExecutionsPerNode <= 0
-          ? 0
-          : (double)node.CurrentExecutionCount / node.MaxConcurrentExecutionsPerNode;
-        return usage >= 0.8
-          ? "nodes-concurrency__bar nodes-concurrency__bar--hot"
-          : "nodes-concurrency__bar";
+        return LoadPercent(node) >= 80
+          ? "nodes-load__bar nodes-load__bar--busy"
+          : "nodes-load__bar";
     }
+
+    private sealed record HealthTile(
+        NodeHealthState? State,
+        string Label,
+        string Caption,
+        string Tone);
 
     private sealed record NodesSnapshot(
         NodeInspectionPage Page,
