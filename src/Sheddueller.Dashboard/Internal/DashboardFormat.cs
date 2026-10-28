@@ -3,10 +3,13 @@ namespace Sheddueller.Dashboard.Internal;
 using System.Globalization;
 
 using Sheddueller.Inspection.Jobs;
+using Sheddueller.Inspection.Schedules;
 using Sheddueller.Storage;
 
 internal static class DashboardFormat
 {
+    private const int ShortJobIdLength = 8;
+
     public static string Count(int count)
       => count.ToString("N0", CultureInfo.InvariantCulture);
 
@@ -22,31 +25,42 @@ internal static class DashboardFormat
     public static string JobId(Guid jobId)
       => jobId.ToString("D");
 
+    /// <summary>
+    /// The first block of a job ID, enough to tell jobs apart in a list; the full ID goes in its title.
+    /// </summary>
+    public static string ShortJobId(Guid jobId)
+      => ShortJobId(JobId(jobId));
+
+    /// <summary>
+    /// The first block of a job ID as written in a URL; shorter text is returned unchanged.
+    /// </summary>
+    public static string ShortJobId(string jobId)
+      => jobId.Length > ShortJobIdLength ? jobId[..ShortJobIdLength] : jobId;
+
     public static string FullHandler(JobInspectionSummary job)
-      => string.Concat(job.ServiceType, ".", job.MethodName);
+      => FullHandler(job.ServiceType, job.MethodName);
+
+    public static string FullHandler(ScheduleInspectionSummary schedule)
+      => FullHandler(schedule.ServiceType, schedule.MethodName);
+
+    public static string FullHandler(
+        string serviceType,
+        string methodName)
+      => string.Concat(serviceType, ".", methodName);
 
     public static string ShortHandler(JobInspectionSummary job)
-      => string.Concat(ShortTypeName(job.ServiceType), ".", job.MethodName);
+      => ShortHandler(job.ServiceType, job.MethodName);
 
-    public static string InvocationHandler(JobInvocationInspection invocation)
-      => string.Concat(ShortTypeName(invocation.ServiceType), ".", invocation.MethodName);
+    public static string ShortHandler(ScheduleInspectionSummary schedule)
+      => ShortHandler(schedule.ServiceType, schedule.MethodName);
 
-    public static string InvocationBinding(DashboardInvocationArgument argument)
-      => argument.Binding.Kind switch
-      {
-          JobMethodParameterBindingKind.Serialized => "serialized",
-          JobMethodParameterBindingKind.CancellationToken or JobMethodParameterBindingKind.ProgressReporter => "scheduler-owned",
-          JobMethodParameterBindingKind.JobContext => "Job.Context",
-          JobMethodParameterBindingKind.Service => string.Create(
-            CultureInfo.InvariantCulture,
-            $"Job.Resolve<{ShortTypeName(argument.Binding.ServiceType ?? argument.ParameterType)}>()"),
-          _ => argument.Binding.Kind.ToString(),
-      };
-
-    public static string InvocationStatus(JobInvocationInspection invocation)
-      => invocation.SerializedArgumentsStatus == JobSerializedArgumentsInspectionStatus.Displayable
-        ? "Serialized arguments are displayable."
-        : FirstNonEmpty(invocation.SerializedArgumentsStatusMessage, invocation.SerializedArgumentsStatus.ToString());
+    /// <summary>
+    /// The handler without namespace or assembly, as the jobs list filters by it: <c>RateLoader.LoadRates</c>.
+    /// </summary>
+    public static string ShortHandler(
+        string serviceType,
+        string methodName)
+      => string.Concat(DashboardTypeName.Short(serviceType), ".", methodName);
 
     public static string Attempts(JobInspectionSummary job, bool compact = false)
       => compact
@@ -64,9 +78,6 @@ internal static class DashboardFormat
 
     public static string GroupKeysTitle(IReadOnlyList<string> groupKeys)
       => groupKeys.Count == 0 ? "No group keys" : string.Join(", ", groupKeys);
-
-    public static string Nullable(string? value)
-      => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
     /// <summary>
     /// When the job reached its final state. A job that failed an attempt and then completed keeps its failure time,
@@ -107,33 +118,24 @@ internal static class DashboardFormat
         ? string.Create(CultureInfo.InvariantCulture, $"{Math.Clamp(percent, 0, 100):0.#}%")
         : "N/A";
 
-    public static string ProgressWidthStyle(JobProgressSnapshot? progress)
-    {
-        var percent = progress?.Percent is { } value ? Math.Clamp(value, 0, 100) : 0;
-        return string.Create(CultureInfo.InvariantCulture, $"width: {percent:0.##}%");
-    }
-
-    public static string FailureContext(JobInspectionSummary job)
-      => FirstNonEmpty(
-        job.LatestProgress?.Message,
-        job.QueuePosition?.Reason,
-        "Unavailable");
+    /// <summary>
+    /// The failure reason recorded with the job (its last progress message, or why it is queued), or
+    /// <see langword="null" /> when there is none to show.
+    /// </summary>
+    public static string? FailureReason(JobInspectionSummary job)
+      => new[] { job.LatestProgress?.Message, job.QueuePosition?.Reason }.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
 
     public static string Disposition(JobInspectionSummary job)
       => job.State switch
       {
-          JobState.Failed => FirstNonEmpty(job.LatestProgress?.Message, job.QueuePosition?.Reason, "failed"),
+          JobState.Failed => FailureReason(job) ?? "failed",
           JobState.Completed => "completed",
           JobState.Canceled => "canceled",
           _ => QueueKind(job.QueuePosition?.Kind, job.State),
       };
 
-    public static string QueuePosition(JobQueuePosition? position)
-      => position is null
-        ? "-"
-        : position.Position is null
-          ? QueueKind(position.Kind, state: null)
-          : string.Create(CultureInfo.InvariantCulture, $"{QueueKind(position.Kind, state: null)} #{position.Position.Value}");
+    public static string DispositionClass(JobInspectionSummary job)
+      => job.State == JobState.Failed ? "jobs-disposition--error" : "jobs-disposition--muted";
 
     public static string QueueKind(
         JobQueuePositionKind? kind,
@@ -151,6 +153,37 @@ internal static class DashboardFormat
           JobQueuePositionKind.NotFound => "not_found",
           _ => state?.ToString().ToLowerInvariant() ?? "-",
       };
+
+    /// <summary>
+    /// The jobs list's queue cell: the claim position of a ready job, otherwise what it is waiting for.
+    /// </summary>
+    public static string QueuePositionText(JobInspectionSummary job)
+      => job.QueuePosition switch
+      {
+          { Kind: JobQueuePositionKind.Claimable, Position: { } position } => string.Create(CultureInfo.InvariantCulture, $"#{position}"),
+          { Kind: JobQueuePositionKind.Claimable } => "Ready",
+          { Kind: JobQueuePositionKind.Claimed } => "Running",
+          { Kind: JobQueuePositionKind.WaitingForDependencies } => "Dependencies",
+          { Kind: JobQueuePositionKind.BlockedByConcurrency } => "Blocked",
+          { Kind: JobQueuePositionKind.RetryWaiting } => "Retry",
+          { Kind: JobQueuePositionKind.Delayed } => "Delayed",
+          _ => "-",
+      };
+
+    public static string QueuePositionTitle(JobInspectionSummary job)
+      => job.QueuePosition?.Reason ?? QueuePositionText(job);
+
+    public static string QueuePositionClass(JobInspectionSummary job)
+      => string.Concat("jobs-queue jobs-queue--", job.QueuePosition?.Kind switch
+      {
+          JobQueuePositionKind.Claimable => "claimable",
+          JobQueuePositionKind.Claimed => "claimed",
+          JobQueuePositionKind.WaitingForDependencies => "waiting",
+          JobQueuePositionKind.BlockedByConcurrency => "blocked",
+          JobQueuePositionKind.RetryWaiting => "waiting",
+          JobQueuePositionKind.Delayed => "delayed",
+          _ => "empty",
+      });
 
     public static string StateCssModifier(JobState state)
       => state switch
@@ -211,162 +244,8 @@ internal static class DashboardFormat
     public static string UtcMinute(DateTimeOffset? value)
       => value?.ToUniversalTime().ToString("HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
 
-    public static string UtcClock(
-        DateTimeOffset value,
-        bool includeMilliseconds = false)
-      => value.ToUniversalTime().ToString(includeMilliseconds ? "HH:mm:ss.fff 'UTC'" : "HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
-
-    public static bool IsLifecycleEvent(JobEvent jobEvent)
-      => jobEvent.Kind is JobEventKind.Lifecycle
-        or JobEventKind.AttemptStarted
-        or JobEventKind.AttemptCompleted
-        or JobEventKind.AttemptFailed
-        or JobEventKind.CancelRequested
-        or JobEventKind.CancelObserved;
-
-    public static bool IsLogEvent(JobEvent jobEvent)
-      => jobEvent.Kind is JobEventKind.Log or JobEventKind.Progress;
-
-    public static string TimelineTitle(JobEvent jobEvent)
-      => jobEvent.Kind switch
-      {
-          JobEventKind.Lifecycle => string.Concat("Lifecycle: ", FirstNonEmpty(jobEvent.Message, "Event")),
-          JobEventKind.AttemptStarted => string.Create(CultureInfo.InvariantCulture, $"Attempt {jobEvent.AttemptNumber} Started"),
-          JobEventKind.AttemptCompleted => string.Create(CultureInfo.InvariantCulture, $"Attempt {jobEvent.AttemptNumber} Completed"),
-          JobEventKind.AttemptFailed => string.Create(CultureInfo.InvariantCulture, $"Attempt {jobEvent.AttemptNumber} Failed"),
-          JobEventKind.CancelRequested => "Cancellation Requested",
-          JobEventKind.CancelObserved => "Cancellation Observed",
-          _ => jobEvent.Kind.ToString(),
-      };
-
-    public static bool ShouldRenderTimelineMessage(JobEvent jobEvent)
-      => jobEvent.Kind != JobEventKind.Lifecycle && !string.IsNullOrWhiteSpace(jobEvent.Message);
-
-    public static string TimelineItemClass(JobEvent jobEvent)
-      => jobEvent.Kind switch
-      {
-          JobEventKind.AttemptStarted => "job-detail-timeline-item job-detail-timeline-item--active",
-          JobEventKind.AttemptCompleted => "job-detail-timeline-item job-detail-timeline-item--completed",
-          JobEventKind.AttemptFailed => "job-detail-timeline-item job-detail-timeline-item--failed",
-          _ => "job-detail-timeline-item",
-      };
-
-    public static string LogLevel(JobEvent jobEvent)
-      => jobEvent.Kind == JobEventKind.Progress
-        ? "PROGRESS"
-        : jobEvent.LogLevel switch
-        {
-            JobLogLevel.Trace => "TRACE",
-            JobLogLevel.Debug => "DEBUG",
-            JobLogLevel.Information => "INFO",
-            JobLogLevel.Warning => "WARN",
-            JobLogLevel.Error => "ERROR",
-            JobLogLevel.Critical => "CRIT",
-            _ => jobEvent.Kind.ToString().ToUpperInvariant(),
-        };
-
-    public static string LogMessage(JobEvent jobEvent)
-    {
-        if (jobEvent.Kind == JobEventKind.Progress)
-        {
-            return jobEvent.ProgressPercent is { } percent
-              ? string.Create(CultureInfo.InvariantCulture, $"{Math.Clamp(percent, 0, 100):0.#}% {jobEvent.Message}").Trim()
-              : FirstNonEmpty(jobEvent.Message, "Progress reported");
-        }
-
-        return FirstNonEmpty(jobEvent.Message, jobEvent.Kind.ToString());
-    }
-
-    public static string LogLevelClass(JobEvent jobEvent)
-    {
-        var suffix = jobEvent.Kind == JobEventKind.Progress
-          ? "progress"
-          : jobEvent.LogLevel?.ToString().ToLowerInvariant() ?? "information";
-
-        return string.Concat("job-detail-log-level--", suffix);
-    }
-
     public static string FirstNonEmpty(params string?[] values)
       => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
-
-    /// <summary>
-    /// A stored (assembly-qualified) type name without its namespace and assembly, with generic arguments written
-    /// the C# way: <c>IProgress&lt;Decimal&gt;</c>, <c>Dictionary&lt;String, Int32&gt;</c>, <c>String[]</c>.
-    /// </summary>
-    public static string ShortTypeName(string typeName)
-    {
-        var index = 0;
-        return ReadShortTypeName(typeName, ref index);
-    }
-
-    // Reads one type name from index, leaving index after its generic arguments and array suffixes (at the
-    // assembly part, if any). Generic arguments are either assembly-qualified ("[[A, Asm],[B, Asm]]") or not ("[A,B]").
-    private static string ReadShortTypeName(string text, ref int index)
-    {
-        var start = index;
-        while (index < text.Length && text[index] is not (',' or '[' or ']'))
-        {
-            index++;
-        }
-
-        var name = text[start..index].Trim();
-        var arityIndex = name.IndexOf('`', StringComparison.Ordinal);
-        if (arityIndex >= 0)
-        {
-            name = name[..arityIndex];
-        }
-
-        var separatorIndex = name.LastIndexOf('.');
-        if (separatorIndex >= 0 && separatorIndex < name.Length - 1)
-        {
-            name = name[(separatorIndex + 1)..];
-        }
-
-        var arguments = new List<string>();
-        if (arityIndex >= 0 && index < text.Length && text[index] == '[' && !IsArraySuffix(text, index))
-        {
-            index++;
-            while (index < text.Length && text[index] != ']')
-            {
-                if (text[index] == '[')
-                {
-                    index++;
-                    arguments.Add(ReadShortTypeName(text, ref index));
-                    var close = text.IndexOf(']', index);
-                    index = close < 0 ? text.Length : close + 1;
-                }
-                else
-                {
-                    arguments.Add(ReadShortTypeName(text, ref index));
-                }
-
-                if (index < text.Length && text[index] == ',')
-                {
-                    index++;
-                }
-            }
-
-            index++;
-        }
-
-        var arraySuffix = string.Empty;
-        while (IsArraySuffix(text, index))
-        {
-            var close = text.IndexOf(']', index);
-            arraySuffix += text[index..(close + 1)];
-            index = close + 1;
-        }
-
-        return arguments.Count == 0
-          ? name + arraySuffix
-          : string.Create(CultureInfo.InvariantCulture, $"{name}<{string.Join(", ", arguments)}>{arraySuffix}");
-    }
-
-    private static bool IsArraySuffix(string text, int index)
-      => index + 1 < text.Length
-        && text[index] == '['
-        && text[index + 1] is ']' or ',' or '*'
-        && text.IndexOf(']', index) > 0;
 
     /// <summary>
     /// A coarse duration for times that keep counting, such as how long a job has been waiting: <c>&lt;1m</c>,

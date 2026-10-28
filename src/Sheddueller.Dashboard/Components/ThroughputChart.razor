@@ -58,13 +58,11 @@
         new("failedAttempts", "Failed attempts", "--state-waiting", static bucket => bucket.FailedAttemptCount),
     ];
 
-    private readonly CancellationTokenSource _refreshCancellation = new();
     private readonly HashSet<string> _hiddenSeriesKeys = new(StringComparer.Ordinal);
 
     private DashboardThroughputSnapshot? _snapshot;
     private ElementReference _chartElement;
-    private PeriodicTimer? _refreshTimer;
-    private Task? _refreshTask;
+    private DashboardPeriodicRefresh? _periodicRefresh;
     private bool _chartRendered;
     private bool _disposed;
 
@@ -74,23 +72,23 @@
     [Parameter]
     public TimeSpan Window { get; set; } = TimeSpan.FromHours(1);
 
-    [Parameter]
-    public bool AutoRefreshEnabled { get; set; } = true;
-
+    /// <summary>
+    /// Whether the page's auto-refresh is on; the chart refreshes only while it is. Always on when not set.
+    /// </summary>
     [Parameter]
     public Func<bool>? AutoRefreshEnabledProvider { get; set; }
 
     private bool IsAutoRefreshEnabled
-      => this.AutoRefreshEnabledProvider?.Invoke() ?? this.AutoRefreshEnabled;
+      => this.AutoRefreshEnabledProvider?.Invoke() ?? true;
 
     protected override void OnInitialized()
       => this._snapshot = ThroughputReader.GetSnapshot();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender && !this._disposed)
         {
-            this.StartRefreshTimer();
+            this._periodicRefresh = new DashboardPeriodicRefresh(RefreshInterval, this.RefreshIfEnabledAsync);
         }
 
         if (this._snapshot is null)
@@ -106,15 +104,10 @@
     public async ValueTask DisposeAsync()
     {
         this._disposed = true;
-        await this._refreshCancellation.CancelAsync().ConfigureAwait(false);
-        this._refreshTimer?.Dispose();
-
-        if (this._refreshTask is not null)
+        if (this._periodicRefresh is not null)
         {
-            await this._refreshTask.ConfigureAwait(false);
+            await this._periodicRefresh.DisposeAsync().ConfigureAwait(false);
         }
-
-        this._refreshCancellation.Dispose();
 
         if (this._chartRendered)
         {
@@ -130,30 +123,8 @@
         GC.SuppressFinalize(this);
     }
 
-    private void StartRefreshTimer()
-    {
-        this._refreshTimer = new PeriodicTimer(RefreshInterval);
-        this._refreshTask = this.RunRefreshTimerAsync(this._refreshTimer, this._refreshCancellation.Token);
-    }
-
-    private async Task RunRefreshTimerAsync(
-        PeriodicTimer timer,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-            {
-                if (this.IsAutoRefreshEnabled)
-                {
-                    await this.RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
+    private Task RefreshIfEnabledAsync(CancellationToken cancellationToken)
+      => this.IsAutoRefreshEnabled ? this.RefreshSnapshotAsync(cancellationToken) : Task.CompletedTask;
 
     private async Task RefreshSnapshotAsync(CancellationToken cancellationToken)
     {

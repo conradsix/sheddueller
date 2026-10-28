@@ -6,10 +6,6 @@
             <Icon Name="@Icon" />
         }
         <span>@ChildContent</span>
-        @if (Hint is not null)
-        {
-            <span class="sd-menu__hint">@Hint</span>
-        }
     </button>
 }
 else
@@ -20,22 +16,12 @@ else
             <Icon Name="@Icon" />
         }
         <span>@ChildContent</span>
-        @if (Hint is not null)
-        {
-            <span class="sd-menu__hint">@Hint</span>
-        }
     </a>
 }
 
 @code {
     [Parameter]
     public string? Icon { get; set; }
-
-    /// <summary>
-    /// Right-aligned hint, such as a shortcut or count.
-    /// </summary>
-    [Parameter]
-    public string? Hint { get; set; }
 
     [Parameter]
     public string? Href { get; set; }

@@ -4,12 +4,13 @@ using System.Globalization;
 
 using Microsoft.AspNetCore.WebUtilities;
 
-using Sheddueller.Inspection.ConcurrencyGroups;
 using Sheddueller.Inspection.Jobs;
-using Sheddueller.Inspection.Nodes;
 using Sheddueller.Inspection.Schedules;
 using Sheddueller.Storage;
 
+/// <summary>
+/// The jobs list filters: states, handler, tag, and concurrency group text, and the sort.
+/// </summary>
 internal sealed class DashboardJobFilters
 {
     private readonly HashSet<JobState> _states = [];
@@ -156,6 +157,9 @@ internal sealed class DashboardJobFilters
       => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
+/// <summary>
+/// The jobs list's query string, and links to the jobs list with filters applied.
+/// </summary>
 internal static class DashboardJobFilterQuery
 {
     public const string StateParameter = "state";
@@ -166,9 +170,6 @@ internal static class DashboardJobFilterQuery
     public const string ViewParameter = "view";
     public const string TakeParameter = "take";
     public const string JobsPath = "jobs";
-
-    public static DashboardJobFilters ParseUri(string uri)
-      => ParseQuery(new Uri(uri, UriKind.Absolute).Query);
 
     public static bool HasRecognizedQuery(string queryString)
     {
@@ -199,22 +200,22 @@ internal static class DashboardJobFilterQuery
             _ = filters.ReplaceStates(states);
         }
 
-        if (TryGetLastNonEmptyValue(query, HandlerParameter, out var handler))
+        if (DashboardQueryString.LastNonEmpty(query, HandlerParameter) is { } handler)
         {
             _ = filters.SetHandlerContains(handler);
         }
 
-        if (TryGetLastNonEmptyValue(query, TagParameter, out var tag))
+        if (DashboardQueryString.LastNonEmpty(query, TagParameter) is { } tag)
         {
             _ = filters.SetTagContains(tag);
         }
 
-        if (TryGetLastNonEmptyValue(query, GroupParameter, out var group))
+        if (DashboardQueryString.LastNonEmpty(query, GroupParameter) is { } group)
         {
             _ = filters.SetConcurrencyGroupContains(group);
         }
 
-        if (TryGetLastNonEmptyValue(query, SortParameter, out var sortValue)
+        if (DashboardQueryString.LastNonEmpty(query, SortParameter) is { } sortValue
             && Enum.TryParse<JobInspectionSort>(sortValue, ignoreCase: true, out var sort)
             && Enum.IsDefined(sort))
         {
@@ -238,30 +239,18 @@ internal static class DashboardJobFilterQuery
         int? take,
         bool forceExplicitFilters)
     {
-        var queryParts = new List<string>();
-
-        foreach (var state in filters.SelectedStates)
-        {
-            AddQueryPart(queryParts, StateParameter, state.ToString());
-        }
-
-        AddQueryPart(queryParts, HandlerParameter, filters.HandlerContains);
-        AddQueryPart(queryParts, TagParameter, filters.TagContains);
-        AddQueryPart(queryParts, GroupParameter, filters.ConcurrencyGroupContains);
-        if (filters.Sort != JobInspectionSort.Operational || (forceExplicitFilters && queryParts.Count == 0))
-        {
-            AddQueryPart(queryParts, SortParameter, filters.Sort.ToString());
-        }
-
-        AddQueryPart(queryParts, ViewParameter, viewKey ?? string.Empty);
-        if (take is { } takeValue)
-        {
-            AddQueryPart(queryParts, TakeParameter, takeValue.ToString(CultureInfo.InvariantCulture));
-        }
-
-        return queryParts.Count == 0
-          ? JobsPath
-          : string.Concat(JobsPath, "?", string.Join("&", queryParts));
+        var writeSort = filters.Sort != JobInspectionSort.Operational || (forceExplicitFilters && !filters.HasAppliedFilters);
+        return DashboardQueryString.Build(
+          JobsPath,
+          [
+              .. filters.SelectedStates.Select(state => (StateParameter, (string?)state.ToString())),
+              (HandlerParameter, filters.HandlerContains),
+              (TagParameter, filters.TagContains),
+              (GroupParameter, filters.ConcurrencyGroupContains),
+              (SortParameter, writeSort ? filters.Sort.ToString() : null),
+              (ViewParameter, viewKey),
+              (TakeParameter, take?.ToString(CultureInfo.InvariantCulture)),
+          ]);
     }
 
     public static string StateHref(JobState state)
@@ -271,12 +260,35 @@ internal static class DashboardJobFilterQuery
         return ToHref(filters);
     }
 
+    /// <summary>
+    /// Failed jobs, newest failure first.
+    /// </summary>
+    public static string RecentlyFailedHref()
+    {
+        var filters = new DashboardJobFilters();
+        _ = filters.ReplaceStates([JobState.Failed]);
+        _ = filters.SetSort(JobInspectionSort.NewestFirst);
+        return ToHref(filters);
+    }
+
     public static string HandlerHref(string handler)
     {
         var filters = new DashboardJobFilters();
         _ = filters.SetHandlerContains(handler);
         return ToHref(filters);
     }
+
+    /// <summary>
+    /// Jobs with the same handler as <paramref name="job"/>.
+    /// </summary>
+    public static string HandlerHref(JobInspectionSummary job)
+      => HandlerHref(DashboardFormat.ShortHandler(job));
+
+    /// <summary>
+    /// Jobs with the handler <paramref name="schedule"/> enqueues.
+    /// </summary>
+    public static string HandlerHref(ScheduleInspectionSummary schedule)
+      => HandlerHref(DashboardFormat.ShortHandler(schedule));
 
     public static string TagHref(string tag)
     {
@@ -292,14 +304,15 @@ internal static class DashboardJobFilterQuery
         return ToHref(filters);
     }
 
-    public static string WithStateHref(
-        DashboardJobFilters filters,
-        JobState state,
-        string? viewKey = null)
+    /// <summary>
+    /// Queued jobs in a concurrency group, which includes the jobs it blocks.
+    /// </summary>
+    public static string QueuedInGroupHref(string group)
     {
-        var next = filters.Clone();
-        _ = next.ReplaceStates([state]);
-        return ToHref(next, viewKey, take: null, forceExplicitFilters: false);
+        var filters = new DashboardJobFilters();
+        _ = filters.SetConcurrencyGroupContains(group);
+        _ = filters.SetStateSelected(JobState.Queued, selected: true);
+        return ToHref(filters);
     }
 
     public static string WithHandlerHref(
@@ -331,182 +344,65 @@ internal static class DashboardJobFilterQuery
         _ = next.SetConcurrencyGroupContains(group);
         return ToHref(next, viewKey, take: null, forceExplicitFilters: false);
     }
-
-    public static bool TryGetLastNonEmptyValue(
-        Dictionary<string, Microsoft.Extensions.Primitives.StringValues> query,
-        string parameterName,
-        out string value)
-    {
-        value = string.Empty;
-        if (!query.TryGetValue(parameterName, out var values))
-        {
-            return false;
-        }
-
-        for (var i = values.Count - 1; i >= 0; i--)
-        {
-            var candidate = values[i];
-            if (!string.IsNullOrWhiteSpace(candidate))
-            {
-                value = candidate.Trim();
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static void AddQueryPart(
-        List<string> queryParts,
-        string parameterName,
-        string value)
-    {
-        var normalizedValue = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-        if (normalizedValue is null)
-        {
-            return;
-        }
-
-        queryParts.Add(string.Concat(
-          Uri.EscapeDataString(parameterName),
-          "=",
-          Uri.EscapeDataString(normalizedValue)));
-    }
 }
 
-internal sealed class DashboardScheduleFilters
+/// <summary>
+/// The jobs list state carried by a URL: explicit filters (or <see langword="null"/> to use the view's filters),
+/// the selected view key (or <see langword="null"/> for the user's preferred view), and the loaded depth.
+/// </summary>
+internal sealed record DashboardJobListLocation(
+    DashboardJobFilters? Filters,
+    string? ViewKey,
+    int Take)
 {
-    public const string ActiveStateFilter = "active";
-    public const string PausedStateFilter = "paused";
+    public const int DefaultTake = 25;
+    public const int MaximumTake = 1000;
 
-    public string ScheduleKey { get; set; } = string.Empty;
-
-    public string PauseState { get; set; } = string.Empty;
-
-    public bool HasAppliedFilters
-      => !string.IsNullOrWhiteSpace(this.ScheduleKey)
-        || !string.IsNullOrWhiteSpace(this.PauseState);
-
-    public bool CopyFrom(DashboardScheduleFilters other)
+    public static DashboardJobListLocation Parse(string uri)
     {
-        if (string.Equals(this.ScheduleKey, other.ScheduleKey, StringComparison.Ordinal)
-            && string.Equals(this.PauseState, other.PauseState, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        this.ScheduleKey = other.ScheduleKey;
-        this.PauseState = other.PauseState;
-        return true;
+        var queryString = new Uri(uri, UriKind.Absolute).Query;
+        var query = QueryHelpers.ParseQuery(queryString);
+        var filters = DashboardJobFilterQuery.HasRecognizedQuery(queryString)
+          ? DashboardJobFilterQuery.ParseQuery(queryString)
+          : null;
+        var viewKey = DashboardQueryString.LastNonEmpty(query, DashboardJobFilterQuery.ViewParameter);
+        return new DashboardJobListLocation(filters, viewKey, ParseTake(DashboardQueryString.LastNonEmpty(query, DashboardJobFilterQuery.TakeParameter)));
     }
 
-    public ScheduleInspectionQuery ToQuery(
-        int pageSize,
-        string? continuationToken)
-      => new(
-        Normalize(this.ScheduleKey),
-        ParsePauseState(this.PauseState),
-        ServiceType: null,
-        MethodName: null,
-        Tag: null,
-        pageSize,
-        continuationToken);
+    public static int NormalizeTake(int take)
+      => Math.Clamp(take, DefaultTake, MaximumTake);
 
-    private static bool? ParsePauseState(string value)
-      => value switch
-      {
-          PausedStateFilter => true,
-          ActiveStateFilter => false,
-          _ => null,
-      };
+    /// <summary>
+    /// Builds the URL for the current list state. <paramref name="viewParameter"/> comes from
+    /// <see cref="ViewParameterValue"/>; the depth is written only when more than one page is loaded.
+    /// </summary>
+    public static string ToHref(
+        DashboardJobFilters filters,
+        DashboardJobFilters viewFilters,
+        string? viewParameter,
+        int take)
+      => DashboardJobFilterQuery.ToHref(
+        filters,
+        viewParameter,
+        take > DefaultTake ? NormalizeTake(take) : null,
+        forceExplicitFilters: !filters.Matches(viewFilters));
 
-    private static string? Normalize(string value)
-      => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-}
+    /// <summary>
+    /// The <c>view</c> query value for the selected view. A URL without one means "the preferred view", so the key
+    /// is omitted only when the selected view is both the user's preferred view and the configured default; any
+    /// other view is named so the URL restores it (for other users too, when it is a shared view).
+    /// </summary>
+    public static string? ViewParameterValue(
+        string selectedViewKey,
+        string preferredViewKey,
+        string configuredDefaultViewKey)
+      => string.Equals(selectedViewKey, preferredViewKey, StringComparison.Ordinal)
+        && string.Equals(selectedViewKey, configuredDefaultViewKey, StringComparison.Ordinal)
+          ? null
+          : selectedViewKey;
 
-internal sealed class DashboardNodeFilters
-{
-    public string State { get; set; } = string.Empty;
-
-    public string NodeId { get; set; } = string.Empty;
-
-    public NodeHealthState? StateFilter
-      => Enum.TryParse<NodeHealthState>(this.State, out var state) ? state : null;
-
-    public bool CopyFrom(DashboardNodeFilters other)
-    {
-        if (string.Equals(this.State, other.State, StringComparison.Ordinal)
-            && string.Equals(this.NodeId, other.NodeId, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        this.State = other.State;
-        this.NodeId = other.NodeId;
-        return true;
-    }
-
-    public IReadOnlyList<NodeInspectionSummary> ApplyClientFilter(IReadOnlyList<NodeInspectionSummary> nodes)
-      => string.IsNullOrWhiteSpace(this.NodeId)
-        ? nodes
-        : [.. nodes.Where(node => node.NodeId.Contains(this.NodeId, StringComparison.OrdinalIgnoreCase))];
-
-    public NodeInspectionQuery ToQuery(
-        int pageSize,
-        string? continuationToken)
-      => new(this.StateFilter, pageSize, continuationToken);
-}
-
-internal sealed class DashboardConcurrencyGroupFilters
-{
-    public string GroupKey { get; set; } = string.Empty;
-
-    public bool SaturatedOnly { get; set; }
-
-    public bool HasBlockedJobsOnly { get; set; }
-
-    public bool RateLimitedOnly { get; set; }
-
-    public bool? SaturatedFilter
-      => this.SaturatedOnly ? true : null;
-
-    public bool? HasBlockedJobsFilter
-      => this.HasBlockedJobsOnly ? true : null;
-
-    public bool? RateLimitedFilter
-      => this.RateLimitedOnly ? true : null;
-
-    public bool CopyFrom(DashboardConcurrencyGroupFilters other)
-    {
-        if (string.Equals(this.GroupKey, other.GroupKey, StringComparison.Ordinal)
-            && this.SaturatedOnly == other.SaturatedOnly
-            && this.HasBlockedJobsOnly == other.HasBlockedJobsOnly
-            && this.RateLimitedOnly == other.RateLimitedOnly)
-        {
-            return false;
-        }
-
-        this.GroupKey = other.GroupKey;
-        this.SaturatedOnly = other.SaturatedOnly;
-        this.HasBlockedJobsOnly = other.HasBlockedJobsOnly;
-        this.RateLimitedOnly = other.RateLimitedOnly;
-        return true;
-    }
-
-    public IReadOnlyList<ConcurrencyGroupInspectionSummary> ApplyClientFilter(
-        IReadOnlyList<ConcurrencyGroupInspectionSummary> groups)
-      => string.IsNullOrWhiteSpace(this.GroupKey)
-        ? groups
-        : [.. groups.Where(group => group.GroupKey.Contains(this.GroupKey, StringComparison.OrdinalIgnoreCase))];
-
-    public ConcurrencyGroupInspectionQuery ToQuery(
-        int pageSize,
-        string? continuationToken)
-      => new(
-        GroupKey: null,
-        IsSaturated: this.SaturatedFilter,
-        HasBlockedJobs: this.HasBlockedJobsFilter,
-        PageSize: pageSize,
-        ContinuationToken: continuationToken,
-        IsRateLimited: this.RateLimitedFilter);
+    private static int ParseTake(string? value)
+      => int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var take)
+        ? NormalizeTake(take)
+        : DefaultTake;
 }

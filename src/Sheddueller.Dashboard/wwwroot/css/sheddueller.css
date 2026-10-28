@@ -1150,6 +1150,12 @@
     font-size: 12px;
   }
 
+  .sd-table__footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
   /* progress */
   .sd-progress {
     position: relative;

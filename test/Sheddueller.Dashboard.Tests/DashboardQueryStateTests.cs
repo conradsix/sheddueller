@@ -119,8 +119,8 @@ public sealed class DashboardQueryStateTests
         var filters = new DashboardJobFilters();
         filters.SetSort(JobInspectionSort.NewestFirst);
 
-        DashboardJobFilterQuery.WithStateHref(filters, JobState.Claimed, "personal:abc")
-          .ShouldBe("jobs?state=Claimed&sort=NewestFirst&view=personal%3Aabc");
+        DashboardJobFilterQuery.WithTagHref(filters, "tenant:acme", "personal:abc")
+          .ShouldBe("jobs?tag=tenant%3Aacme&sort=NewestFirst&view=personal%3Aabc");
         DashboardJobFilterQuery.WithGroupHref(filters, "tenant-acme")
           .ShouldBe("jobs?group=tenant-acme&sort=NewestFirst");
     }
@@ -238,6 +238,15 @@ public sealed class DashboardQueryStateTests
         DashboardMetricsWindowQuery.ToHref(TimeSpan.FromMinutes(5), TimeSpan.FromHours(1)).ShouldBe("metrics?window=5m");
         DashboardMetricsWindowQuery.ToHref(TimeSpan.FromHours(24), TimeSpan.FromHours(1)).ShouldBe("metrics?window=24h");
     }
+
+    [Theory]
+    [InlineData("?handler=Old.Run&handler=%20New.Run%20&handler=%20", "New.Run")]
+    [InlineData("?handler=%20&handler=", null)]
+    [InlineData("?tag=x", null)]
+    public void QueryString_LastNonEmpty_TakesTheLastNonBlankValueTrimmed(
+        string queryString,
+        string? expected)
+      => DashboardQueryString.LastNonEmpty(DashboardQueryString.ParseUri(BaseUri + "jobs" + queryString), "handler").ShouldBe(expected);
 
     [Theory]
     [InlineData("jobs", true)]

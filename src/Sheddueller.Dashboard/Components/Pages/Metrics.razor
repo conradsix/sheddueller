@@ -212,7 +212,7 @@
 
     private static readonly string QueuedHref = DashboardJobFilterQuery.StateHref(JobState.Queued);
     private static readonly string RunningHref = DashboardJobFilterQuery.StateHref(JobState.Claimed);
-    private static readonly string FailedHref = CreateFailedHref();
+    private static readonly string FailedHref = DashboardJobFilterQuery.RecentlyFailedHref();
     private static readonly string SaturatedGroupsHref = DashboardConcurrencyGroupFilterQuery.ToHref(
       new DashboardConcurrencyGroupFilters { SaturatedOnly = true });
 
@@ -308,14 +308,6 @@
         {
             this._selectedWindow = snapshot.Windows[0].Window;
         }
-    }
-
-    private static string CreateFailedHref()
-    {
-        var filters = new DashboardJobFilters();
-        _ = filters.ReplaceStates([JobState.Failed]);
-        _ = filters.SetSort(JobInspectionSort.NewestFirst);
-        return DashboardJobFilterQuery.ToHref(filters);
     }
 
     private static string WindowPhrase(TimeSpan window)

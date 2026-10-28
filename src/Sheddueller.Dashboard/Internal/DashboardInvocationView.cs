@@ -159,6 +159,35 @@ internal static class DashboardInvocationView
         }
     }
 
+    /// <summary>
+    /// The handler the job calls, without namespace or assembly: <c>RateLoader.LoadRates</c>.
+    /// </summary>
+    public static string Handler(JobInvocationInspection invocation)
+      => DashboardFormat.ShortHandler(invocation.ServiceType, invocation.MethodName);
+
+    /// <summary>
+    /// Where an argument's value comes from: the caller (serialized), or what the scheduler passes in its place.
+    /// </summary>
+    public static string BindingLabel(DashboardInvocationArgument argument)
+      => argument.Binding.Kind switch
+      {
+          JobMethodParameterBindingKind.Serialized => "serialized",
+          JobMethodParameterBindingKind.CancellationToken or JobMethodParameterBindingKind.ProgressReporter => "scheduler-owned",
+          JobMethodParameterBindingKind.JobContext => "Job.Context",
+          JobMethodParameterBindingKind.Service => string.Create(
+            CultureInfo.InvariantCulture,
+            $"Job.Resolve<{DashboardTypeName.Short(argument.Binding.ServiceType ?? argument.ParameterType)}>()"),
+          _ => argument.Binding.Kind.ToString(),
+      };
+
+    /// <summary>
+    /// Whether the argument values can be shown, and why not when they can't.
+    /// </summary>
+    public static string StatusMessage(JobInvocationInspection invocation)
+      => invocation.SerializedArgumentsStatus == JobSerializedArgumentsInspectionStatus.Displayable
+        ? "Serialized arguments are displayable."
+        : DashboardFormat.FirstNonEmpty(invocation.SerializedArgumentsStatusMessage, invocation.SerializedArgumentsStatus.ToString());
+
     private static List<DashboardInvocationArgument> Shown(IReadOnlyList<DashboardInvocationArgument> arguments, bool dataOnly)
       => dataOnly ? [.. arguments.Where(argument => argument.IsData)] : [.. arguments];
 
@@ -223,8 +252,8 @@ internal static class DashboardInvocationView
           JobMethodParameterBindingKind.ProgressReporter => "IProgress<Decimal>",
           JobMethodParameterBindingKind.Service => string.Create(
             CultureInfo.InvariantCulture,
-            $"Job.Resolve<{DashboardFormat.ShortTypeName(argument.Binding.ServiceType ?? argument.ParameterType)}>()"),
-          _ => DashboardFormat.ShortTypeName(argument.ParameterType),
+            $"Job.Resolve<{DashboardTypeName.Short(argument.Binding.ServiceType ?? argument.ParameterType)}>()"),
+          _ => DashboardTypeName.Short(argument.ParameterType),
       };
 
     // Cuts a value to at most maxLength characters (plus an ellipsis), keeping the highlighting of what remains.

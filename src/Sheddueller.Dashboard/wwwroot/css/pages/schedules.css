@@ -88,12 +88,6 @@
     white-space: normal;
   }
 
-  .schedules-footer-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
   /* On narrower screens the least important columns go first, so the table keeps fitting without scrolling. */
   .schedules-table-card {
     container-type: inline-size;

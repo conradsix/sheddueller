@@ -228,7 +228,7 @@
         {
             this._breadcrumbParent = ("Jobs", this.NavigationState.JobsListHref);
             var id = Uri.UnescapeDataString(segments[1]);
-            this._breadcrumbCurrent = string.Concat("Job ", id.Length > 8 ? id[..8] : id);
+            this._breadcrumbCurrent = string.Concat("Job ", DashboardFormat.ShortJobId(id));
             return;
         }
 

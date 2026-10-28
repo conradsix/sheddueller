@@ -213,10 +213,4 @@
     min-width: 5ch;
     font-size: 12.5px;
   }
-
-  .nodes-footer-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
 }

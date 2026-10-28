@@ -19,22 +19,22 @@
         }
     </div>
 
-    @if (_loadError is not null)
+    @if (_groups.LoadError is not null)
     {
         <Alert Tone="AlertTone.Destructive" Title="Concurrency groups couldn't be loaded">
-            <ChildContent>@_loadError</ChildContent>
+            <ChildContent>@_groups.LoadError</ChildContent>
             <Actions>
                 <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="LoadAsync">Try again</Button>
             </Actions>
         </Alert>
     }
 
-    @if (_page is not null || _loadError is null)
+    @if (_groups.HasPage || _groups.LoadError is null)
     {
         var visibleGroups = FilteredGroups;
-        <Card Flush="true" Class="@TableCardClass">
+        <Card Flush="true" Class="@DashboardTableFormat.CardClass("groups-table-card", _groups.IsReloading)">
             <div class="groups-table-wrap">
-                <table class="sd-table groups-table" data-sd-keyboard="true" aria-busy="@(_isLoading ? "true" : "false")">
+                <table class="sd-table groups-table" data-sd-keyboard="true" aria-busy="@(_groups.IsLoading ? "true" : "false")">
                     <thead>
                         <tr>
                             <th scope="col">Group</th>
@@ -49,14 +49,14 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (_page is null)
+                        @if (!_groups.HasPage)
                         {
                             @for (var row = 0; row < SkeletonRowCount; row++)
                             {
                                 <tr class="groups-table__skeleton" aria-hidden="true">
                                     @for (var column = 0; column < ColumnCount - 1; column++)
                                     {
-                                        <td class="@SkeletonColumnClasses[column]"><Skeleton Width="@SkeletonWidth(row, column)" /></td>
+                                        <td class="@SkeletonColumnClasses[column]"><Skeleton Width="@DashboardTableFormat.SkeletonWidth(row, column)" /></td>
                                     }
                                     <td class="groups-table__actions"></td>
                                 </tr>
@@ -159,20 +159,8 @@
                     </tbody>
                 </table>
             </div>
-            <footer class="sd-table__footer">
-                <span class="sd-num">@FooterText</span>
-                <span class="groups-footer-actions">
-                    @if (_loadMoreError is not null)
-                    {
-                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
-                    }
-                    @if (_page?.ContinuationToken is not null)
-                    {
-                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
-                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
-                    }
-                </span>
-            </footer>
+            <LoadMoreFooter Text="@FooterText" Error="@_groups.LoadMoreError" CanLoadMore="_groups.CanLoadMore"
+                            IsLoading="_groups.IsLoading" IsLoadingMore="_groups.IsLoadingMore" OnLoadMore="LoadMoreAsync" />
         </Card>
     }
 </div>
@@ -278,20 +266,14 @@
         new(true, "Unlimited"),
     ];
 
-    private readonly List<ConcurrencyGroupInspectionSummary> _groups = [];
+    private readonly DashboardPagedList<ConcurrencyGroupInspectionSummary> _groups = new();
     private readonly DashboardConcurrencyGroupFilters _filters = new();
     private readonly HashSet<string> _busyKeys = new(StringComparer.Ordinal);
     private IConcurrencyGroupManager? _manager;
-    private ConcurrencyGroupInspectionPage? _page;
     private ConcurrencyGroupInspectionSummary? _editGroup;
     private DashboardConcurrencyGroupLimitForm? _editForm;
     private ConcurrencyGroupInspectionSummary? _confirmGroup;
     private GroupAction _confirmAction;
-    private string? _loadError;
-    private string? _loadMoreError;
-    private int _queryVersion;
-    private bool _isLoading;
-    private bool _isLoadingMore;
     private bool _isSaving;
     private bool _editDialogOpen;
     private bool _confirmDialogOpen;
@@ -307,7 +289,7 @@
     private NavigationManager Navigation { get; set; } = null!;
 
     private IReadOnlyList<ConcurrencyGroupInspectionSummary> FilteredGroups
-      => this._filters.ApplyClientFilter(this._groups);
+      => this._filters.ApplyClientFilter(this._groups.Rows);
 
     private bool CanEditLimits
       => this._manager is not null;
@@ -321,19 +303,14 @@
     private bool HasAppliedFilters
       => this.HasServerFilters || this.HasKeyFilter;
 
-    private string TableCardClass
-      => this._isLoading && this._page is not null
-        ? "sd-table-card groups-table-card sd-table-card--loading"
-        : "sd-table-card groups-table-card";
-
     private string EmptyTitle
-      => this._groups.Count > 0
+      => this._groups.Rows.Count > 0
         ? "No loaded group matches that key"
         : this.HasServerFilters ? "No groups match" : "No concurrency groups yet";
 
     private string EmptyText
-      => this._groups.Count > 0
-        ? this._page?.ContinuationToken is null
+      => this._groups.Rows.Count > 0
+        ? !this._groups.CanLoadMore
           ? "Try a shorter part of the key, or clear the search."
           : "Only loaded groups are searched. Load more groups, or clear the search."
         : this.HasServerFilters
@@ -344,13 +321,13 @@
     {
         get
         {
-            var loaded = this._groups.Count;
+            var loaded = this._groups.Rows.Count;
             var text = string.Concat(
               "Showing ",
               DashboardFormat.Count(loaded),
               " of ",
-              DashboardFormat.Count(this._page?.TotalCount ?? loaded),
-              this._page?.TotalCount == 1 ? " group" : " groups");
+              DashboardFormat.Count(this._groups.TotalCount ?? loaded),
+              this._groups.TotalCount == 1 ? " group" : " groups");
             if (!this.HasKeyFilter)
             {
                 return text;
@@ -420,7 +397,7 @@
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: false,
-          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._page is null ? null : nowUtc));
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._groups.HasPage ? nowUtc : null));
 
         await this.LoadAsync();
         this.StartPeriodicRefresh(PageRefreshInterval);
@@ -493,89 +470,47 @@
 
     private async Task LoadAsync()
     {
-        var queryVersion = ++this._queryVersion;
-        this._loadError = null;
-        this._loadMoreError = null;
         this.LiveRefresh.ClearError();
-        this._isLoading = true;
-
-        try
+        var current = await this._groups.LoadAsync(
+          () => Reader.SearchConcurrencyGroupsAsync(this._filters.ToQuery(DefaultPageSize, continuationToken: null)),
+          page =>
+          {
+              this.ReplaceGroups(page);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (current)
         {
-            var page = await Reader.SearchConcurrencyGroupsAsync(this._filters.ToQuery(DefaultPageSize, continuationToken: null));
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            this.ReplaceGroups(page);
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._loadError = exception.Message;
-            }
-        }
-        finally
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._isLoading = false;
-                this.NotifyShellRefreshChanged();
-            }
+            this.NotifyShellRefreshChanged();
         }
     }
 
+    // A failure keeps the loaded rows and is shown next to the Load more control.
     private async Task LoadMoreAsync()
     {
-        if (this._page?.ContinuationToken is null || this._isLoading || this._isLoadingMore)
+        var requested = await this._groups.LoadMoreAsync(
+          continuationToken => Reader.SearchConcurrencyGroupsAsync(this._filters.ToQuery(DefaultPageSize, continuationToken)),
+          page =>
+          {
+              this._groups.Append(page.Groups, page.ContinuationToken, page.TotalCount);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (requested)
         {
-            return;
-        }
-
-        var queryVersion = this._queryVersion;
-        this._loadMoreError = null;
-        this._isLoadingMore = true;
-
-        try
-        {
-            var page = await Reader.SearchConcurrencyGroupsAsync(this._filters.ToQuery(DefaultPageSize, this._page.ContinuationToken));
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            this._groups.AddRange(page.Groups);
-            this._page = page;
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            // Keep the loaded rows; the failure is shown next to the Load more control.
-            if (queryVersion == this._queryVersion)
-            {
-                this._loadMoreError = exception.Message;
-            }
-        }
-        finally
-        {
-            this._isLoadingMore = false;
             this.NotifyShellRefreshChanged();
         }
     }
 
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
-        var queryVersion = this._queryVersion;
-        var visiblePageSize = Math.Max(DefaultPageSize, this._groups.Count);
+        var queryVersion = this._groups.QueryVersion;
+        var visiblePageSize = Math.Max(DefaultPageSize, this._groups.Rows.Count);
         var page = await Reader.SearchConcurrencyGroupsAsync(
           this._filters.ToQuery(visiblePageSize, continuationToken: null),
           cancellationToken);
 
         await this.ApplyPageStateAsync(() =>
         {
-            if (queryVersion == this._queryVersion)
+            if (this._groups.IsCurrent(queryVersion))
             {
                 this.ReplaceGroups(page);
             }
@@ -583,13 +518,7 @@
     }
 
     private void ReplaceGroups(ConcurrencyGroupInspectionPage page)
-    {
-        this._groups.Clear();
-        this._groups.AddRange(page.Groups);
-        this._page = page;
-        this._loadError = null;
-        this._loadMoreError = null;
-    }
+      => this._groups.Replace(page.Groups, page.ContinuationToken, page.TotalCount);
 
     private bool IsBusy(string groupKey)
       => this._busyKeys.Contains(groupKey);
@@ -796,13 +725,5 @@
       => DashboardJobFilterQuery.GroupHref(group.GroupKey);
 
     private static string BlockedJobsHref(ConcurrencyGroupInspectionSummary group)
-    {
-        var filters = new DashboardJobFilters();
-        _ = filters.SetConcurrencyGroupContains(group.GroupKey);
-        _ = filters.SetStateSelected(JobState.Queued, selected: true);
-        return DashboardJobFilterQuery.ToHref(filters);
-    }
-
-    private static string SkeletonWidth(int row, int column)
-      => string.Create(CultureInfo.InvariantCulture, $"{45 + (((row * 7) + (column * 13)) % 45)}%");
+      => DashboardJobFilterQuery.QueuedInGroupHref(group.GroupKey);
 }

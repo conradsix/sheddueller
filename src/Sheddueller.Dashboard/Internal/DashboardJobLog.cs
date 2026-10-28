@@ -138,8 +138,20 @@ internal static class DashboardJobLog
             _ => "info",
         };
 
+    /// <summary>
+    /// The line's text; a progress update reads as its percentage and message.
+    /// </summary>
     public static string Message(JobEvent jobEvent)
-      => DashboardFormat.LogMessage(jobEvent);
+    {
+        if (jobEvent.Kind == JobEventKind.Progress)
+        {
+            return jobEvent.ProgressPercent is { } percent
+              ? string.Create(CultureInfo.InvariantCulture, $"{Math.Clamp(percent, 0, 100):0.#}% {jobEvent.Message}").Trim()
+              : DashboardFormat.FirstNonEmpty(jobEvent.Message, "Progress reported");
+        }
+
+        return DashboardFormat.FirstNonEmpty(jobEvent.Message, jobEvent.Kind.ToString());
+    }
 
     /// <summary>
     /// The line's structured fields: the job's own fields by name, then the fields the job logger adds to every line.

@@ -72,6 +72,34 @@ public sealed class DashboardInvocationViewTests
     }
 
     [Fact]
+    public void BindingLabel_EachBinding_SaysWhereTheValueComesFrom()
+    {
+        var invocation = Invocation(
+          Data(0, StringType, "\"blocking-2\""),
+          new JobInvocationParameterInspection(1, "System.Threading.CancellationToken", new(JobMethodParameterBindingKind.CancellationToken)),
+          new JobInvocationParameterInspection(2, "Sheddueller.JobContext, Sheddueller", new(JobMethodParameterBindingKind.JobContext)),
+          new JobInvocationParameterInspection(3, "Acme.IClock, Acme", new(JobMethodParameterBindingKind.Service, "Acme.IClock, Acme")));
+
+        DashboardInvocationView.Arguments(invocation, parameterNames: null)
+          .Select(DashboardInvocationView.BindingLabel)
+          .ShouldBe(["serialized", "scheduler-owned", "Job.Context", "Job.Resolve<IClock>()"]);
+        DashboardInvocationView.Handler(invocation).ShouldBe("DemoJobService.Run");
+    }
+
+    [Fact]
+    public void StatusMessage_ValuesNotDisplayable_ExplainsWhy()
+    {
+        var invocation = Invocation() with
+        {
+            SerializedArgumentsStatus = JobSerializedArgumentsInspectionStatus.UnsupportedContentType,
+            SerializedArgumentsStatusMessage = "Content type application/x-msgpack can't be shown.",
+        };
+
+        DashboardInvocationView.StatusMessage(invocation).ShouldBe("Content type application/x-msgpack can't be shown.");
+        DashboardInvocationView.StatusMessage(invocation with { SerializedArgumentsStatusMessage = null }).ShouldBe("UnsupportedContentType");
+    }
+
+    [Fact]
     public void Call_ParameterNamesUnresolved_ShowsPositionalArguments()
     {
         var arguments = DashboardInvocationView.Arguments(GroupHoldInvocation(), parameterNames: null);

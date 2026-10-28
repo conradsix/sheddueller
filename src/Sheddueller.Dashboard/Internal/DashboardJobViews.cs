@@ -155,9 +155,6 @@ internal static class DashboardJobViews
             _ => column.Kind.ToString(),
         };
 
-    public static bool HasRecognizedQuery(string uri)
-      => DashboardJobFilterQuery.HasRecognizedQuery(new Uri(uri, UriKind.Absolute).Query);
-
     private static bool IsValidColumns(IReadOnlyList<ShedduellerDashboardJobColumn> columns)
     {
         if (columns.Count == 0)
