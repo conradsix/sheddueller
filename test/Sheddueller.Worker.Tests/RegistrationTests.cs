@@ -45,6 +45,37 @@ public sealed class RegistrationTests
         provider.GetServices<IHostedService>().ShouldContain(service => service.GetType() == typeof(ShedduellerJobRetentionService));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AddShedduellerWorkerAndDashboard_RetentionStore_RegistersSharedHostedServicesOnce(bool dashboardFirst)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<RecordingJobStore>();
+        services.AddSingleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<RecordingJobStore>());
+        services.AddSingleton<IJobRetentionStore, RecordingRetentionStore>();
+
+        if (dashboardFirst)
+        {
+            services.AddShedduellerDashboard();
+            services.AddShedduellerWorker();
+        }
+        else
+        {
+            services.AddShedduellerWorker();
+            services.AddShedduellerDashboard();
+        }
+
+        // Each package compiles its own copy of the shared services, so match the dashboard's by name.
+        var hostedServiceTypes = services
+          .Where(descriptor => descriptor.ServiceType == typeof(IHostedService))
+          .Select(descriptor => descriptor.ImplementationType?.Name)
+          .ToArray();
+        hostedServiceTypes.Count(name => name is nameof(ShedduellerJobRetentionService) or "DashboardJobRetentionService").ShouldBe(1);
+        hostedServiceTypes.Count(name => name == "ShedduellerStartupValidationHostedService").ShouldBe(1);
+        hostedServiceTypes.ShouldContain(dashboardFirst ? "DashboardJobRetentionService" : nameof(ShedduellerJobRetentionService));
+    }
+
     [Fact]
     public async Task StartupValidation_InvalidWorkerOption_FailsStart()
     {

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Sheddueller;
+using Sheddueller.Hosting;
 using Sheddueller.Runtime;
 using Sheddueller.Storage;
 using Sheddueller.Worker.Internal;
@@ -34,39 +35,14 @@ public static class ShedduellerWorkerServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, ShedduellerJobLoggerProvider>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerJobLogEventDispatcher>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IShedduellerStartupValidator, ShedduellerWorkerStartupValidator>());
-        TryAddStartupValidationHostedService(services);
-        TryAddJobRetentionHostedService(services);
+        ShedduellerHostedServiceRegistration.TryAddStartupValidationHostedService(services);
+        if (services.Any(descriptor => descriptor.ServiceType == typeof(IJobRetentionStore)))
+        {
+            ShedduellerHostedServiceRegistration.TryAddJobRetentionHostedService<ShedduellerJobRetentionService>(services);
+        }
+
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerWorker>());
 
         return services;
-    }
-
-    private static void TryAddJobRetentionHostedService(IServiceCollection services)
-    {
-        if (services.Any(descriptor => descriptor.ServiceType == typeof(IJobRetentionStore)))
-        {
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerJobRetentionService>());
-        }
-    }
-
-    private static void TryAddStartupValidationHostedService(IServiceCollection services)
-    {
-        if (services.Any(descriptor => descriptor.ServiceType == typeof(ShedduellerHostedStartupValidationMarker)))
-        {
-            return;
-        }
-
-        services.AddSingleton<ShedduellerHostedStartupValidationMarker>();
-        var descriptor = ServiceDescriptor.Singleton<IHostedService, ShedduellerStartupValidationHostedService>();
-        for (var index = 0; index < services.Count; index++)
-        {
-            if (services[index].ServiceType == typeof(IHostedService))
-            {
-                services.Insert(index, descriptor);
-                return;
-            }
-        }
-
-        services.Add(descriptor);
     }
 }
