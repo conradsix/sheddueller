@@ -105,3 +105,46 @@ jobs:
             artifacts/packages/*.nupkg
             artifacts/packages/*.snupkg
           if-no-files-found: ignore
+
+  release:
+    name: Create GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+
+          if gh release view "${tag}" > /dev/null 2>&1; then
+            echo "Release ${tag} already exists."
+            exit 0
+          fi
+
+          args=(--verify-tag --title "${tag}" --generate-notes)
+
+          # Stable releases collect everything since the previous stable release, previews included.
+          if [[ "${tag}" == *-* ]]; then
+            args+=(--prerelease)
+            previous="$(git describe --tags --abbrev=0 --match 'v*.*.*' "${tag}^" 2> /dev/null || true)"
+          else
+            previous="$(git describe --tags --abbrev=0 --match 'v*.*.*' --exclude 'v*-*' "${tag}^" 2> /dev/null || true)"
+          fi
+
+          if [[ -n "${previous}" ]]; then
+            args+=(--notes-start-tag "${previous}")
+          fi
+
+          gh release create "${tag}" "${args[@]}"
