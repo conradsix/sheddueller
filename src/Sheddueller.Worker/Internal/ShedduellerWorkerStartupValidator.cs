@@ -54,6 +54,11 @@ internal sealed class ShedduellerWorkerStartupValidator(
             throw new InvalidOperationException("ShedduellerOptions.DeadNodeThreshold must be greater than the stale node threshold.");
         }
 
+        if (value.DeadNodeRetention is { } deadNodeRetention && deadNodeRetention <= value.EffectiveDeadNodeThreshold)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.DeadNodeRetention must be null or greater than the dead node threshold.");
+        }
+
         return ValueTask.CompletedTask;
     }
 }
