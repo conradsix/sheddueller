@@ -6,7 +6,6 @@ The dashboard ships these third-party assets. All are served from the dashboard'
 | --- | --- | --- | --- |
 | Geist and Geist Mono fonts | 1.5.1 | SIL Open Font License 1.1 | `wwwroot/fonts/geist/` (license: `wwwroot/fonts/geist/LICENSE.txt`) |
 | uPlot | 1.6.32 | MIT | `wwwroot/vendor/uplot/` (license: `wwwroot/vendor/uplot/LICENSE.txt`) |
-| Prism | 1.30.0 | MIT | `wwwroot/vendor/prism/` (license: `wwwroot/vendor/prism/LICENSE.txt`) |
 | Lucide icons | 0.577.0 | ISC | SVG path data embedded in `Internal/DashboardIcons.cs` (license below) |
 
 ## Lucide

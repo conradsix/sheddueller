@@ -1,0 +1,34 @@
+@foreach (var token in Tokens)
+{
+    @if (ClassFor(token.Kind) is { } cssClass)
+    {
+        <span class="@cssClass">@token.Text</span>
+    }
+    else
+    {
+        @token.Text
+    }
+}
+
+@code {
+    /// <summary>
+    /// Highlighted code, rendered on the server so live re-renders keep the colours.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CodeToken> Tokens { get; set; } = [];
+
+    private static string? ClassFor(CodeTokenKind kind)
+      => kind switch
+      {
+          CodeTokenKind.Type => "token class-name",
+          CodeTokenKind.Method => "token function",
+          CodeTokenKind.Parameter => "token parameter",
+          CodeTokenKind.Punctuation => "token punctuation",
+          CodeTokenKind.StringLiteral => "token string",
+          CodeTokenKind.NumberLiteral => "token number",
+          CodeTokenKind.Keyword => "token keyword",
+          CodeTokenKind.Property => "token property",
+          CodeTokenKind.Muted => "token muted",
+          _ => null,
+      };
+}

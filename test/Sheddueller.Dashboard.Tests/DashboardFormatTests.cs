@@ -22,6 +22,18 @@ public sealed class DashboardFormatTests
     }
 
     [Fact]
+    public void ShortTypeName_AssemblyQualifiedNames_DropsNamespacesAndAssemblies()
+    {
+        DashboardFormat.ShortTypeName(typeof(CancellationToken).AssemblyQualifiedName!).ShouldBe("CancellationToken");
+        DashboardFormat.ShortTypeName(typeof(IProgress<decimal>).AssemblyQualifiedName!).ShouldBe("IProgress<Decimal>");
+        DashboardFormat.ShortTypeName(typeof(Dictionary<string, List<int>>).AssemblyQualifiedName!).ShouldBe("Dictionary<String, List<Int32>>");
+        DashboardFormat.ShortTypeName(typeof(int?[]).AssemblyQualifiedName!).ShouldBe("Nullable<Int32>[]");
+        DashboardFormat.ShortTypeName(typeof(string[,]).AssemblyQualifiedName!).ShouldBe("String[,]");
+        DashboardFormat.ShortTypeName("System.Collections.Generic.List`1[System.Int32]").ShouldBe("List<Int32>");
+        DashboardFormat.ShortTypeName("Acme.Jobs.RateLoader, Acme.Jobs").ShouldBe("RateLoader");
+    }
+
+    [Fact]
     public void Progress_PercentOutsideRange_ClampsDisplayValues()
     {
         var progress = new JobProgressSnapshot(125, "indexed records", DateTimeOffset.Parse("2026-04-20T12:08:00Z", CultureInfo.InvariantCulture));
