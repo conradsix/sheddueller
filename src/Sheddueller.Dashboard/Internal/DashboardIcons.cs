@@ -79,60 +79,6 @@ internal static class DashboardIcons
         ["x"] = """<path d="M18 6 6 18" /><path d="m6 6 12 12" />""",
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
-    // Material Symbols names used before the switch to Lucide; remove once no page passes them.
-    private static readonly FrozenDictionary<string, string> LegacyNames = new Dictionary<string, string>(StringComparer.Ordinal)
-    {
-        ["add"] = "plus",
-        ["all_inclusive"] = "infinity",
-        ["analytics"] = "activity",
-        ["arrow_back"] = "arrow-left",
-        ["arrow_downward"] = "arrow-down",
-        ["arrow_upward"] = "arrow-up",
-        ["cancel"] = "circle-x",
-        ["check"] = "check",
-        ["check_circle"] = "circle-check",
-        ["close"] = "x",
-        ["dashboard"] = "layout-dashboard",
-        ["delete"] = "trash-2",
-        ["dns"] = "server",
-        ["download"] = "download",
-        ["drag_indicator"] = "grip-vertical",
-        ["edit"] = "pencil",
-        ["error"] = "circle-alert",
-        ["event_repeat"] = "calendar-clock",
-        ["fit_width"] = "unfold-horizontal",
-        ["format_list_bulleted"] = "list",
-        ["home"] = "house",
-        ["info"] = "info",
-        ["layers"] = "layers",
-        ["lock"] = "lock",
-        ["monitoring"] = "chart-line",
-        ["pause"] = "pause",
-        ["pause_circle"] = "circle-pause",
-        ["pending"] = "clock",
-        ["play_arrow"] = "play",
-        ["play_circle"] = "circle-play",
-        ["progress_activity"] = "loader-circle",
-        ["query_stats"] = "chart-line",
-        ["refresh"] = "refresh-cw",
-        ["remove_circle"] = "circle-minus",
-        ["restart_alt"] = "rotate-ccw",
-        ["save"] = "save",
-        ["save_as"] = "save-all",
-        ["schedule"] = "clock",
-        ["search"] = "search",
-        ["search_off"] = "search-x",
-        ["settings"] = "settings",
-        ["speed"] = "gauge",
-        ["stacked_inbox"] = "inbox",
-        ["sync"] = "refresh-cw",
-        ["timer"] = "timer",
-        ["view_column"] = "columns-3",
-        ["visibility_off"] = "eye-off",
-        ["warning"] = "triangle-alert",
-        ["width_normal"] = "move-horizontal",
-    }.ToFrozenDictionary(StringComparer.Ordinal);
-
     public static string? Resolve(string? name)
     {
         if (string.IsNullOrEmpty(name))
@@ -140,12 +86,7 @@ internal static class DashboardIcons
             return null;
         }
 
-        if (Bodies.ContainsKey(name))
-        {
-            return name;
-        }
-
-        return LegacyNames.TryGetValue(name, out var lucideName) ? lucideName : null;
+        return Bodies.ContainsKey(name) ? name : null;
     }
 
     public static string? GetBody(string? name)
