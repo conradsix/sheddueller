@@ -85,19 +85,6 @@ public sealed class DashboardFormatTests
     }
 
     [Fact]
-    public void LiveStatusText_LastUpdatedAfterDashboardClock_DoesNotRenderFutureUpdate()
-    {
-        var now = DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture);
-
-        DashboardFormat.LiveStatusText(
-          isRefreshing: false,
-          refreshError: null,
-          lastUpdatedUtc: now.AddSeconds(10),
-          now)
-          .ShouldBe("Updated just now");
-    }
-
-    [Fact]
     public void TagsAndGroups_EmptyAndPopulatedValues_FormatsTitlesForChips()
     {
         var tags = new[] { new JobTag("tenant", "acme"), new JobTag("schedule", "daily_rollup") };

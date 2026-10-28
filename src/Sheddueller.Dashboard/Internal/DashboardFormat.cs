@@ -169,43 +169,6 @@ internal static class DashboardFormat
           _ => "queued",
       };
 
-    public static string LiveStatusClass(
-        bool isRefreshing,
-        string? refreshError)
-    {
-        if (refreshError is not null)
-        {
-            return "sd-live-status--error";
-        }
-
-        return isRefreshing ? "sd-live-status--refreshing" : string.Empty;
-    }
-
-    public static string LiveStatusText(
-        bool isRefreshing,
-        string? refreshError,
-        DateTimeOffset? lastUpdatedUtc,
-        DateTimeOffset nowUtc)
-    {
-        if (isRefreshing)
-        {
-            return "Refreshing...";
-        }
-
-        if (refreshError is not null)
-        {
-            return "Refresh failed";
-        }
-
-        if (lastUpdatedUtc is null)
-        {
-            return "Waiting for data";
-        }
-
-        var effectiveNowUtc = lastUpdatedUtc > nowUtc ? lastUpdatedUtc.Value : nowUtc;
-        return string.Concat("Updated ", Relative(lastUpdatedUtc, effectiveNowUtc));
-    }
-
     public static string Relative(
         DateTimeOffset? value,
         DateTimeOffset nowUtc,

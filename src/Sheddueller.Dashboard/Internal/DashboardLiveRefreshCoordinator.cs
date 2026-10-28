@@ -35,11 +35,7 @@ internal sealed class DashboardLiveRefreshCoordinator(
 
     public DateTimeOffset? LastUpdatedUtc { get; private set; }
 
-    public string StatusClass
-      => DashboardFormat.LiveStatusClass(this.IsRefreshing, this.RefreshError);
 
-    public string GetStatusText(DateTimeOffset nowUtc)
-      => DashboardFormat.LiveStatusText(this.IsRefreshing, this.RefreshError, this.LastUpdatedUtc, nowUtc);
 
     public void MarkUpdated(DateTimeOffset? nowUtc = null)
     {
