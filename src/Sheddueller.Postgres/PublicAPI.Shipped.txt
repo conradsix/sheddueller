@@ -1,0 +1,22 @@
+#nullable enable
+Microsoft.Extensions.DependencyInjection.ShedduellerPostgresBuilderExtensions
+Sheddueller.Postgres.IPostgresMigrator
+Sheddueller.Postgres.IPostgresMigrator.ApplyAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions
+Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions.ConfigureDataSourceBuilder.get -> System.Action<Npgsql.NpgsqlDataSourceBuilder!>?
+Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions.ConfigureDataSourceBuilder.set -> void
+Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions.SchemaName.get -> string!
+Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions.SchemaName.set -> void
+Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions.ShedduellerPostgresDataSourceOptions() -> void
+Sheddueller.Postgres.ShedduellerPostgresMigrationExtensions
+Sheddueller.Postgres.ShedduellerPostgresOptions
+Sheddueller.Postgres.ShedduellerPostgresOptions.DataSource.get -> Npgsql.NpgsqlDataSource!
+Sheddueller.Postgres.ShedduellerPostgresOptions.DataSource.set -> void
+Sheddueller.Postgres.ShedduellerPostgresOptions.SchemaName.get -> string!
+Sheddueller.Postgres.ShedduellerPostgresOptions.SchemaName.set -> void
+Sheddueller.Postgres.ShedduellerPostgresOptions.ShedduellerPostgresOptions() -> void
+static Microsoft.Extensions.DependencyInjection.ShedduellerPostgresBuilderExtensions.UsePostgres(this Sheddueller.ShedduellerBuilder! builder, System.Action<Sheddueller.Postgres.ShedduellerPostgresOptions!>! configure) -> Sheddueller.ShedduellerBuilder!
+static Microsoft.Extensions.DependencyInjection.ShedduellerPostgresBuilderExtensions.UsePostgres(this Sheddueller.ShedduellerBuilder! builder, System.Func<System.IServiceProvider!, string!>! connectionStringFactory, System.Action<System.IServiceProvider!, Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions!>? configure = null) -> Sheddueller.ShedduellerBuilder!
+static Microsoft.Extensions.DependencyInjection.ShedduellerPostgresBuilderExtensions.UsePostgres(this Sheddueller.ShedduellerBuilder! builder, string! connectionString, System.Action<Sheddueller.Postgres.ShedduellerPostgresDataSourceOptions!>? configure = null) -> Sheddueller.ShedduellerBuilder!
+static Sheddueller.Postgres.ShedduellerPostgresMigrationExtensions.ApplyShedduellerPostgresMigrationsAsync(this Microsoft.Extensions.Hosting.IHost! host, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+static Sheddueller.Postgres.ShedduellerPostgresMigrationExtensions.ApplyShedduellerPostgresMigrationsAsync(this System.IServiceProvider! services, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask

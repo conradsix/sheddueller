@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
   <PropertyGroup>
-    <NoWarn>$(NoWarn);CA1812</NoWarn>
+    <!-- RS0041: Razor's generated BuildRenderTree overrides use nullable-oblivious types. -->
+    <NoWarn>$(NoWarn);CA1812;RS0041</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
