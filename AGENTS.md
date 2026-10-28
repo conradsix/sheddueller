@@ -51,7 +51,7 @@ Follow `.editorconfig`. C# uses 4-space indentation, file-scoped namespaces, `us
 
 Prefer honest namespaces that match folders. Exceptions are DI extension methods, which intentionally use `Microsoft.Extensions.DependencyInjection` or `Microsoft.Extensions.Hosting` and suppress `IDE0130` at the top of the file. Keep app-facing API in `Sheddueller`.
 
-In the dashboard, pages live in `Components/Pages`, UI primitives in `Components/Ui`, and pure helpers in `Internal/`, where they are unit tested. Styles use CSS cascade layers in `wwwroot/css` (`sheddueller.css` declares the layers; per-page sheets in `css/pages` sit in the `pages` layer). Scripts live in `wwwroot/js` and attach everything .NET calls to the `sheddueller` global (for example `sheddueller.throughputChart.render`); `wwwroot/vendor` holds third-party assets.
+In the dashboard, pages live in `Components/Pages`, UI primitives in `Components/Ui`, and pure helpers in `Internal/`, where they are unit tested. Styles use CSS cascade layers in `wwwroot/css` (`sheddueller.css` declares the layers; per-page sheets in `css/pages` sit in the `pages` layer). Scripts live in `wwwroot/js` and attach everything .NET calls to the `sheddueller` global (for example `sheddueller.throughputChart.render`); `wwwroot/vendor` holds third-party assets. Each screen has one scroll region: a page either flows in the shell's main area or fills it with a single scrolling table, never both.
 
 ## Testing Guidelines
 
