@@ -49,23 +49,6 @@ public sealed class JobRetentionServiceTests
         request.BatchSize.ShouldBe(12);
     }
 
-    private sealed class RecordingRetentionStore : IJobRetentionStore
-    {
-        public TaskCompletionSource CleanupCalled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public JobRetentionCleanupRequest? Request { get; private set; }
-
-        public ValueTask<JobRetentionCleanupResult> CleanupTerminalJobsAsync(
-            JobRetentionCleanupRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            this.Request = request;
-            this.CleanupCalled.TrySetResult();
-
-            return ValueTask.FromResult(new JobRetentionCleanupResult(0));
-        }
-    }
-
     private sealed class RecordingCleanupConfigurationStore(JobRetentionCleanupConfiguration configuration) : IShedduellerCleanupConfigurationStore
     {
         public ValueTask<ShedduellerCleanupConfiguration> GetCleanupConfigurationAsync(

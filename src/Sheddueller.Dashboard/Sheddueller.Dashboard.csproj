@@ -9,4 +9,9 @@
     <PackageReference Include="Microsoft.AspNetCore.App.Internal.Assets" />
     <ProjectReference Include="..\Sheddueller\Sheddueller.csproj" />
   </ItemGroup>
+
+  <!-- Hosted services shared with Sheddueller.Worker. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Hosting\*.cs" LinkBase="Shared\Hosting" />
+  </ItemGroup>
 </Project>

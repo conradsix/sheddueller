@@ -8,7 +8,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
-using Sheddueller.Serialization;
 using Sheddueller.Storage;
 using Sheddueller.Tests.Logging;
 using Sheddueller.Worker.Internal;
@@ -351,25 +350,7 @@ public sealed class WorkerReliabilityTests
     }
 
     private static ClaimedJob CreateClaimedJob(string methodName)
-      => new(
-          Guid.NewGuid(),
-          EnqueueSequence: 1,
-          Priority: 0,
-          ServiceType: typeof(ReliabilityJob).AssemblyQualifiedName!,
-          MethodName: methodName,
-          MethodParameterTypes: [typeof(CancellationToken).AssemblyQualifiedName!],
-          SerializedArguments: new SerializedJobPayload(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray()),
-          ConcurrencyGroupKeys: [],
-          AttemptCount: 1,
-          MaxAttempts: 1,
-          LeaseToken: Guid.NewGuid(),
-          LeaseExpiresAtUtc: DateTimeOffset.UtcNow.Add(LeaseDuration),
-          RetryBackoffKind: null,
-          RetryBaseDelay: null,
-          RetryMaxDelay: null,
-          SourceScheduleKey: null,
-          ScheduledFireAtUtc: null,
-          MethodParameterBindings: [new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken)]);
+      => WorkerTestJobs.CreateClaimedJob<ReliabilityJob>(methodName);
 
     private sealed class JobGate
     {
@@ -408,7 +389,7 @@ public sealed class WorkerReliabilityTests
           => Task.CompletedTask;
     }
 
-    private sealed class ScriptedJobStore : IJobStore
+    private sealed class ScriptedJobStore : StubJobStore
     {
         private readonly ConcurrentQueue<ClaimedJob> _claimable = new();
         private readonly ConcurrentQueue<ClaimedJob> _enqueueable = new();
@@ -464,7 +445,7 @@ public sealed class WorkerReliabilityTests
         public void AddEnqueueable(ClaimedJob job)
           => this._enqueueable.Enqueue(job);
 
-        public ValueTask<EnqueueJobResult> EnqueueAsync(
+        public override ValueTask<EnqueueJobResult> EnqueueAsync(
             EnqueueJobRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -477,12 +458,7 @@ public sealed class WorkerReliabilityTests
             return ValueTask.FromResult(new EnqueueJobResult(job.JobId, job.EnqueueSequence));
         }
 
-        public ValueTask<IReadOnlyList<EnqueueJobResult>> EnqueueManyAsync(
-            IReadOnlyList<EnqueueJobRequest> requests,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<ClaimJobResult> TryClaimNextAsync(
+        public override ValueTask<ClaimJobResult> TryClaimNextAsync(
             ClaimJobRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -497,7 +473,7 @@ public sealed class WorkerReliabilityTests
                 : new ClaimJobResult.NoJobAvailable());
         }
 
-        public ValueTask<bool> MarkCompletedAsync(
+        public override ValueTask<bool> MarkCompletedAsync(
             CompleteJobRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -511,7 +487,7 @@ public sealed class WorkerReliabilityTests
             return ValueTask.FromResult(true);
         }
 
-        public ValueTask<bool> MarkFailedAsync(
+        public override ValueTask<bool> MarkFailedAsync(
             FailJobRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -519,7 +495,7 @@ public sealed class WorkerReliabilityTests
             return ValueTask.FromResult(true);
         }
 
-        public ValueTask<bool> RenewLeaseAsync(
+        public override ValueTask<bool> RenewLeaseAsync(
             RenewLeaseRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -531,7 +507,7 @@ public sealed class WorkerReliabilityTests
             return ValueTask.FromResult(true);
         }
 
-        public ValueTask<bool> ReleaseJobAsync(
+        public override ValueTask<bool> ReleaseJobAsync(
             ReleaseJobRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -539,7 +515,7 @@ public sealed class WorkerReliabilityTests
             return ValueTask.FromResult(true);
         }
 
-        public ValueTask<int> RecoverExpiredLeasesAsync(
+        public override ValueTask<int> RecoverExpiredLeasesAsync(
             RecoverExpiredLeasesRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -547,22 +523,12 @@ public sealed class WorkerReliabilityTests
             return ValueTask.FromResult(0);
         }
 
-        public ValueTask<JobCancellationResult> CancelAsync(
-            CancelJobRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(JobCancellationResult.NotFound);
-
-        public ValueTask<int> CancelQueuedJobsAsync(
-            CancelQueuedJobsRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(0);
-
-        public ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
+        public override ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
             JobCancellationStatusRequest request,
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult(this.CancellationRequestedAtUtc);
 
-        public ValueTask<bool> MarkCancellationObservedAsync(
+        public override ValueTask<bool> MarkCancellationObservedAsync(
             ObserveJobCancellationRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -570,68 +536,12 @@ public sealed class WorkerReliabilityTests
             return ValueTask.FromResult(true);
         }
 
-        public ValueTask RecordWorkerNodeHeartbeatAsync(
+        public override ValueTask RecordWorkerNodeHeartbeatAsync(
             WorkerNodeHeartbeatRequest request,
             CancellationToken cancellationToken = default)
           => ValueTask.CompletedTask;
 
-        public ValueTask SetConcurrencyLimitAsync(
-            SetConcurrencyLimitRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask SetConcurrencyDefaultLimitAsync(
-            SetConcurrencyDefaultLimitRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask ClearConcurrencyLimitOverrideAsync(
-            ClearConcurrencyLimitOverrideRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
-            string groupKey,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateRecurringScheduleAsync(
-            UpsertRecurringScheduleRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<RecurringScheduleTriggerResult> TriggerRecurringScheduleAsync(
-            TriggerRecurringScheduleRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<bool> DeleteRecurringScheduleAsync(
-            string scheduleKey,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<bool> PauseRecurringScheduleAsync(
-            string scheduleKey,
-            DateTimeOffset pausedAtUtc,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<bool> ResumeRecurringScheduleAsync(
-            string scheduleKey,
-            DateTimeOffset resumedAtUtc,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<RecurringScheduleInfo?> GetRecurringScheduleAsync(
-            string scheduleKey,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<IReadOnlyList<RecurringScheduleInfo>> ListRecurringSchedulesAsync(
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<int> MaterializeDueRecurringSchedulesAsync(
+        public override ValueTask<int> MaterializeDueRecurringSchedulesAsync(
             MaterializeDueRecurringSchedulesRequest request,
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult(0);

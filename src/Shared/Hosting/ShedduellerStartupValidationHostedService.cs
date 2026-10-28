@@ -1,9 +1,12 @@
-namespace Sheddueller.Worker.Internal;
+namespace Sheddueller.Hosting;
 
 using Microsoft.Extensions.Hosting;
 
 using Sheddueller.Runtime;
 
+/// <summary>
+/// Runs every registered startup validator before the other Sheddueller hosted services start.
+/// </summary>
 internal sealed class ShedduellerStartupValidationHostedService(
     IEnumerable<IShedduellerStartupValidator> validators) : IHostedService
 {

@@ -2,6 +2,9 @@
   <ItemGroup>
     <ProjectReference Include="$(SrcDirectory)\Sheddueller.Worker\Sheddueller.Worker.csproj" />
     <ProjectReference Include="$(SrcDirectory)\Sheddueller\Sheddueller.csproj" />
+
+    <!-- For registration tests of a host that adds both the worker and the dashboard. -->
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller.Dashboard\Sheddueller.Dashboard.csproj" />
   </ItemGroup>
 
   <ItemGroup>

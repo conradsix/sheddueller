@@ -1,4 +1,6 @@
-namespace Microsoft.Extensions.Logging;
+namespace Sheddueller.Logging;
+
+using Microsoft.Extensions.Logging;
 
 internal static partial class ShedduellerLoggerMessages
 {

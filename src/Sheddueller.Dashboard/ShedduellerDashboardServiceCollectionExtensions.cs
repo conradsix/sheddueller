@@ -7,7 +7,7 @@ using Microsoft.Extensions.Hosting;
 
 using Sheddueller.Dashboard;
 using Sheddueller.Dashboard.Internal;
-using Sheddueller.Runtime;
+using Sheddueller.Hosting;
 using Sheddueller.Storage;
 
 /// <summary>
@@ -45,33 +45,12 @@ public static class ShedduellerDashboardServiceCollectionExtensions
         services.TryAddSingleton<DashboardMetricsSnapshotCache>();
         services.TryAddSingleton<IDashboardMetricsReader>(serviceProvider => serviceProvider.GetRequiredService<DashboardMetricsSnapshotCache>());
         services.Replace(ServiceDescriptor.Singleton<IJobEventNotifier, DashboardJobEventNotifier>());
-        TryAddStartupValidationHostedService(services);
+        ShedduellerHostedServiceRegistration.TryAddStartupValidationHostedService(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardThroughputHostedService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardJobEventListenerService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobEventRetentionService>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardJobRetentionService>());
+        ShedduellerHostedServiceRegistration.TryAddJobRetentionHostedService<DashboardJobRetentionService>(services);
 
         return services;
-    }
-
-    private static void TryAddStartupValidationHostedService(IServiceCollection services)
-    {
-        if (services.Any(descriptor => descriptor.ServiceType == typeof(ShedduellerHostedStartupValidationMarker)))
-        {
-            return;
-        }
-
-        services.AddSingleton<ShedduellerHostedStartupValidationMarker>();
-        var descriptor = ServiceDescriptor.Singleton<IHostedService, ShedduellerStartupValidationHostedService>();
-        for (var index = 0; index < services.Count; index++)
-        {
-            if (services[index].ServiceType == typeof(IHostedService))
-            {
-                services.Insert(index, descriptor);
-                return;
-            }
-        }
-
-        services.Add(descriptor);
     }
 }

@@ -1,7 +1,5 @@
 namespace Sheddueller.Testing;
 
-using System.Collections.ObjectModel;
-
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
@@ -15,31 +13,19 @@ public sealed class FakeEnqueuedJob
       long enqueueSequence,
       Guid? batchId,
       int? batchIndex,
-      Type serviceType,
-      string methodName,
-      IReadOnlyList<Type> methodParameterTypes,
-      IReadOnlyList<JobMethodParameterBinding> methodParameterBindings,
-      JobInvocationTargetKind invocationTargetKind,
-      IReadOnlyList<Type> serializableParameterTypes,
-      IReadOnlyList<object?> serializableArguments,
-      SerializedJobPayload serializedArguments,
+      FakeJobDefinition definition,
       JobSubmission submission,
-      IReadOnlyList<Guid> prerequisiteJobIds)
+      IReadOnlyList<Guid> prerequisiteJobIds,
+      string? idempotencyKey)
     {
         this.JobId = jobId;
         this.EnqueueSequence = enqueueSequence;
         this.BatchId = batchId;
         this.BatchIndex = batchIndex;
-        this.ServiceType = serviceType;
-        this.MethodName = methodName;
-        this.MethodParameterTypes = ToReadOnlyCollection(methodParameterTypes);
-        this.MethodParameterBindings = ToReadOnlyCollection(methodParameterBindings);
-        this.InvocationTargetKind = invocationTargetKind;
-        this.SerializableParameterTypes = ToReadOnlyCollection(serializableParameterTypes);
-        this.SerializableArguments = ToReadOnlyCollection(serializableArguments);
-        this.SerializedArgumentsStorage = ClonePayload(serializedArguments);
+        this.Definition = definition;
         this.Submission = submission;
-        this.PrerequisiteJobIds = ToReadOnlyCollection(prerequisiteJobIds);
+        this.PrerequisiteJobIds = FakeJobDefinition.ToReadOnlyCollection(prerequisiteJobIds);
+        this.IdempotencyKey = idempotencyKey;
     }
 
     /// <summary>
@@ -65,42 +51,42 @@ public sealed class FakeEnqueuedJob
     /// <summary>
     /// Gets the service type that owns the job method.
     /// </summary>
-    public Type ServiceType { get; }
+    public Type ServiceType => this.Definition.ServiceType;
 
     /// <summary>
     /// Gets the job method name.
     /// </summary>
-    public string MethodName { get; }
+    public string MethodName => this.Definition.MethodName;
 
     /// <summary>
     /// Gets the target method parameter types.
     /// </summary>
-    public IReadOnlyList<Type> MethodParameterTypes { get; }
+    public IReadOnlyList<Type> MethodParameterTypes => this.Definition.MethodParameterTypes;
 
     /// <summary>
     /// Gets how each target method parameter is supplied when the job runs.
     /// </summary>
-    public IReadOnlyList<JobMethodParameterBinding> MethodParameterBindings { get; }
+    public IReadOnlyList<JobMethodParameterBinding> MethodParameterBindings => this.Definition.MethodParameterBindings;
 
     /// <summary>
     /// Gets how the target method is invoked.
     /// </summary>
-    public JobInvocationTargetKind InvocationTargetKind { get; }
+    public JobInvocationTargetKind InvocationTargetKind => this.Definition.InvocationTargetKind;
 
     /// <summary>
     /// Gets the parameter types included in the serialized argument payload.
     /// </summary>
-    public IReadOnlyList<Type> SerializableParameterTypes { get; }
+    public IReadOnlyList<Type> SerializableParameterTypes => this.Definition.SerializableParameterTypes;
 
     /// <summary>
     /// Gets the evaluated argument values included in the serialized argument payload.
     /// </summary>
-    public IReadOnlyList<object?> SerializableArguments { get; }
+    public IReadOnlyList<object?> SerializableArguments => this.Definition.SerializableArguments;
 
     /// <summary>
     /// Gets a copy of the serialized argument payload.
     /// </summary>
-    public SerializedJobPayload SerializedArguments => ClonePayload(this.SerializedArgumentsStorage);
+    public SerializedJobPayload SerializedArguments => this.Definition.SerializedArguments;
 
     /// <summary>
     /// Gets the normalized submission options captured with this job.
@@ -112,13 +98,10 @@ public sealed class FakeEnqueuedJob
     /// </summary>
     public IReadOnlyList<Guid> PrerequisiteJobIds { get; }
 
-    internal SerializedJobPayload StoredSerializedArguments => this.SerializedArgumentsStorage;
+    internal FakeJobDefinition Definition { get; }
 
-    private SerializedJobPayload SerializedArgumentsStorage { get; }
-
-    internal static SerializedJobPayload ClonePayload(SerializedJobPayload payload)
-      => new(payload.ContentType, [.. payload.Data]);
-
-    private static ReadOnlyCollection<T> ToReadOnlyCollection<T>(IReadOnlyList<T> values)
-      => Array.AsReadOnly([.. values]);
+    /// <summary>
+    /// Gets the idempotency key the real enqueuer would store, or null when the job uses no idempotency.
+    /// </summary>
+    internal string? IdempotencyKey { get; }
 }

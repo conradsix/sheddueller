@@ -212,6 +212,53 @@ public sealed class JobEnqueuerTests
     }
 
     [Fact]
+    public async Task Enqueue_ConstantsAndCapturedVariables_SerializesTheirCurrentValues()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+        var holder = new PayloadHolder { Payload = new SamplePayload("field", 1) };
+        var count = 7;
+        var jobIds = new List<Guid>();
+
+        for (var i = 0; i < 2; i++)
+        {
+            // A loop-scoped local makes a nested closure that reaches the outer locals through a field.
+            var name = $"loop-{i}";
+            holder.Payload = holder.Payload with { Count = i };
+            jobIds.Add(await enqueuer.EnqueueAsync<EnqueueTestService>(
+              (service, cancellationToken) => service.HandleValuesAsync(holder.Payload, null, name, count, "constant", cancellationToken)));
+        }
+
+        var serializer = provider.GetRequiredService<IJobPayloadSerializer>();
+        for (var i = 0; i < jobIds.Count; i++)
+        {
+            var arguments = await serializer.DeserializeAsync(
+              store.GetRequest(jobIds[i]).SerializedArguments,
+              [typeof(SamplePayload), typeof(SamplePayload), typeof(string), typeof(int), typeof(string)]);
+
+            arguments.Count.ShouldBe(5);
+            arguments[0].ShouldBe(new SamplePayload("field", i));
+            arguments[1].ShouldBeNull();
+            arguments[2].ShouldBe($"loop-{i}");
+            arguments[3].ShouldBe(7);
+            arguments[4].ShouldBe("constant");
+        }
+    }
+
+    [Fact]
+    public async Task Enqueue_CapturedObjectIsNull_ThrowsNullReferenceException()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        PayloadHolder? holder = null;
+
+        await Should.ThrowAsync<NullReferenceException>(
+          async () => await enqueuer.EnqueueAsync<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleAsync(holder!.Payload, cancellationToken)));
+    }
+
+    [Fact]
     public async Task EnqueueMany_MixedServiceMethods_PersistsJobsAndReturnsIdsInInputOrder()
     {
         var timestamp = new DateTimeOffset(2026, 4, 19, 10, 30, 0, TimeSpan.Zero);
@@ -589,6 +636,11 @@ public sealed class JobEnqueuerTests
 
     private sealed record SamplePayload(string Name, int Count);
 
+    private sealed class PayloadHolder
+    {
+        public SamplePayload Payload = new(string.Empty, 0);
+    }
+
     private sealed class CountingValueFactory
     {
         public int EvaluationCount { get; private set; }
@@ -608,6 +660,17 @@ public sealed class JobEnqueuerTests
         }
 
         public Task HandleStringAsync(string value, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task HandleValuesAsync(
+            SamplePayload first,
+            SamplePayload? second,
+            string name,
+            int count,
+            string label,
+            CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
         }

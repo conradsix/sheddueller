@@ -1,7 +1,5 @@
 namespace Sheddueller.Testing;
 
-using System.Collections.ObjectModel;
-
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
@@ -15,33 +13,19 @@ public sealed class FakeRecurringSchedule
       string cronExpression,
       bool isPaused,
       DateTimeOffset? nextFireAtUtc,
-      Type serviceType,
-      string methodName,
-      IReadOnlyList<Type> methodParameterTypes,
-      IReadOnlyList<JobMethodParameterBinding> methodParameterBindings,
-      JobInvocationTargetKind invocationTargetKind,
-      IReadOnlyList<Type> serializableParameterTypes,
-      IReadOnlyList<object?> serializableArguments,
-      SerializedJobPayload serializedArguments,
+      FakeJobDefinition definition,
       RecurringScheduleOptions options)
     {
         this.ScheduleKey = scheduleKey;
         this.CronExpression = cronExpression;
         this.IsPaused = isPaused;
         this.NextFireAtUtc = nextFireAtUtc;
-        this.ServiceType = serviceType;
-        this.MethodName = methodName;
-        this.MethodParameterTypes = ToReadOnlyCollection(methodParameterTypes);
-        this.MethodParameterBindings = ToReadOnlyCollection(methodParameterBindings);
-        this.InvocationTargetKind = invocationTargetKind;
-        this.SerializableParameterTypes = ToReadOnlyCollection(serializableParameterTypes);
-        this.SerializableArguments = ToReadOnlyCollection(serializableArguments);
-        this.SerializedArgumentsStorage = FakeEnqueuedJob.ClonePayload(serializedArguments);
+        this.Definition = definition;
         this.Priority = options.Priority;
-        this.ConcurrencyGroupKeys = ToReadOnlyCollection(options.ConcurrencyGroupKeys ?? []);
+        this.ConcurrencyGroupKeys = FakeJobDefinition.ToReadOnlyCollection(options.ConcurrencyGroupKeys ?? []);
         this.RetryPolicy = options.RetryPolicy;
         this.OverlapMode = options.OverlapMode;
-        this.Tags = ToReadOnlyCollection(options.Tags ?? []);
+        this.Tags = FakeJobDefinition.ToReadOnlyCollection(options.Tags ?? []);
     }
 
     /// <summary>
@@ -67,42 +51,42 @@ public sealed class FakeRecurringSchedule
     /// <summary>
     /// Gets the service type that owns the scheduled job method.
     /// </summary>
-    public Type ServiceType { get; }
+    public Type ServiceType => this.Definition.ServiceType;
 
     /// <summary>
     /// Gets the scheduled job method name.
     /// </summary>
-    public string MethodName { get; }
+    public string MethodName => this.Definition.MethodName;
 
     /// <summary>
     /// Gets the target method parameter types.
     /// </summary>
-    public IReadOnlyList<Type> MethodParameterTypes { get; }
+    public IReadOnlyList<Type> MethodParameterTypes => this.Definition.MethodParameterTypes;
 
     /// <summary>
     /// Gets how each target method parameter is supplied when a job materializes.
     /// </summary>
-    public IReadOnlyList<JobMethodParameterBinding> MethodParameterBindings { get; }
+    public IReadOnlyList<JobMethodParameterBinding> MethodParameterBindings => this.Definition.MethodParameterBindings;
 
     /// <summary>
     /// Gets how the target method is invoked.
     /// </summary>
-    public JobInvocationTargetKind InvocationTargetKind { get; }
+    public JobInvocationTargetKind InvocationTargetKind => this.Definition.InvocationTargetKind;
 
     /// <summary>
     /// Gets the parameter types included in the serialized argument payload.
     /// </summary>
-    public IReadOnlyList<Type> SerializableParameterTypes { get; }
+    public IReadOnlyList<Type> SerializableParameterTypes => this.Definition.SerializableParameterTypes;
 
     /// <summary>
     /// Gets the evaluated argument values included in the serialized argument payload.
     /// </summary>
-    public IReadOnlyList<object?> SerializableArguments { get; }
+    public IReadOnlyList<object?> SerializableArguments => this.Definition.SerializableArguments;
 
     /// <summary>
     /// Gets a copy of the serialized argument payload.
     /// </summary>
-    public SerializedJobPayload SerializedArguments => FakeEnqueuedJob.ClonePayload(this.SerializedArgumentsStorage);
+    public SerializedJobPayload SerializedArguments => this.Definition.SerializedArguments;
 
     /// <summary>
     /// Gets the priority assigned to jobs materialized from this schedule.
@@ -129,9 +113,7 @@ public sealed class FakeRecurringSchedule
     /// </summary>
     public IReadOnlyList<JobTag> Tags { get; }
 
-    internal SerializedJobPayload StoredSerializedArguments => this.SerializedArgumentsStorage;
-
-    private SerializedJobPayload SerializedArgumentsStorage { get; }
+    internal FakeJobDefinition Definition { get; }
 
     internal RecurringScheduleInfo ToInfo()
       => new(
@@ -161,16 +143,6 @@ public sealed class FakeRecurringSchedule
         this.CronExpression,
         isPaused,
         nextFireAtUtc,
-        this.ServiceType,
-        this.MethodName,
-        this.MethodParameterTypes,
-        this.MethodParameterBindings,
-        this.InvocationTargetKind,
-        this.SerializableParameterTypes,
-        this.SerializableArguments,
-        this.StoredSerializedArguments,
+        this.Definition,
         this.ToOptions());
-
-    private static ReadOnlyCollection<T> ToReadOnlyCollection<T>(IReadOnlyList<T> values)
-      => Array.AsReadOnly([.. values]);
 }

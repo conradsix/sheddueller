@@ -3,11 +3,9 @@ namespace Sheddueller.Worker.Tests;
 using System.Collections.Concurrent;
 
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-using Sheddueller.Serialization;
 using Sheddueller.Storage;
 using Sheddueller.Worker.Internal;
 
@@ -19,7 +17,7 @@ public sealed class WorkerJobLoggerTests
     public async Task JobExecution_LoggerWritesDuringJob_RecordsDurableLogEvent()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
+        var job = WorkerTestJobs.CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
         await using var provider = CreateProvider<LoggingJob>(
@@ -28,10 +26,10 @@ public sealed class WorkerJobLoggerTests
           configureOptions: options => options.EnableJobLogCapture = true);
         var outsideLogger = provider.GetRequiredService<ILogger<LoggingJob>>();
         OutsideLog(outsideLogger, null);
-        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+        var hostedServices = await HostedServices.StartAsync(provider, cancellationTokenSource.Token);
 
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
-        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+        await HostedServices.StopAsync(hostedServices, cancellationTokenSource.Token);
 
         eventSink.Requests.Any(request => HasEventId(request, "41")).ShouldBeFalse();
         var request = eventSink.Requests.Single(request => HasEventId(request, "42"));
@@ -50,15 +48,15 @@ public sealed class WorkerJobLoggerTests
     public async Task JobExecution_LoggerWritesDuringJob_AddsJobMetadataScopeToExternalLoggers()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
+        var job = WorkerTestJobs.CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
         using var logs = new ScopeRecordingLoggerProvider();
         await using var provider = CreateProvider<LoggingJob>(store, eventSink, loggerProvider: logs);
-        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+        var hostedServices = await HostedServices.StartAsync(provider, cancellationTokenSource.Token);
 
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
-        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+        await HostedServices.StopAsync(hostedServices, cancellationTokenSource.Token);
 
         var entry = logs.Entries.Single(log => log.EventId.Id == 42);
         entry.ScopeProperties["ShedduellerJobId"].ShouldBe(job.JobId);
@@ -70,15 +68,15 @@ public sealed class WorkerJobLoggerTests
     public async Task JobExecution_LogCaptureDisabledByDefault_DoesNotRecordDurableLogEventButKeepsExternalScope()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
+        var job = WorkerTestJobs.CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
         using var logs = new ScopeRecordingLoggerProvider();
         await using var provider = CreateProvider<LoggingJob>(store, eventSink, loggerProvider: logs);
-        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+        var hostedServices = await HostedServices.StartAsync(provider, cancellationTokenSource.Token);
 
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
-        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+        await HostedServices.StopAsync(hostedServices, cancellationTokenSource.Token);
 
         eventSink.Requests.ShouldBeEmpty();
         var entry = logs.Entries.Single(log => log.EventId.Id == 42);
@@ -91,7 +89,7 @@ public sealed class WorkerJobLoggerTests
     public async Task JobExecution_FireAndForgetLoggerAfterCompletion_DoesNotRecordDurableLogEvent()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var job = CreateClaimedJob<LateLoggingJob>(nameof(LateLoggingJob.RunAsync));
+        var job = WorkerTestJobs.CreateClaimedJob<LateLoggingJob>(nameof(LateLoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
         var coordinator = new LateLogCoordinator();
@@ -100,12 +98,12 @@ public sealed class WorkerJobLoggerTests
           eventSink,
           coordinator,
           configureOptions: options => options.EnableJobLogCapture = true);
-        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+        var hostedServices = await HostedServices.StartAsync(provider, cancellationTokenSource.Token);
 
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
         coordinator.AllowLateLog.SetResult();
         await coordinator.LateLogWritten.Task.WaitAsync(cancellationTokenSource.Token);
-        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+        await HostedServices.StopAsync(hostedServices, cancellationTokenSource.Token);
 
         eventSink.Requests.ShouldBeEmpty();
     }
@@ -114,16 +112,16 @@ public sealed class WorkerJobLoggerTests
     public async Task JobExecution_LoggerSinkFails_StillCompletesJob()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
+        var job = WorkerTestJobs.CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         await using var provider = CreateProvider<LoggingJob>(
           store,
           new ThrowingJobEventSink(),
           configureOptions: options => options.EnableJobLogCapture = true);
-        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+        var hostedServices = await HostedServices.StartAsync(provider, cancellationTokenSource.Token);
 
         var completed = await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
-        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+        await HostedServices.StopAsync(hostedServices, cancellationTokenSource.Token);
 
         completed.JobId.ShouldBe(job.JobId);
     }
@@ -132,16 +130,16 @@ public sealed class WorkerJobLoggerTests
     public async Task JobExecution_LoggerFormatterFails_StillCompletesJob()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var job = CreateClaimedJob<ThrowingFormatterJob>(nameof(ThrowingFormatterJob.RunAsync));
+        var job = WorkerTestJobs.CreateClaimedJob<ThrowingFormatterJob>(nameof(ThrowingFormatterJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         await using var provider = CreateProvider<ThrowingFormatterJob>(
           store,
           new RecordingJobEventSink(),
           configureOptions: options => options.EnableJobLogCapture = true);
-        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+        var hostedServices = await HostedServices.StartAsync(provider, cancellationTokenSource.Token);
 
         var completed = await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
-        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+        await HostedServices.StopAsync(hostedServices, cancellationTokenSource.Token);
 
         completed.JobId.ShouldBe(job.JobId);
     }
@@ -150,18 +148,18 @@ public sealed class WorkerJobLoggerTests
     public async Task JobExecution_LoggerSinkBlocks_StillCompletesJob()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
+        var job = WorkerTestJobs.CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         var eventSink = new BlockingJobEventSink();
         await using var provider = CreateProvider<LoggingJob>(
           store,
           eventSink,
           configureOptions: options => options.EnableJobLogCapture = true);
-        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+        var hostedServices = await HostedServices.StartAsync(provider, cancellationTokenSource.Token);
 
         var completed = await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
         eventSink.AllowAppend.SetResult();
-        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+        await HostedServices.StopAsync(hostedServices, cancellationTokenSource.Token);
 
         completed.JobId.ShouldBe(job.JobId);
     }
@@ -210,8 +208,7 @@ public sealed class WorkerJobLoggerTests
             }
         });
         services.AddSingleton(eventSink);
-        services.AddSingleton(store);
-        services.AddSingleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<SingleClaimJobStore>());
+        services.AddSingleton<IJobStore>(store);
         if (coordinator is not null)
         {
             services.AddSingleton(coordinator);
@@ -234,50 +231,6 @@ public sealed class WorkerJobLoggerTests
       => request.Fields is not null
         && request.Fields.TryGetValue("EventId", out var actualEventId)
         && string.Equals(actualEventId, eventId, StringComparison.Ordinal);
-
-    private static async Task<IReadOnlyList<IHostedService>> StartHostedServicesAsync(
-        ServiceProvider provider,
-        CancellationToken cancellationToken)
-    {
-        var hostedServices = provider.GetServices<IHostedService>().ToArray();
-        foreach (var hostedService in hostedServices)
-        {
-            await hostedService.StartAsync(cancellationToken);
-        }
-
-        return hostedServices;
-    }
-
-    private static async Task StopHostedServicesAsync(
-        IEnumerable<IHostedService> hostedServices,
-        CancellationToken cancellationToken)
-    {
-        foreach (var hostedService in hostedServices.Reverse())
-        {
-            await hostedService.StopAsync(cancellationToken);
-        }
-    }
-
-    private static ClaimedJob CreateClaimedJob<TJob>(string methodName)
-      => new(
-          Guid.NewGuid(),
-          EnqueueSequence: 1,
-          Priority: 0,
-          ServiceType: typeof(TJob).AssemblyQualifiedName!,
-          MethodName: methodName,
-          MethodParameterTypes: [typeof(CancellationToken).AssemblyQualifiedName!],
-          SerializedArguments: new SerializedJobPayload(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray()),
-          ConcurrencyGroupKeys: [],
-          AttemptCount: 1,
-          MaxAttempts: 1,
-          LeaseToken: Guid.NewGuid(),
-          LeaseExpiresAtUtc: DateTimeOffset.UtcNow.AddSeconds(30),
-          RetryBackoffKind: null,
-          RetryBaseDelay: null,
-          RetryMaxDelay: null,
-          SourceScheduleKey: null,
-          ScheduledFireAtUtc: null,
-          MethodParameterBindings: [new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken)]);
 
     private static readonly Action<ILogger, Exception?> OutsideLog =
       LoggerMessage.Define(
@@ -345,76 +298,12 @@ public sealed class WorkerJobLoggerTests
         public TaskCompletionSource LateLogWritten { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    private sealed class RecordingJobEventSink : IJobEventSink
-    {
-        private readonly Lock _syncRoot = new();
-        private readonly List<AppendJobEventRequest> _requests = [];
-
-        public IReadOnlyList<AppendJobEventRequest> Requests
-        {
-            get
-            {
-                lock (this._syncRoot)
-                {
-                    return Array.AsReadOnly([.. this._requests]);
-                }
-            }
-        }
-
-        public ValueTask<JobEvent> AppendAsync(
-            AppendJobEventRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            lock (this._syncRoot)
-            {
-                this._requests.Add(request);
-                return ValueTask.FromResult(new JobEvent(
-                  Guid.NewGuid(),
-                  request.JobId,
-                  this._requests.Count,
-                  request.Kind,
-                  DateTimeOffset.UtcNow,
-                  request.AttemptNumber,
-                  request.LogLevel,
-                  request.Message,
-                  request.ProgressPercent,
-                  request.Fields));
-            }
-        }
-    }
-
     private sealed class ThrowingJobEventSink : IJobEventSink
     {
         public ValueTask<JobEvent> AppendAsync(
             AppendJobEventRequest request,
             CancellationToken cancellationToken = default)
           => throw new InvalidOperationException("append failed");
-    }
-
-    private sealed class BlockingJobEventSink : IJobEventSink
-    {
-        public TaskCompletionSource AllowAppend { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async ValueTask<JobEvent> AppendAsync(
-            AppendJobEventRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            await this.AllowAppend.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-            return new JobEvent(
-              Guid.NewGuid(),
-              request.JobId,
-              EventSequence: 1,
-              request.Kind,
-              DateTimeOffset.UtcNow,
-              request.AttemptNumber,
-              request.LogLevel,
-              request.Message,
-              request.ProgressPercent,
-              request.Fields);
-        }
     }
 
     private sealed class ScopeRecordingLoggerProvider : ILoggerProvider, ISupportExternalScope
@@ -506,143 +395,4 @@ public sealed class WorkerJobLoggerTests
         EventId EventId,
         string Message,
         IReadOnlyDictionary<string, object?> ScopeProperties);
-
-    private sealed class SingleClaimJobStore(ClaimedJob job) : IJobStore
-    {
-        private int _claimed;
-
-        public TaskCompletionSource<CompleteJobRequest> Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public ValueTask<EnqueueJobResult> EnqueueAsync(
-            EnqueueJobRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<IReadOnlyList<EnqueueJobResult>> EnqueueManyAsync(
-            IReadOnlyList<EnqueueJobRequest> requests,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<ClaimJobResult> TryClaimNextAsync(
-            ClaimJobRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult<ClaimJobResult>(
-              Interlocked.Exchange(ref this._claimed, 1) == 0
-                ? new ClaimJobResult.Claimed(job)
-                : new ClaimJobResult.NoJobAvailable());
-
-        public ValueTask<bool> MarkCompletedAsync(
-            CompleteJobRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            this.Completed.TrySetResult(request);
-            return ValueTask.FromResult(true);
-        }
-
-        public ValueTask<bool> MarkFailedAsync(
-            FailJobRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(true);
-
-        public ValueTask<bool> RenewLeaseAsync(
-            RenewLeaseRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(true);
-
-        public ValueTask<bool> ReleaseJobAsync(
-            ReleaseJobRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(true);
-
-        public ValueTask<int> RecoverExpiredLeasesAsync(
-            RecoverExpiredLeasesRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(0);
-
-        public ValueTask<JobCancellationResult> CancelAsync(
-            CancelJobRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(JobCancellationResult.NotFound);
-
-        public ValueTask<int> CancelQueuedJobsAsync(
-            CancelQueuedJobsRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(0);
-
-        public ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
-            JobCancellationStatusRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult<DateTimeOffset?>(null);
-
-        public ValueTask<bool> MarkCancellationObservedAsync(
-            ObserveJobCancellationRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(true);
-
-        public ValueTask RecordWorkerNodeHeartbeatAsync(
-            WorkerNodeHeartbeatRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.CompletedTask;
-
-        public ValueTask SetConcurrencyLimitAsync(
-            SetConcurrencyLimitRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask SetConcurrencyDefaultLimitAsync(
-            SetConcurrencyDefaultLimitRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask ClearConcurrencyLimitOverrideAsync(
-            ClearConcurrencyLimitOverrideRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
-            string groupKey,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateRecurringScheduleAsync(
-            UpsertRecurringScheduleRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<RecurringScheduleTriggerResult> TriggerRecurringScheduleAsync(
-            TriggerRecurringScheduleRequest request,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<bool> DeleteRecurringScheduleAsync(
-            string scheduleKey,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<bool> PauseRecurringScheduleAsync(
-            string scheduleKey,
-            DateTimeOffset pausedAtUtc,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<bool> ResumeRecurringScheduleAsync(
-            string scheduleKey,
-            DateTimeOffset resumedAtUtc,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<RecurringScheduleInfo?> GetRecurringScheduleAsync(
-            string scheduleKey,
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<IReadOnlyList<RecurringScheduleInfo>> ListRecurringSchedulesAsync(
-            CancellationToken cancellationToken = default)
-          => throw new NotSupportedException();
-
-        public ValueTask<int> MaterializeDueRecurringSchedulesAsync(
-            MaterializeDueRecurringSchedulesRequest request,
-            CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(0);
-    }
 }
