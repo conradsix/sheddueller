@@ -35,6 +35,12 @@ internal sealed class PostgresTestContext(
         return new PostgresTestContext(fixture.DataSource, provider, schemaName);
     }
 
+    public static PostgresTestContext CreateUnmigrated(PostgresFixture fixture)
+    {
+        var schemaName = CreateSchemaName();
+        return new PostgresTestContext(fixture.DataSource, CreateProvider(fixture.DataSource, schemaName), schemaName);
+    }
+
     public static ServiceProvider CreateProvider(NpgsqlDataSource dataSource, string schemaName)
     {
         var services = new ServiceCollection();

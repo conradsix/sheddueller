@@ -6,10 +6,41 @@ using System.Globalization;
 
 using Npgsql;
 
-internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPostgresMigrator
+/// <summary>
+/// Brings a schema to the provider's version: the baseline script for a new or preview schema (below
+/// <see cref="PostgresMigrationSteps.BaselineVersion" />), then each later step the schema hasn't had yet. A current
+/// schema is left untouched.
+/// </summary>
+internal sealed class PostgresMigrator : IPostgresMigrator
 {
-    private readonly ShedduellerPostgresOptions _options = options;
-    private readonly PostgresNames _names = new(options.SchemaName);
+    private readonly ShedduellerPostgresOptions _options;
+    private readonly PostgresNames _names;
+    private readonly IReadOnlyList<PostgresMigrationStep> _steps;
+    private readonly int _targetVersion;
+
+    public PostgresMigrator(ShedduellerPostgresOptions options)
+      : this(options, PostgresMigrationSteps.All)
+    {
+    }
+
+    internal PostgresMigrator(ShedduellerPostgresOptions options, IReadOnlyList<PostgresMigrationStep> steps)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(steps);
+
+        for (var index = 0; index < steps.Count; index++)
+        {
+            if (steps[index].Version != PostgresMigrationSteps.BaselineVersion + index + 1)
+            {
+                throw new ArgumentException("Migration steps must follow the baseline version without gaps.", nameof(steps));
+            }
+        }
+
+        this._options = options;
+        this._names = new PostgresNames(options.SchemaName);
+        this._steps = steps;
+        this._targetVersion = steps.Count == 0 ? PostgresMigrationSteps.BaselineVersion : steps[^1].Version;
+    }
 
     public async ValueTask ApplyAsync(CancellationToken cancellationToken = default)
     {
@@ -25,16 +56,6 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           .ConfigureAwait(false);
 
         await ExecuteAsync(connection, transaction, $"create schema if not exists {this._names.Schema};", cancellationToken).ConfigureAwait(false);
-        await this.ApplyVersion1Async(connection, transaction, cancellationToken).ConfigureAwait(false);
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask ApplyVersion1Async(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        CancellationToken cancellationToken)
-    {
         await ExecuteAsync(
           connection,
           transaction,
@@ -50,17 +71,57 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           .ConfigureAwait(false);
 
         var currentVersion = await this.GetCurrentVersionAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        if (currentVersion > PostgresNames.ExpectedSchemaVersion)
+        if (currentVersion > this._targetVersion)
         {
             throw new InvalidOperationException(
-              $"PostgreSQL schema '{this._options.SchemaName}' version {currentVersion} is newer than provider version {PostgresNames.ExpectedSchemaVersion}.");
+              $"PostgreSQL schema '{this._options.SchemaName}' version {currentVersion} is newer than provider version {this._targetVersion}.");
         }
 
-        if (currentVersion == PostgresNames.ExpectedSchemaVersion)
+        if (currentVersion == this._targetVersion)
         {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
+        if (currentVersion < PostgresMigrationSteps.BaselineVersion)
+        {
+            await this.ApplyBaselineAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            currentVersion = PostgresMigrationSteps.BaselineVersion;
+        }
+
+        foreach (var step in this._steps)
+        {
+            if (step.Version > currentVersion)
+            {
+                await ExecuteAsync(connection, transaction, step.Sql(this._names), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await ExecuteAsync(
+          connection,
+          transaction,
+          $"""
+          insert into {this._names.SchemaInfo} (singleton_id, schema_version, applied_at_utc)
+          values (1, @schema_version, transaction_timestamp())
+          on conflict (singleton_id) do update
+          set schema_version = excluded.schema_version,
+              applied_at_utc = excluded.applied_at_utc;
+          """,
+          command => command.Parameters.AddWithValue("schema_version", this._targetVersion),
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // The schema as of the baseline version, written to converge any older preview schema as well as create a new
+    // one. It re-adds constraints whose definitions changed during the previews, which scans those tables, so it only
+    // runs below the baseline version. Don't change it: later schema changes are steps in PostgresMigrationSteps.
+    private async ValueTask ApplyBaselineAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
         await ExecuteAsync(connection, transaction, "create extension if not exists pg_trgm;", cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(
@@ -505,20 +566,6 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create index if not exists idx_metrics_histogram_bins_metric_bucket
               on {this._names.MetricsHistogramBins} (metric, bucket_started_at_utc, bin_index);
           """,
-          cancellationToken)
-          .ConfigureAwait(false);
-
-        await ExecuteAsync(
-          connection,
-          transaction,
-          $"""
-          insert into {this._names.SchemaInfo} (singleton_id, schema_version, applied_at_utc)
-          values (1, @schema_version, transaction_timestamp())
-          on conflict (singleton_id) do update
-          set schema_version = excluded.schema_version,
-              applied_at_utc = excluded.applied_at_utc;
-          """,
-          command => command.Parameters.AddWithValue("schema_version", PostgresNames.ExpectedSchemaVersion),
           cancellationToken)
           .ConfigureAwait(false);
     }
