@@ -38,11 +38,6 @@ public sealed class PostgresFixture : IAsyncLifetime
         await this._container.StartAsync();
         this.ConnectionString = this._container.GetConnectionString();
         this.DataSource = NpgsqlDataSource.Create(this.ConnectionString);
-
-        // Each migration creates pg_trgm if it is missing. Extensions are database-wide, and concurrent CREATE
-        // EXTENSION IF NOT EXISTS statements race on the catalog, so the extension exists before any test migrates.
-        await using var command = this.DataSource.CreateCommand("create extension if not exists pg_trgm;");
-        await command.ExecuteNonQueryAsync();
     }
 
     public async ValueTask DisposeAsync()
