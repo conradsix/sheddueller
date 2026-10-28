@@ -1,7 +1,5 @@
 namespace Sheddueller.Testing;
 
-using System.Collections.ObjectModel;
-
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
@@ -18,18 +16,11 @@ public sealed class FakeTriggeredJob
         this.JobId = jobId;
         this.EnqueueSequence = enqueueSequence;
         this.SourceScheduleKey = schedule.ScheduleKey;
-        this.ServiceType = schedule.ServiceType;
-        this.MethodName = schedule.MethodName;
-        this.MethodParameterTypes = ToReadOnlyCollection(schedule.MethodParameterTypes);
-        this.MethodParameterBindings = ToReadOnlyCollection(schedule.MethodParameterBindings);
-        this.InvocationTargetKind = schedule.InvocationTargetKind;
-        this.SerializableParameterTypes = ToReadOnlyCollection(schedule.SerializableParameterTypes);
-        this.SerializableArguments = ToReadOnlyCollection(schedule.SerializableArguments);
-        this.SerializedArgumentsStorage = FakeEnqueuedJob.ClonePayload(schedule.StoredSerializedArguments);
+        this.Definition = schedule.Definition;
         this.Priority = schedule.Priority;
-        this.ConcurrencyGroupKeys = ToReadOnlyCollection(schedule.ConcurrencyGroupKeys);
+        this.ConcurrencyGroupKeys = schedule.ConcurrencyGroupKeys;
         this.RetryPolicy = schedule.RetryPolicy;
-        this.Tags = ToReadOnlyCollection(schedule.Tags);
+        this.Tags = schedule.Tags;
     }
 
     /// <summary>
@@ -50,42 +41,42 @@ public sealed class FakeTriggeredJob
     /// <summary>
     /// Gets the service type that owns the triggered job method.
     /// </summary>
-    public Type ServiceType { get; }
+    public Type ServiceType => this.Definition.ServiceType;
 
     /// <summary>
     /// Gets the triggered job method name.
     /// </summary>
-    public string MethodName { get; }
+    public string MethodName => this.Definition.MethodName;
 
     /// <summary>
     /// Gets the target method parameter types.
     /// </summary>
-    public IReadOnlyList<Type> MethodParameterTypes { get; }
+    public IReadOnlyList<Type> MethodParameterTypes => this.Definition.MethodParameterTypes;
 
     /// <summary>
     /// Gets how each target method parameter is supplied when the job runs.
     /// </summary>
-    public IReadOnlyList<JobMethodParameterBinding> MethodParameterBindings { get; }
+    public IReadOnlyList<JobMethodParameterBinding> MethodParameterBindings => this.Definition.MethodParameterBindings;
 
     /// <summary>
     /// Gets how the target method is invoked.
     /// </summary>
-    public JobInvocationTargetKind InvocationTargetKind { get; }
+    public JobInvocationTargetKind InvocationTargetKind => this.Definition.InvocationTargetKind;
 
     /// <summary>
     /// Gets the parameter types included in the serialized argument payload.
     /// </summary>
-    public IReadOnlyList<Type> SerializableParameterTypes { get; }
+    public IReadOnlyList<Type> SerializableParameterTypes => this.Definition.SerializableParameterTypes;
 
     /// <summary>
     /// Gets the evaluated argument values included in the serialized argument payload.
     /// </summary>
-    public IReadOnlyList<object?> SerializableArguments { get; }
+    public IReadOnlyList<object?> SerializableArguments => this.Definition.SerializableArguments;
 
     /// <summary>
     /// Gets a copy of the serialized argument payload.
     /// </summary>
-    public SerializedJobPayload SerializedArguments => FakeEnqueuedJob.ClonePayload(this.SerializedArgumentsStorage);
+    public SerializedJobPayload SerializedArguments => this.Definition.SerializedArguments;
 
     /// <summary>
     /// Gets the priority cloned from the schedule template.
@@ -107,10 +98,5 @@ public sealed class FakeTriggeredJob
     /// </summary>
     public IReadOnlyList<JobTag> Tags { get; }
 
-    internal SerializedJobPayload StoredSerializedArguments => this.SerializedArgumentsStorage;
-
-    private SerializedJobPayload SerializedArgumentsStorage { get; }
-
-    private static ReadOnlyCollection<T> ToReadOnlyCollection<T>(IReadOnlyList<T> values)
-      => Array.AsReadOnly([.. values]);
+    internal FakeJobDefinition Definition { get; }
 }

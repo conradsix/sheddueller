@@ -11,6 +11,20 @@ internal static class JobIdempotencyKeyGenerator
 {
     private const string Prefix = "method-arguments:v1:";
 
+    /// <summary>
+    /// Creates the idempotency key a submission asks for, or null when it uses no idempotency.
+    /// </summary>
+    public static string? CreateKey(
+        JobIdempotencyKind? idempotencyKind,
+        ParsedJob parsedJob,
+        string serviceType,
+        SerializedJobPayload serializedArguments)
+      => idempotencyKind switch
+      {
+          JobIdempotencyKind.MethodAndArguments => CreateMethodAndArgumentsKey(parsedJob, serviceType, serializedArguments),
+          _ => null,
+      };
+
     public static string CreateMethodAndArgumentsKey(
         ParsedJob parsedJob,
         string serviceType,

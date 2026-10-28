@@ -200,6 +200,7 @@ internal static class JobExpressionParser
         return new ParsedJob(
           targetServiceType,
           methodCall.Method.Name,
+          [.. methodParameters.Select(parameter => parameter.ParameterType)],
           [.. methodParameters.Select(parameter => TypeNameFormatter.Format(parameter.ParameterType))],
           serializableArguments,
           serializableParameterTypes,

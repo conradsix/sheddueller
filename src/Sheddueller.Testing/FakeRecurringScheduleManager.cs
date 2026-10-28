@@ -88,7 +88,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, serviceType: null, work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
@@ -107,7 +107,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, serviceType: null, work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
@@ -126,7 +126,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, serviceType: null, work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
@@ -145,7 +145,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, serviceType: null, work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
@@ -164,7 +164,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, typeof(TService), work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
@@ -183,7 +183,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, typeof(TService), work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
@@ -202,7 +202,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, typeof(TService), work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
@@ -221,7 +221,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       RecurringScheduleUpdateOptions? updateOptions = null,
       CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, updateOptions, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, typeof(TService), work, options, updateOptions, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
@@ -353,74 +353,74 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
     /// <summary>
     /// Finds recorded recurring schedules that match a Task-returning job method call.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync(
       string scheduleKey,
       Expression<Func<CancellationToken, Task>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, serviceType: null, work, cancellationToken);
 
     /// <summary>
     /// Finds recorded recurring schedules that match a ValueTask-returning job method call.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync(
       string scheduleKey,
       Expression<Func<CancellationToken, ValueTask>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, serviceType: null, work, cancellationToken);
 
     /// <summary>
     /// Finds recorded recurring schedules that match a Task-returning job method call with scheduler-supplied progress reporting.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync(
       string scheduleKey,
       Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, serviceType: null, work, cancellationToken);
 
     /// <summary>
     /// Finds recorded recurring schedules that match a ValueTask-returning job method call with scheduler-supplied progress reporting.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync(
       string scheduleKey,
       Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, serviceType: null, work, cancellationToken);
 
     /// <summary>
     /// Finds recorded recurring schedules that match a Task-returning service method call.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
       string scheduleKey,
       Expression<Func<TService, CancellationToken, Task>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, typeof(TService), work, cancellationToken);
 
     /// <summary>
     /// Finds recorded recurring schedules that match a ValueTask-returning service method call.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
       string scheduleKey,
       Expression<Func<TService, CancellationToken, ValueTask>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, typeof(TService), work, cancellationToken);
 
     /// <summary>
     /// Finds recorded recurring schedules that match a Task-returning service method call with scheduler-supplied progress reporting.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
       string scheduleKey,
       Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, typeof(TService), work, cancellationToken);
 
     /// <summary>
     /// Finds recorded recurring schedules that match a ValueTask-returning service method call with scheduler-supplied progress reporting.
     /// </summary>
-    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
+    public ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
       string scheduleKey,
       Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       CancellationToken cancellationToken = default)
-      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+      => this.MatchCoreAsync(scheduleKey, typeof(TService), work, cancellationToken);
 
     /// <summary>
     /// Removes all recorded recurring schedules.
@@ -435,22 +435,25 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
         }
     }
 
+    // Validates in the real manager's order: key, cron expression, work, then options.
     private async ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateCoreAsync(
       string scheduleKey,
       string cronExpression,
-      ParsedJob parsedJob,
+      Type? serviceType,
+      LambdaExpression work,
       RecurringScheduleOptions? options,
       RecurringScheduleUpdateOptions? updateOptions,
       CancellationToken cancellationToken)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
         CronSchedule.Validate(cronExpression);
+        var parsedJob = JobExpressionParser.Parse(serviceType, work);
         cancellationToken.ThrowIfCancellationRequested();
 
         var effectiveUpdateOptions = updateOptions ?? RecurringScheduleUpdateOptions.Default;
         var normalizedOptions = NormalizeOptions(options);
-        var serializedArguments = await this.SerializeArgumentsAsync(parsedJob, cancellationToken).ConfigureAwait(false);
-        var preparedSchedule = new PreparedSchedule(scheduleKey, cronExpression, parsedJob, serializedArguments, normalizedOptions);
+        var definition = await FakeJobDefinition.CreateAsync(parsedJob, this._serializer, cancellationToken).ConfigureAwait(false);
+        var preparedSchedule = new PreparedSchedule(scheduleKey, cronExpression, definition, normalizedOptions);
 
         lock (this._syncRoot)
         {
@@ -484,11 +487,14 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
 
     private async ValueTask<FakeRecurringScheduleMatch> MatchCoreAsync(
       string scheduleKey,
-      ParsedJob parsedJob,
+      Type? serviceType,
+      LambdaExpression work,
       CancellationToken cancellationToken)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
-        var serializedArguments = await this.SerializeArgumentsAsync(parsedJob, cancellationToken).ConfigureAwait(false);
+        var candidate = await FakeJobDefinition
+            .CreateAsync(JobExpressionParser.Parse(serviceType, work), this._serializer, cancellationToken)
+            .ConfigureAwait(false);
         FakeRecurringSchedule[] scheduleSnapshot;
 
         lock (this._syncRoot)
@@ -496,22 +502,9 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
             scheduleSnapshot = [.. this._schedules.Values];
         }
 
-        var matchedSchedules = scheduleSnapshot
-            .Where(schedule => Matches(schedule, scheduleKey, parsedJob, serializedArguments))
-            .ToArray();
-
-        return new FakeRecurringScheduleMatch(matchedSchedules);
-    }
-
-    private async ValueTask<SerializedJobPayload> SerializeArgumentsAsync(
-      ParsedJob parsedJob,
-      CancellationToken cancellationToken)
-    {
-        var serializedArguments = await this._serializer
-            .SerializeAsync(parsedJob.SerializableArguments, parsedJob.SerializableParameterTypes, cancellationToken)
-            .ConfigureAwait(false);
-
-        return FakeEnqueuedJob.ClonePayload(serializedArguments);
+        return new FakeRecurringScheduleMatch([.. scheduleSnapshot.Where(schedule =>
+            string.Equals(schedule.ScheduleKey, scheduleKey, StringComparison.Ordinal)
+            && schedule.Definition.Matches(candidate))]);
     }
 
     private static FakeRecurringSchedule CreateSchedule(
@@ -523,14 +516,7 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
           schedule.CronExpression,
           isPaused,
           nextFireAtUtc,
-          schedule.ParsedJob.ServiceType,
-          schedule.ParsedJob.MethodName,
-          [.. schedule.ParsedJob.MethodParameterTypeNames.Select(TypeNameFormatter.Resolve)],
-          schedule.ParsedJob.MethodParameterBindings,
-          schedule.ParsedJob.InvocationTargetKind,
-          schedule.ParsedJob.SerializableParameterTypes,
-          schedule.ParsedJob.SerializableArguments,
-          schedule.SerializedArguments,
+          schedule.Definition,
           schedule.Options);
 
     private DateTimeOffset GetNextFireAtUtc(string cronExpression)
@@ -539,60 +525,35 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
     private FakeTriggeredJob CreateTriggeredJob(FakeRecurringSchedule schedule)
       => new(Guid.NewGuid(), this._nextEnqueueSequence++, schedule);
 
-    private static bool Matches(
-      FakeRecurringSchedule schedule,
-      string scheduleKey,
-      ParsedJob parsedJob,
-      SerializedJobPayload serializedArguments)
-      => string.Equals(schedule.ScheduleKey, scheduleKey, StringComparison.Ordinal)
-        && schedule.ServiceType == parsedJob.ServiceType
-        && string.Equals(schedule.MethodName, parsedJob.MethodName, StringComparison.Ordinal)
-        && schedule.InvocationTargetKind == parsedJob.InvocationTargetKind
-        && schedule.MethodParameterTypes.Select(TypeNameFormatter.Format).SequenceEqual(parsedJob.MethodParameterTypeNames, StringComparer.Ordinal)
-        && schedule.MethodParameterBindings.SequenceEqual(parsedJob.MethodParameterBindings)
-        && PayloadsEqual(schedule.StoredSerializedArguments, serializedArguments);
-
     private static bool MatchesDefinition(
       FakeRecurringSchedule existing,
       PreparedSchedule candidate)
       => string.Equals(existing.CronExpression, candidate.CronExpression, StringComparison.Ordinal)
         && existing.Priority == candidate.Options.Priority
         && existing.OverlapMode == candidate.Options.OverlapMode
-        && existing.ServiceType == candidate.ParsedJob.ServiceType
-        && string.Equals(existing.MethodName, candidate.ParsedJob.MethodName, StringComparison.Ordinal)
-        && existing.MethodParameterTypes.Select(TypeNameFormatter.Format).SequenceEqual(candidate.ParsedJob.MethodParameterTypeNames, StringComparer.Ordinal)
-        && existing.InvocationTargetKind == candidate.ParsedJob.InvocationTargetKind
-        && existing.MethodParameterBindings.SequenceEqual(candidate.ParsedJob.MethodParameterBindings)
-        && PayloadsEqual(existing.StoredSerializedArguments, candidate.SerializedArguments)
+        && existing.Definition.Matches(candidate.Definition)
         && existing.ConcurrencyGroupKeys.SequenceEqual(candidate.Options.ConcurrencyGroupKeys ?? [], StringComparer.Ordinal)
         && existing.Tags.SequenceEqual(candidate.Options.Tags ?? [])
         && existing.RetryPolicy == candidate.Options.RetryPolicy;
 
-    private static bool PayloadsEqual(
-      SerializedJobPayload left,
-      SerializedJobPayload right)
-      => string.Equals(left.ContentType, right.ContentType, StringComparison.Ordinal)
-        && left.Data.SequenceEqual(right.Data);
-
+    // Validated in the real manager's order: groups, tags, then the retry policy.
     private static RecurringScheduleOptions NormalizeOptions(RecurringScheduleOptions? options)
-      => new(
-        options?.Priority ?? 0,
-        SubmissionValidator.NormalizeConcurrencyGroupKeys(options?.ConcurrencyGroupKeys),
-        NormalizeRetryPolicy(options?.RetryPolicy),
-        options?.OverlapMode ?? RecurringOverlapMode.Skip,
-        SubmissionValidator.NormalizeJobTags(options?.Tags));
-
-    private static RetryPolicy? NormalizeRetryPolicy(RetryPolicy? retryPolicy)
     {
-        SubmissionValidator.ValidateRetryPolicy(retryPolicy);
+        var groups = SubmissionValidator.NormalizeConcurrencyGroupKeys(options?.ConcurrencyGroupKeys);
+        var tags = SubmissionValidator.NormalizeJobTags(options?.Tags);
+        SubmissionValidator.ValidateRetryPolicy(options?.RetryPolicy);
 
-        return retryPolicy;
+        return new RecurringScheduleOptions(
+          options?.Priority ?? 0,
+          groups,
+          options?.RetryPolicy,
+          options?.OverlapMode ?? RecurringOverlapMode.Skip,
+          tags);
     }
 
     private sealed record PreparedSchedule(
       string ScheduleKey,
       string CronExpression,
-      ParsedJob ParsedJob,
-      SerializedJobPayload SerializedArguments,
+      FakeJobDefinition Definition,
       RecurringScheduleOptions Options);
 }

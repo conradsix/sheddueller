@@ -78,18 +78,11 @@ internal sealed class JobEnqueuer(
         }
 
         var jobSnapshot = jobs.ToArray();
-        ValidateDependencyGraph(jobSnapshot);
+        SubmissionValidator.ValidateBatch(jobSnapshot);
         var jobIdsByItem = new Dictionary<JobEnqueueItem, Guid>(ReferenceEqualityComparer.Instance);
         foreach (var job in jobSnapshot)
         {
-            ArgumentNullException.ThrowIfNull(job, nameof(jobs));
             jobIdsByItem.Add(job, Guid.NewGuid());
-        }
-
-        var hasDependencies = jobSnapshot.Any(static job => job.Prerequisites.Count > 0);
-        if (hasDependencies && jobSnapshot.Any(static job => job.Submission?.IdempotencyKind is not null and not JobIdempotencyKind.None))
-        {
-            throw new ArgumentException("Jobs in a dependency graph cannot use idempotency.", nameof(jobs));
         }
 
         var requests = new EnqueueJobRequest[jobSnapshot.Length];
@@ -159,7 +152,7 @@ internal sealed class JobEnqueuer(
     }
 
     private async ValueTask<EnqueueJobRequest> CreateRequestAsync(
-      ParsedJob parsedTask,
+      ParsedJob parsedJob,
       JobSubmission? submission,
       Guid jobId,
       DateTimeOffset enqueuedAtUtc,
@@ -173,24 +166,17 @@ internal sealed class JobEnqueuer(
         var retryPolicy = submission?.RetryPolicy ?? options.Value.DefaultRetryPolicy;
         var (maxAttempts, retryBackoffKind, retryBaseDelay, retryMaxDelay) = SubmissionValidator.NormalizeRetryPolicy(retryPolicy);
         var serializedArguments = await serializer
-          .SerializeAsync(parsedTask.SerializableArguments, parsedTask.SerializableParameterTypes, cancellationToken)
+          .SerializeAsync(parsedJob.SerializableArguments, parsedJob.SerializableParameterTypes, cancellationToken)
           .ConfigureAwait(false);
-        var serviceType = TypeNameFormatter.Format(parsedTask.ServiceType);
-        var idempotencyKey = submission?.IdempotencyKind switch
-        {
-            JobIdempotencyKind.MethodAndArguments => JobIdempotencyKeyGenerator.CreateMethodAndArgumentsKey(
-                parsedTask,
-                serviceType,
-                serializedArguments),
-            _ => null,
-        };
+        var serviceType = TypeNameFormatter.Format(parsedJob.ServiceType);
+        var idempotencyKey = JobIdempotencyKeyGenerator.CreateKey(submission?.IdempotencyKind, parsedJob, serviceType, serializedArguments);
 
         var request = new EnqueueJobRequest(
           jobId,
           submission?.Priority ?? 0,
           serviceType,
-          parsedTask.MethodName,
-          parsedTask.MethodParameterTypeNames,
+          parsedJob.MethodName,
+          parsedJob.MethodParameterTypeNames,
           serializedArguments,
           groups,
           enqueuedAtUtc,
@@ -202,66 +188,11 @@ internal sealed class JobEnqueuer(
           SourceScheduleKey: null,
           ScheduledFireAtUtc: null,
           Tags: tags,
-          InvocationTargetKind: parsedTask.InvocationTargetKind,
-          MethodParameterBindings: parsedTask.MethodParameterBindings,
+          InvocationTargetKind: parsedJob.InvocationTargetKind,
+          MethodParameterBindings: parsedJob.MethodParameterBindings,
           IdempotencyKey: idempotencyKey,
           PrerequisiteJobIds: prerequisiteJobIds);
 
         return request;
-    }
-
-    private static void ValidateDependencyGraph(IReadOnlyList<JobEnqueueItem> jobs)
-    {
-        var submitted = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
-        foreach (var job in jobs)
-        {
-            ArgumentNullException.ThrowIfNull(job, nameof(jobs));
-            if (!submitted.Add(job))
-            {
-                throw new ArgumentException("A job enqueue item cannot appear more than once in a batch.", nameof(jobs));
-            }
-        }
-
-        foreach (var job in jobs)
-        {
-            foreach (var prerequisite in job.Prerequisites)
-            {
-                if (!submitted.Contains(prerequisite))
-                {
-                    throw new ArgumentException("Every prerequisite job must be included in the same batch.", nameof(jobs));
-                }
-            }
-        }
-
-        var visiting = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
-        var visited = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
-        foreach (var job in jobs)
-        {
-            Visit(job, visiting, visited);
-        }
-
-        static void Visit(
-            JobEnqueueItem job,
-            HashSet<JobEnqueueItem> visiting,
-            HashSet<JobEnqueueItem> visited)
-        {
-            if (visited.Contains(job))
-            {
-                return;
-            }
-
-            if (!visiting.Add(job))
-            {
-                throw new ArgumentException("Job dependency graphs cannot contain cycles.", nameof(jobs));
-            }
-
-            foreach (var prerequisite in job.Prerequisites)
-            {
-                Visit(prerequisite, visiting, visited);
-            }
-
-            visiting.Remove(job);
-            visited.Add(job);
-        }
     }
 }

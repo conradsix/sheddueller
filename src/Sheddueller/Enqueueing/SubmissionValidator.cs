@@ -79,6 +79,72 @@ internal static class SubmissionValidator
         }
     }
 
+    /// <summary>
+    /// Validates an <see cref="IJobEnqueuer.EnqueueManyAsync"/> batch as a whole: every item is present once, every
+    /// prerequisite is in the batch, the dependency graph is acyclic, and a batch with dependencies uses no idempotency.
+    /// Each item's work and submission are validated when it is prepared.
+    /// </summary>
+    public static void ValidateBatch(IReadOnlyList<JobEnqueueItem> jobs)
+    {
+        var submitted = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
+        foreach (var job in jobs)
+        {
+            ArgumentNullException.ThrowIfNull(job, nameof(jobs));
+            if (!submitted.Add(job))
+            {
+                throw new ArgumentException("A job enqueue item cannot appear more than once in a batch.", nameof(jobs));
+            }
+        }
+
+        foreach (var job in jobs)
+        {
+            foreach (var prerequisite in job.Prerequisites)
+            {
+                if (!submitted.Contains(prerequisite))
+                {
+                    throw new ArgumentException("Every prerequisite job must be included in the same batch.", nameof(jobs));
+                }
+            }
+        }
+
+        var visiting = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
+        var visited = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
+        foreach (var job in jobs)
+        {
+            Visit(job, visiting, visited);
+        }
+
+        var hasDependencies = jobs.Any(static job => job.Prerequisites.Count > 0);
+        if (hasDependencies && jobs.Any(static job => job.Submission?.IdempotencyKind is not null and not JobIdempotencyKind.None))
+        {
+            throw new ArgumentException("Jobs in a dependency graph cannot use idempotency.", nameof(jobs));
+        }
+
+        static void Visit(
+            JobEnqueueItem job,
+            HashSet<JobEnqueueItem> visiting,
+            HashSet<JobEnqueueItem> visited)
+        {
+            if (visited.Contains(job))
+            {
+                return;
+            }
+
+            if (!visiting.Add(job))
+            {
+                throw new ArgumentException("Job dependency graphs cannot contain cycles.", nameof(jobs));
+            }
+
+            foreach (var prerequisite in job.Prerequisites)
+            {
+                Visit(prerequisite, visiting, visited);
+            }
+
+            visiting.Remove(job);
+            visited.Add(job);
+        }
+    }
+
     public static void ValidateIdempotencyKey(string? idempotencyKey)
     {
         if (idempotencyKey is not null && idempotencyKey.Length == 0)
