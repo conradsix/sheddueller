@@ -74,14 +74,14 @@
     [Parameter]
     public TimeSpan Window { get; set; } = TimeSpan.FromHours(1);
 
-    [Parameter]
-    public bool AutoRefreshEnabled { get; set; } = true;
-
+    /// <summary>
+    /// Whether the page's auto-refresh is on; the chart refreshes only while it is. Always on when not set.
+    /// </summary>
     [Parameter]
     public Func<bool>? AutoRefreshEnabledProvider { get; set; }
 
     private bool IsAutoRefreshEnabled
-      => this.AutoRefreshEnabledProvider?.Invoke() ?? this.AutoRefreshEnabled;
+      => this.AutoRefreshEnabledProvider?.Invoke() ?? true;
 
     protected override void OnInitialized()
       => this._snapshot = ThroughputReader.GetSnapshot();

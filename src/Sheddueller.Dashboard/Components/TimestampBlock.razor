@@ -25,9 +25,6 @@
     public DateTimeOffset? Value { get; set; }
 
     [Parameter]
-    public DateTimeOffset? NowUtc { get; set; }
-
-    [Parameter]
     public string? Prefix { get; set; }
 
     [Parameter]
@@ -45,11 +42,8 @@
     [Parameter]
     public string BaseClass { get; set; } = "sd-timestamp";
 
-    private DateTimeOffset CurrentNowUtc
-      => this.NowUtc ?? this._nowUtc;
-
     private string RelativeText
-      => DashboardFormat.Relative(this.Value, this.CurrentNowUtc, this.Prefix, this.EmptyText, this.AllowFutureRelative);
+      => DashboardFormat.Relative(this.Value, this._nowUtc, this.Prefix, this.EmptyText, this.AllowFutureRelative);
 
     private string? Tooltip
       => this.Inline && this.Value is not null ? DashboardFormat.Utc(this.Value) : null;
@@ -80,7 +74,7 @@
     protected override void OnAfterRender(bool firstRender)
     {
         // Relative text only needs the shared circuit clock; one timer serves every timestamp on the page.
-        if (firstRender && this.NowUtc is null && !this._disposed)
+        if (firstRender && !this._disposed)
         {
             this.Clock.Ticked += this.OnClockTicked;
             this._subscribed = true;

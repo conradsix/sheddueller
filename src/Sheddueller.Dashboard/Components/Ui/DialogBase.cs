@@ -22,12 +22,6 @@ public abstract class DialogBase : ComponentBase, IAsyncDisposable
     [Parameter]
     public EventCallback<bool> OpenChanged { get; set; }
 
-    /// <summary>
-    /// Raised after the dialog closes, however it was closed.
-    /// </summary>
-    [Parameter]
-    public EventCallback OnClose { get; set; }
-
     protected ElementReference Element { get; set; }
 
     protected string TitleId { get; } = string.Concat("sd-dialog-", Guid.NewGuid().ToString("N").AsSpan(0, 8));
@@ -41,8 +35,6 @@ public abstract class DialogBase : ComponentBase, IAsyncDisposable
             this.Open = false;
             await this.OpenChanged.InvokeAsync(false);
         }
-
-        await this.OnClose.InvokeAsync();
     }
 
     public ValueTask DisposeAsync()

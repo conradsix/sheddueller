@@ -86,8 +86,6 @@ Sheddueller.Dashboard.Components.Pages.Settings.Settings() -> void
 Sheddueller.Dashboard.Components.Routes
 Sheddueller.Dashboard.Components.Routes.Routes() -> void
 Sheddueller.Dashboard.Components.ThroughputChart
-Sheddueller.Dashboard.Components.ThroughputChart.AutoRefreshEnabled.get -> bool
-Sheddueller.Dashboard.Components.ThroughputChart.AutoRefreshEnabled.set -> void
 Sheddueller.Dashboard.Components.ThroughputChart.AutoRefreshEnabledProvider.get -> System.Func<bool>?
 Sheddueller.Dashboard.Components.ThroughputChart.AutoRefreshEnabledProvider.set -> void
 Sheddueller.Dashboard.Components.ThroughputChart.DisposeAsync() -> System.Threading.Tasks.ValueTask
@@ -106,8 +104,6 @@ Sheddueller.Dashboard.Components.TimestampBlock.EmptyText.get -> string!
 Sheddueller.Dashboard.Components.TimestampBlock.EmptyText.set -> void
 Sheddueller.Dashboard.Components.TimestampBlock.Inline.get -> bool
 Sheddueller.Dashboard.Components.TimestampBlock.Inline.set -> void
-Sheddueller.Dashboard.Components.TimestampBlock.NowUtc.get -> System.DateTimeOffset?
-Sheddueller.Dashboard.Components.TimestampBlock.NowUtc.set -> void
 Sheddueller.Dashboard.Components.TimestampBlock.Prefix.get -> string?
 Sheddueller.Dashboard.Components.TimestampBlock.Prefix.set -> void
 Sheddueller.Dashboard.Components.TimestampBlock.TimestampBlock() -> void
@@ -127,8 +123,6 @@ Sheddueller.Dashboard.Components.Ui.Alert.Icon.get -> string?
 Sheddueller.Dashboard.Components.Ui.Alert.Icon.set -> void
 Sheddueller.Dashboard.Components.Ui.Alert.Meta.get -> Microsoft.AspNetCore.Components.RenderFragment?
 Sheddueller.Dashboard.Components.Ui.Alert.Meta.set -> void
-Sheddueller.Dashboard.Components.Ui.Alert.OnDismiss.get -> Microsoft.AspNetCore.Components.EventCallback
-Sheddueller.Dashboard.Components.Ui.Alert.OnDismiss.set -> void
 Sheddueller.Dashboard.Components.Ui.Alert.Title.get -> string?
 Sheddueller.Dashboard.Components.Ui.Alert.Title.set -> void
 Sheddueller.Dashboard.Components.Ui.Alert.Tone.get -> Sheddueller.Dashboard.Components.Ui.AlertTone
@@ -291,8 +285,6 @@ Sheddueller.Dashboard.Components.Ui.DialogBase.DialogBase() -> void
 Sheddueller.Dashboard.Components.Ui.DialogBase.DisposeAsync() -> System.Threading.Tasks.ValueTask
 Sheddueller.Dashboard.Components.Ui.DialogBase.Element.get -> Microsoft.AspNetCore.Components.ElementReference
 Sheddueller.Dashboard.Components.Ui.DialogBase.Element.set -> void
-Sheddueller.Dashboard.Components.Ui.DialogBase.OnClose.get -> Microsoft.AspNetCore.Components.EventCallback
-Sheddueller.Dashboard.Components.Ui.DialogBase.OnClose.set -> void
 Sheddueller.Dashboard.Components.Ui.DialogBase.OnDialogClosedAsync() -> System.Threading.Tasks.Task!
 Sheddueller.Dashboard.Components.Ui.DialogBase.Open.get -> bool
 Sheddueller.Dashboard.Components.Ui.DialogBase.Open.set -> void
@@ -437,8 +429,6 @@ Sheddueller.Dashboard.Components.Ui.MenuItem.Destructive.get -> bool
 Sheddueller.Dashboard.Components.Ui.MenuItem.Destructive.set -> void
 Sheddueller.Dashboard.Components.Ui.MenuItem.Disabled.get -> bool
 Sheddueller.Dashboard.Components.Ui.MenuItem.Disabled.set -> void
-Sheddueller.Dashboard.Components.Ui.MenuItem.Hint.get -> string?
-Sheddueller.Dashboard.Components.Ui.MenuItem.Hint.set -> void
 Sheddueller.Dashboard.Components.Ui.MenuItem.Href.get -> string?
 Sheddueller.Dashboard.Components.Ui.MenuItem.Href.set -> void
 Sheddueller.Dashboard.Components.Ui.MenuItem.Icon.get -> string?
