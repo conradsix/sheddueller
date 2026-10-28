@@ -1,7 +1,5 @@
 namespace Sheddueller.Dashboard.Tests;
 
-using System.Globalization;
-
 using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.Jobs;
 using Sheddueller.Storage;
@@ -11,7 +9,6 @@ using Shouldly;
 public sealed class DashboardJobDetailFormatTests
 {
     private static readonly Guid JobId = Guid.Parse("7c1e9a42-5b3d-4f1e-9a07-2d6c8e41b0f3");
-    private static readonly DateTimeOffset EnqueuedAtUtc = DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture);
 
     [Theory]
     [InlineData(null, "Logs")]
@@ -51,10 +48,10 @@ public sealed class DashboardJobDetailFormatTests
     {
         JobEvent[] events =
         [
-            CreateEvent(1, JobEventKind.AttemptFailed, 1, "timeout"),
-            CreateEvent(2, JobEventKind.AttemptStarted, 2, "Attempt started"),
-            CreateEvent(3, JobEventKind.AttemptFailed, 2, "connection refused"),
-            CreateEvent(4, JobEventKind.Lifecycle, 2, "Failed"),
+            TestData.Event(1, JobEventKind.AttemptFailed, 1, "timeout"),
+            TestData.Event(2, JobEventKind.AttemptStarted, 2, "Attempt started"),
+            TestData.Event(3, JobEventKind.AttemptFailed, 2, "connection refused"),
+            TestData.Event(4, JobEventKind.Lifecycle, 2, "Failed"),
         ];
 
         DashboardJobDetailFormat.LatestFailure(events)?.Message.ShouldBe("connection refused");
@@ -62,7 +59,7 @@ public sealed class DashboardJobDetailFormatTests
 
     [Fact]
     public void Failure_NoFailedAttempt_IsMissing()
-        => DashboardJobDetailFormat.LatestFailure([CreateEvent(1, JobEventKind.Lifecycle, 0, "Queued")]).ShouldBeNull();
+        => DashboardJobDetailFormat.LatestFailure([TestData.Event(1, JobEventKind.Lifecycle, 0, "Queued")]).ShouldBeNull();
 
     [Theory]
     [InlineData(JobEventKind.Lifecycle, "Queued", "Queued", "queued")]
@@ -76,7 +73,7 @@ public sealed class DashboardJobDetailFormatTests
     [InlineData(JobEventKind.CancelObserved, "Cancellation observed", "Worker stopped for cancellation", "waiting")]
     public void Timeline_EventKind_HasTitleAndTone(JobEventKind kind, string message, string title, string tone)
     {
-        var jobEvent = CreateEvent(1, kind, 2, message);
+        var jobEvent = TestData.Event(1, kind, 2, message);
 
         DashboardJobDetailFormat.TimelineTitle(jobEvent).ShouldBe(title);
         DashboardJobDetailFormat.TimelineTone(jobEvent).ShouldBe(tone);
@@ -90,21 +87,21 @@ public sealed class DashboardJobDetailFormatTests
     [InlineData(JobEventKind.Log, false)]
     [InlineData(JobEventKind.Progress, false)]
     public void Timeline_EventKind_OnlyLifecycleAttemptAndCancellationEventsShow(JobEventKind kind, bool expected)
-      => DashboardJobDetailFormat.IsTimelineEvent(CreateEvent(1, kind, 1, "event")).ShouldBe(expected);
+      => DashboardJobDetailFormat.IsTimelineEvent(TestData.Event(1, kind, 1, "event")).ShouldBe(expected);
 
     [Fact]
     public void Timeline_FailedAttempt_ShowsFailureMessage()
     {
-        DashboardJobDetailFormat.TimelineDetail(CreateEvent(1, JobEventKind.AttemptFailed, 1, "timeout")).ShouldBe("timeout");
-        DashboardJobDetailFormat.TimelineDetail(CreateEvent(2, JobEventKind.AttemptStarted, 1, "Attempt started")).ShouldBeNull();
+        DashboardJobDetailFormat.TimelineDetail(TestData.Event(1, JobEventKind.AttemptFailed, 1, "timeout")).ShouldBe("timeout");
+        DashboardJobDetailFormat.TimelineDetail(TestData.Event(2, JobEventKind.AttemptStarted, 1, "Attempt started")).ShouldBeNull();
     }
 
     [Fact]
     public void Attempts_NotStarted_DescribesTheLimit()
     {
-        DashboardJobDetailFormat.Attempts(CreateJob(attemptCount: 0, maxAttempts: 3)).ShouldBe("Not started · up to 3 attempts");
-        DashboardJobDetailFormat.Attempts(CreateJob(attemptCount: 0, maxAttempts: 1)).ShouldBe("Not started · up to 1 attempt");
-        DashboardJobDetailFormat.Attempts(CreateJob(attemptCount: 2, maxAttempts: 3)).ShouldBe("Attempt 2 of 3");
+        DashboardJobDetailFormat.Attempts(TestData.Job(attemptCount: 0, maxAttempts: 3)).ShouldBe("Not started · up to 3 attempts");
+        DashboardJobDetailFormat.Attempts(TestData.Job(attemptCount: 0, maxAttempts: 1)).ShouldBe("Not started · up to 1 attempt");
+        DashboardJobDetailFormat.Attempts(TestData.Job(attemptCount: 2, maxAttempts: 3)).ShouldBe("Attempt 2 of 3");
     }
 
     [Theory]
@@ -114,7 +111,7 @@ public sealed class DashboardJobDetailFormatTests
     [InlineData(JobState.Failed, 3, 3, "job-detail-attempt job-detail-attempt--exhausted")]
     [InlineData(JobState.Failed, 1, 1, "job-detail-attempt job-detail-attempt--exhausted")]
     public void AttemptPill_RetriesAndExhaustion_AreHighlighted(JobState state, int attemptCount, int maxAttempts, string expected)
-        => DashboardJobDetailFormat.AttemptClass(CreateJob(attemptCount, maxAttempts) with { State = state }).ShouldBe(expected);
+        => DashboardJobDetailFormat.AttemptClass(TestData.Job(state: state, attemptCount: attemptCount, maxAttempts: maxAttempts)).ShouldBe(expected);
 
     [Theory]
     [InlineData(JobQueuePositionKind.Claimable, 4L, "Waiting for a worker · #4 in the queue")]
@@ -125,42 +122,11 @@ public sealed class DashboardJobDetailFormatTests
     [InlineData(JobQueuePositionKind.BlockedByConcurrency, null, "Blocked by a concurrency group")]
     public void QueuedJob_QueuePosition_ExplainsWhyItIsNotRunning(JobQueuePositionKind kind, long? position, string expected)
     {
-        var job = CreateJob(attemptCount: 0, maxAttempts: 3) with
+        var job = TestData.Job(attemptCount: 0, maxAttempts: 3) with
         {
             QueuePosition = new JobQueuePosition(JobId, kind, position),
         };
 
         DashboardJobDetailFormat.QueueTitle(job).ShouldBe(expected);
     }
-
-    private static JobEvent CreateEvent(
-        long sequence,
-        JobEventKind kind,
-        int attempt,
-        string message)
-      => new(Guid.NewGuid(), JobId, sequence, kind, EnqueuedAtUtc.AddSeconds(sequence), attempt, Message: message);
-
-    private static JobInspectionSummary CreateJob(
-        int attemptCount,
-        int maxAttempts)
-      => new(
-        JobId,
-        JobState.Queued,
-        "Sample.Jobs.ReportJob",
-        "RunAsync",
-        Priority: 0,
-        EnqueueSequence: 1,
-        EnqueuedAtUtc,
-        NotBeforeUtc: null,
-        attemptCount,
-        maxAttempts,
-        Tags: [],
-        ConcurrencyGroupKeys: [],
-        SourceScheduleKey: null,
-        LatestProgress: null,
-        QueuePosition: null,
-        ClaimedAtUtc: null,
-        CompletedAtUtc: null,
-        FailedAtUtc: null,
-        CanceledAtUtc: null);
 }

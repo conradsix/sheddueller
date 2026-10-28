@@ -5,7 +5,6 @@ using System.Text.Json;
 
 using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.Jobs;
-using Sheddueller.Inspection.Metrics;
 using Sheddueller.Inspection.Schedules;
 using Sheddueller.Storage;
 
@@ -16,7 +15,7 @@ public sealed class DashboardFormatTests
     [Fact]
     public void Handler_DisplayFormats_UsesFullAndShortNames()
     {
-        var job = CreateJob(serviceType: "Sheddueller.Dashboard.Tests.Workers.RollupWorker", methodName: "RunAsync");
+        var job = TestData.Job(serviceType: "Sheddueller.Dashboard.Tests.Workers.RollupWorker", methodName: "RunAsync");
 
         DashboardFormat.FullHandler(job).ShouldBe("Sheddueller.Dashboard.Tests.Workers.RollupWorker.RunAsync");
         DashboardFormat.ShortHandler(job).ShouldBe("RollupWorker.RunAsync");
@@ -56,7 +55,7 @@ public sealed class DashboardFormatTests
     [Fact]
     public void FailureReason_ProgressMessageOrQueueReason_PrefersTheProgressMessage()
     {
-        var job = CreateJob() with
+        var job = TestData.Job() with
         {
             State = JobState.Failed,
             QueuePosition = new JobQueuePosition(Guid.Empty, JobQueuePositionKind.Terminal, Position: null, Reason: "Job is terminal"),
@@ -70,7 +69,7 @@ public sealed class DashboardFormatTests
     [Fact]
     public void Disposition_FailedJob_ShowsTheFailureReasonOrFailed()
     {
-        var failed = CreateJob() with { State = JobState.Failed };
+        var failed = TestData.Job() with { State = JobState.Failed };
 
         DashboardFormat.Disposition(failed with { LatestProgress = Progress("Timeout") }).ShouldBe("Timeout");
         DashboardFormat.Disposition(failed).ShouldBe("failed");
@@ -86,7 +85,7 @@ public sealed class DashboardFormatTests
     [InlineData(JobQueuePositionKind.Terminal, null, "-", "jobs-queue jobs-queue--empty")]
     public void QueuePosition_Kind_HasTextAndClass(JobQueuePositionKind kind, long? position, string text, string cssClass)
     {
-        var job = CreateJob() with { QueuePosition = new JobQueuePosition(Guid.Empty, kind, position) };
+        var job = TestData.Job() with { QueuePosition = new JobQueuePosition(Guid.Empty, kind, position) };
 
         DashboardFormat.QueuePositionText(job).ShouldBe(text);
         DashboardFormat.QueuePositionClass(job).ShouldBe(cssClass);
@@ -128,7 +127,7 @@ public sealed class DashboardFormatTests
     public void TerminalTimestamp_CompletedAfterAFailedAttempt_UsesTheCompletionTime()
     {
         var failedAtUtc = DateTimeOffset.Parse("2026-04-20T12:01:00Z", CultureInfo.InvariantCulture);
-        var job = CreateJob() with { FailedAtUtc = failedAtUtc };
+        var job = TestData.Job() with { FailedAtUtc = failedAtUtc };
 
         DashboardFormat.TerminalTimestamp(job with { State = JobState.Completed, CompletedAtUtc = failedAtUtc.AddMinutes(1) })
           .ShouldBe(failedAtUtc.AddMinutes(1));
@@ -300,7 +299,7 @@ public sealed class DashboardFormatTests
     [Fact]
     public void MetricsFormat_RatesDurationsAndActivity_FormatsOperationalValues()
     {
-        var inactiveWindow = CreateMetricsWindow();
+        var inactiveWindow = TestData.MetricsWindow();
         var activeWindow = inactiveWindow with
         {
             SuccessRatePerMinute = 842.25,
@@ -330,54 +329,6 @@ public sealed class DashboardFormatTests
         DashboardMetricsFormat.Period(TimeSpan.FromSeconds(30)).ShouldBe("30 seconds");
     }
 
-    private static JobInspectionSummary CreateJob(
-        string serviceType = "Sheddueller.Dashboard.Tests.Worker",
-        string methodName = "Run")
-      => new(
-        Guid.Parse("8c32d457-9e7a-42bb-8947-0c8fa54743be"),
-        JobState.Claimed,
-        serviceType,
-        methodName,
-        Priority: 10,
-        EnqueueSequence: 1,
-        DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture),
-        NotBeforeUtc: null,
-        AttemptCount: 2,
-        MaxAttempts: 5,
-        Tags: [],
-        ConcurrencyGroupKeys: [],
-        SourceScheduleKey: null,
-        LatestProgress: null,
-        QueuePosition: null,
-        ClaimedAtUtc: null,
-        CompletedAtUtc: null,
-        FailedAtUtc: null,
-        CanceledAtUtc: null);
-
     private static JobProgressSnapshot Progress(string message)
       => new(Percent: null, message, DateTimeOffset.Parse("2026-04-20T12:08:00Z", CultureInfo.InvariantCulture));
-
-    private static MetricsInspectionWindow CreateMetricsWindow()
-      => new(
-        TimeSpan.FromMinutes(5),
-        QueuedCount: 0,
-        ClaimedCount: 0,
-        FailedCount: 0,
-        CanceledCount: 0,
-        OldestQueuedAge: null,
-        EnqueueRatePerMinute: 0,
-        ClaimRatePerMinute: 0,
-        SuccessRatePerMinute: 0,
-        FailureRatePerMinute: 0,
-        CancellationRatePerMinute: 0,
-        RetryRatePerMinute: 0,
-        P50QueueLatency: null,
-        P95QueueLatency: null,
-        P50ExecutionDuration: null,
-        P95ExecutionDuration: null,
-        P95ScheduleFireLag: null,
-        SaturatedConcurrencyGroupCount: 0,
-        ActiveNodeCount: 0,
-        StaleNodeCount: 0,
-        DeadNodeCount: 0);
 }

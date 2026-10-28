@@ -1,7 +1,5 @@
 namespace Sheddueller.Dashboard.Tests;
 
-using System.Globalization;
-
 using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.Jobs;
 using Sheddueller.Storage;
@@ -20,15 +18,15 @@ public sealed class DashboardJobListMergeTests
     {
         IReadOnlyList<JobInspectionSummary> displayed =
         [
-            CreateJob(FirstJobId, JobState.Queued),
-            CreateJob(SecondJobId, JobState.Queued),
-            CreateJob(ThirdJobId, JobState.Queued),
+            TestData.Job(FirstJobId, JobState.Queued),
+            TestData.Job(SecondJobId, JobState.Queued),
+            TestData.Job(ThirdJobId, JobState.Queued),
         ];
         IReadOnlyList<JobInspectionSummary> fresh =
         [
-            CreateJob(ThirdJobId, JobState.Claimed),
-            CreateJob(FirstJobId, JobState.Claimed),
-            CreateJob(SecondJobId, JobState.Queued),
+            TestData.Job(ThirdJobId, JobState.Claimed),
+            TestData.Job(FirstJobId, JobState.Claimed),
+            TestData.Job(SecondJobId, JobState.Queued),
         ];
 
         var result = DashboardJobListMerge.Merge(displayed, fresh);
@@ -43,14 +41,14 @@ public sealed class DashboardJobListMergeTests
     {
         IReadOnlyList<JobInspectionSummary> displayed =
         [
-            CreateJob(FirstJobId, JobState.Queued),
-            CreateJob(SecondJobId, JobState.Queued),
+            TestData.Job(FirstJobId, JobState.Queued),
+            TestData.Job(SecondJobId, JobState.Queued),
         ];
         IReadOnlyList<JobInspectionSummary> fresh =
         [
-            CreateJob(NewJobId, JobState.Queued),
-            CreateJob(FirstJobId, JobState.Queued),
-            CreateJob(SecondJobId, JobState.Queued),
+            TestData.Job(NewJobId, JobState.Queued),
+            TestData.Job(FirstJobId, JobState.Queued),
+            TestData.Job(SecondJobId, JobState.Queued),
         ];
 
         var result = DashboardJobListMerge.Merge(displayed, fresh);
@@ -63,15 +61,15 @@ public sealed class DashboardJobListMergeTests
     [Fact]
     public void LiveMerge_RowNoLongerInResult_StaysUnchanged()
     {
-        var staleRow = CreateJob(SecondJobId, JobState.Queued);
+        var staleRow = TestData.Job(SecondJobId, JobState.Queued);
         IReadOnlyList<JobInspectionSummary> displayed =
         [
-            CreateJob(FirstJobId, JobState.Queued),
+            TestData.Job(FirstJobId, JobState.Queued),
             staleRow,
         ];
         IReadOnlyList<JobInspectionSummary> fresh =
         [
-            CreateJob(FirstJobId, JobState.Claimed),
+            TestData.Job(FirstJobId, JobState.Claimed),
         ];
 
         var result = DashboardJobListMerge.Merge(displayed, fresh);
@@ -87,8 +85,8 @@ public sealed class DashboardJobListMergeTests
     {
         IReadOnlyList<JobInspectionSummary> fresh =
         [
-            CreateJob(NewJobId, JobState.Queued),
-            CreateJob(FirstJobId, JobState.Queued),
+            TestData.Job(NewJobId, JobState.Queued),
+            TestData.Job(FirstJobId, JobState.Queued),
         ];
 
         var result = DashboardJobListMerge.Merge([], fresh);
@@ -102,13 +100,13 @@ public sealed class DashboardJobListMergeTests
     {
         IReadOnlyList<JobInspectionSummary> displayed =
         [
-            CreateJob(FirstJobId, JobState.Queued),
-            CreateJob(SecondJobId, JobState.Queued),
+            TestData.Job(FirstJobId, JobState.Queued),
+            TestData.Job(SecondJobId, JobState.Queued),
         ];
         IReadOnlyList<JobInspectionSummary> page =
         [
-            CreateJob(SecondJobId, JobState.Claimed),
-            CreateJob(ThirdJobId, JobState.Queued),
+            TestData.Job(SecondJobId, JobState.Claimed),
+            TestData.Job(ThirdJobId, JobState.Queued),
         ];
 
         var rows = DashboardJobListMerge.Append(displayed, page);
@@ -116,28 +114,4 @@ public sealed class DashboardJobListMergeTests
         rows.Select(job => job.JobId).ShouldBe([FirstJobId, SecondJobId, ThirdJobId]);
         rows[1].State.ShouldBe(JobState.Queued);
     }
-
-    private static JobInspectionSummary CreateJob(
-        Guid jobId,
-        JobState state)
-      => new(
-        jobId,
-        state,
-        "Sheddueller.Dashboard.Tests.Worker",
-        "Run",
-        Priority: 0,
-        EnqueueSequence: 1,
-        DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture),
-        NotBeforeUtc: null,
-        AttemptCount: 1,
-        MaxAttempts: 3,
-        Tags: [],
-        ConcurrencyGroupKeys: [],
-        SourceScheduleKey: null,
-        LatestProgress: null,
-        QueuePosition: null,
-        ClaimedAtUtc: null,
-        CompletedAtUtc: null,
-        FailedAtUtc: null,
-        CanceledAtUtc: null);
 }

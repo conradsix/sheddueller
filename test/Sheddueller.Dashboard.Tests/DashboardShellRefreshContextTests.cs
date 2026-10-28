@@ -10,14 +10,14 @@ public sealed class DashboardShellRefreshContextTests
     public async Task AutoRefreshPreference_PausedThenNavigated_NextPageStartsPaused()
     {
         var context = new DashboardShellRefreshContext();
-        using var firstPage = CreateCoordinator();
-        var firstRegistration = context.Register(firstPage, CreateShellOptions());
+        using var firstPage = TestData.RefreshCoordinator();
+        var firstRegistration = context.Register(firstPage, TestData.ShellRefreshOptions());
 
         await context.ToggleCurrentAutoRefreshAsync();
         firstRegistration.Dispose();
 
-        using var secondPage = CreateCoordinator();
-        using var secondRegistration = context.Register(secondPage, CreateShellOptions());
+        using var secondPage = TestData.RefreshCoordinator();
+        using var secondRegistration = context.Register(secondPage, TestData.ShellRefreshOptions());
 
         firstPage.AutoRefreshEnabled.ShouldBeFalse();
         secondPage.AutoRefreshEnabled.ShouldBeFalse();
@@ -28,15 +28,15 @@ public sealed class DashboardShellRefreshContextTests
     public async Task AutoRefreshPreference_ResumedThenNavigated_NextPageStartsLive()
     {
         var context = new DashboardShellRefreshContext();
-        using var firstPage = CreateCoordinator();
-        var firstRegistration = context.Register(firstPage, CreateShellOptions());
+        using var firstPage = TestData.RefreshCoordinator();
+        var firstRegistration = context.Register(firstPage, TestData.ShellRefreshOptions());
 
         await context.ToggleCurrentAutoRefreshAsync();
         await context.ToggleCurrentAutoRefreshAsync();
         firstRegistration.Dispose();
 
-        using var secondPage = CreateCoordinator(autoRefreshEnabled: false);
-        using var secondRegistration = context.Register(secondPage, CreateShellOptions());
+        using var secondPage = TestData.RefreshCoordinator(autoRefreshEnabled: false);
+        using var secondRegistration = context.Register(secondPage, TestData.ShellRefreshOptions());
 
         secondPage.AutoRefreshEnabled.ShouldBeTrue();
     }
@@ -53,8 +53,8 @@ public sealed class DashboardShellRefreshContextTests
         context.AutoRefreshEnabled.ShouldBeFalse();
         changedCount.ShouldBe(1);
 
-        using var page = CreateCoordinator();
-        using var registration = context.Register(page, CreateShellOptions());
+        using var page = TestData.RefreshCoordinator();
+        using var registration = context.Register(page, TestData.ShellRefreshOptions());
         page.AutoRefreshEnabled.ShouldBeFalse();
     }
 
@@ -64,9 +64,9 @@ public sealed class DashboardShellRefreshContextTests
         var context = new DashboardShellRefreshContext();
         await context.ToggleCurrentAutoRefreshAsync();
         var refreshCount = 0;
-        using var page = CreateCoordinator(onRefresh: () => refreshCount++);
+        using var page = TestData.RefreshCoordinator(onRefresh: () => refreshCount++);
 
-        using var registration = context.Register(page, CreateShellOptions());
+        using var registration = context.Register(page, TestData.ShellRefreshOptions());
         page.QueueRefresh();
 
         refreshCount.ShouldBe(0);
@@ -77,8 +77,8 @@ public sealed class DashboardShellRefreshContextTests
     {
         var context = new DashboardShellRefreshContext();
         var refreshCount = 0;
-        using var page = CreateCoordinator(onRefresh: () => refreshCount++);
-        using var registration = context.Register(page, CreateShellOptions());
+        using var page = TestData.RefreshCoordinator(onRefresh: () => refreshCount++);
+        using var registration = context.Register(page, TestData.ShellRefreshOptions());
         await context.ToggleCurrentAutoRefreshAsync();
         var changedCount = 0;
         context.Changed += () => changedCount++;
@@ -136,26 +136,4 @@ public sealed class DashboardShellRefreshContextTests
         explicitCount.ShouldBe(1);
         queuedCount.ShouldBe(1);
     }
-
-    private static DashboardLiveRefreshCoordinator CreateCoordinator(
-        bool autoRefreshEnabled = true,
-        Action? onRefresh = null)
-      => new(
-        _ =>
-        {
-            onRefresh?.Invoke();
-            return Task.CompletedTask;
-        },
-        action =>
-        {
-            action();
-            return Task.CompletedTask;
-        },
-        autoRefreshEnabled: autoRefreshEnabled,
-        delayAsync: (_, _) => Task.CompletedTask);
-
-    private static DashboardShellRefreshOptions CreateShellOptions()
-      => new(
-        ShowRefreshing: true,
-        LastUpdatedUtc: _ => null);
 }

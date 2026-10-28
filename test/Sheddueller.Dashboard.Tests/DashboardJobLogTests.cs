@@ -1,7 +1,5 @@
 namespace Sheddueller.Dashboard.Tests;
 
-using System.Globalization;
-
 using Sheddueller.Dashboard.Internal;
 using Sheddueller.Storage;
 
@@ -10,7 +8,6 @@ using Shouldly;
 public sealed class DashboardJobLogTests
 {
     private static readonly Guid JobId = Guid.Parse("7c1e9a42-5b3d-4f1e-9a07-2d6c8e41b0f3");
-    private static readonly DateTimeOffset StartedAtUtc = DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture);
 
     [Fact]
     public void LevelFilter_Warnings_ShowsWarningsAndMoreSevereLines()
@@ -35,7 +32,7 @@ public sealed class DashboardJobLogTests
     [Fact]
     public void LevelFilter_LineWithoutLevel_CountsAsInformation()
     {
-        var line = CreateLog(1, JobLogLevel.Information, "no level") with { LogLevel = null };
+        var line = TestData.Event(1, level: null, message: "no level");
 
         DashboardJobLog.Matches(line, new DashboardJobLogFilter()).ShouldBeTrue();
         DashboardJobLog.Matches(line, new DashboardJobLogFilter(DashboardLogLevelFilter.Warnings)).ShouldBeFalse();
@@ -45,7 +42,7 @@ public sealed class DashboardJobLogTests
     [Fact]
     public void ProgressUpdates_Default_AreHidden()
     {
-        var progress = CreateProgress(1, 40, "chunk 4");
+        var progress = TestData.Event(1, JobEventKind.Progress, message: "chunk 4", progressPercent: 40);
 
         DashboardJobLog.Matches(progress, new DashboardJobLogFilter()).ShouldBeFalse();
         DashboardJobLog.Matches(progress, new DashboardJobLogFilter(IncludeProgress: true)).ShouldBeTrue();
@@ -54,14 +51,14 @@ public sealed class DashboardJobLogTests
     [Fact]
     public void ProgressUpdates_LevelFilter_AreHiddenBecauseTheyHaveNoLevel()
         => DashboardJobLog.Matches(
-            CreateProgress(1, 40, "chunk 4"),
+            TestData.Event(1, JobEventKind.Progress, message: "chunk 4", progressPercent: 40),
             new DashboardJobLogFilter(DashboardLogLevelFilter.Warnings, IncludeProgress: true))
           .ShouldBeFalse();
 
     [Fact]
     public void LifecycleEvents_AnyFilter_AreNotLogLines()
     {
-        var lifecycle = CreateLog(1, JobLogLevel.Information, "Queued") with { Kind = JobEventKind.Lifecycle, LogLevel = null };
+        var lifecycle = TestData.Event(1, JobEventKind.Lifecycle, message: "Queued");
 
         DashboardJobLog.IsLogLine(lifecycle).ShouldBeFalse();
         DashboardJobLog.Matches(lifecycle, new DashboardJobLogFilter(IncludeProgress: true)).ShouldBeFalse();
@@ -72,9 +69,9 @@ public sealed class DashboardJobLogTests
     {
         JobEvent[] events =
         [
-            CreateLog(1, JobLogLevel.Information, "first", attempt: 1),
-            CreateLog(2, JobLogLevel.Information, "second", attempt: 2),
-            CreateLog(3, JobLogLevel.Error, "second failed", attempt: 2),
+            TestData.Event(1, level: JobLogLevel.Information, message: "first", attempt: 1),
+            TestData.Event(2, level: JobLogLevel.Information, message: "second", attempt: 2),
+            TestData.Event(3, level: JobLogLevel.Error, message: "second failed", attempt: 2),
         ];
 
         var lines = DashboardJobLog.Filter(events, new DashboardJobLogFilter(Attempt: 2));
@@ -88,7 +85,7 @@ public sealed class DashboardJobLogTests
     [InlineData("ACME")]
     public void Search_MessageOrField_MatchesCaseInsensitively(string search)
     {
-        var line = CreateLog(1, JobLogLevel.Warning, "Request timeout after 30s") with
+        var line = TestData.Event(1, level: JobLogLevel.Warning, message: "Request timeout after 30s") with
         {
             Fields = new Dictionary<string, string>(StringComparer.Ordinal) { ["TenantId"] = "acme" },
         };
@@ -99,7 +96,7 @@ public sealed class DashboardJobLogTests
     [Fact]
     public void Search_NoMatch_HidesLine()
         => DashboardJobLog.Matches(
-            CreateLog(1, JobLogLevel.Warning, "Request timeout after 30s"),
+            TestData.Event(1, level: JobLogLevel.Warning, message: "Request timeout after 30s"),
             new DashboardJobLogFilter(Search: "billing"))
           .ShouldBeFalse();
 
@@ -117,11 +114,11 @@ public sealed class DashboardJobLogTests
     {
         JobEvent[] events =
         [
-            CreateLog(1, JobLogLevel.Information, "third", attempt: 3),
-            CreateLog(2, JobLogLevel.Information, "first", attempt: 1),
-            CreateProgress(3, 10, "progress", attempt: 2),
-            CreateLog(4, JobLogLevel.Information, "first again", attempt: 1),
-            CreateLog(5, JobLogLevel.Information, "lifecycle", attempt: 4) with { Kind = JobEventKind.AttemptStarted },
+            TestData.Event(1, level: JobLogLevel.Information, message: "third", attempt: 3),
+            TestData.Event(2, level: JobLogLevel.Information, message: "first", attempt: 1),
+            TestData.Event(3, JobEventKind.Progress, message: "progress", progressPercent: 10, attempt: 2),
+            TestData.Event(4, level: JobLogLevel.Information, message: "first again", attempt: 1),
+            TestData.Event(5, JobEventKind.AttemptStarted, attempt: 4, message: "lifecycle", level: JobLogLevel.Information),
         ];
 
         DashboardJobLog.Attempts(events).ShouldBe([1, 2, 3]);
@@ -130,7 +127,7 @@ public sealed class DashboardJobLogTests
     [Fact]
     public void Fields_LoggerFields_FollowTheJobsOwnFields()
     {
-        var line = CreateLog(1, JobLogLevel.Information, "done") with
+        var line = TestData.Event(1, level: JobLogLevel.Information, message: "done") with
         {
             Fields = new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -149,12 +146,12 @@ public sealed class DashboardJobLogTests
     {
         JobEvent[] events =
         [
-            CreateLog(1, JobLogLevel.Information, "Starting", attempt: 1),
-            CreateLog(2, JobLogLevel.Error, "Failed to connect\nretrying later", attempt: 2) with
+            TestData.Event(1, level: JobLogLevel.Information, message: "Starting", attempt: 1),
+            TestData.Event(2, level: JobLogLevel.Error, message: "Failed to connect\nretrying later", attempt: 2) with
             {
                 Fields = new Dictionary<string, string>(StringComparer.Ordinal) { ["Host"] = "db-1" },
             },
-            CreateProgress(3, 50, "half way", attempt: 2),
+            TestData.Event(3, JobEventKind.Progress, message: "half way", progressPercent: 50, attempt: 2),
         ];
 
         var text = DashboardJobLog.ToText(events);
@@ -174,51 +171,21 @@ public sealed class DashboardJobLogTests
     private static JobEvent[] CreateLevels()
       =>
       [
-          CreateLog(1, JobLogLevel.Trace, "trace"),
-          CreateLog(2, JobLogLevel.Debug, "debug"),
-          CreateLog(3, JobLogLevel.Information, "info"),
-          CreateLog(4, JobLogLevel.Warning, "warning"),
-          CreateLog(5, JobLogLevel.Error, "error"),
-          CreateLog(6, JobLogLevel.Critical, "critical"),
+          TestData.Event(1, level: JobLogLevel.Trace, message: "trace"),
+          TestData.Event(2, level: JobLogLevel.Debug, message: "debug"),
+          TestData.Event(3, level: JobLogLevel.Information, message: "info"),
+          TestData.Event(4, level: JobLogLevel.Warning, message: "warning"),
+          TestData.Event(5, level: JobLogLevel.Error, message: "error"),
+          TestData.Event(6, level: JobLogLevel.Critical, message: "critical"),
       ];
 
     [Fact]
     public void Message_ProgressUpdate_ReadsAsPercentAndMessage()
     {
-        DashboardJobLog.Message(CreateProgress(1, 70, "chunk 7")).ShouldBe("70% chunk 7");
-        DashboardJobLog.Message(CreateProgress(2, 140, string.Empty)).ShouldBe("100%");
-        DashboardJobLog.Message(CreateProgress(3, 50, "half") with { ProgressPercent = null }).ShouldBe("half");
-        DashboardJobLog.Message(CreateProgress(4, 50, " ") with { ProgressPercent = null }).ShouldBe("Progress reported");
-        DashboardJobLog.Message(CreateLog(5, JobLogLevel.Information, " ")).ShouldBe("Log");
+        DashboardJobLog.Message(TestData.Event(1, JobEventKind.Progress, message: "chunk 7", progressPercent: 70)).ShouldBe("70% chunk 7");
+        DashboardJobLog.Message(TestData.Event(2, JobEventKind.Progress, message: string.Empty, progressPercent: 140)).ShouldBe("100%");
+        DashboardJobLog.Message(TestData.Event(3, JobEventKind.Progress, message: "half", progressPercent: null)).ShouldBe("half");
+        DashboardJobLog.Message(TestData.Event(4, JobEventKind.Progress, message: " ", progressPercent: null)).ShouldBe("Progress reported");
+        DashboardJobLog.Message(TestData.Event(5, level: JobLogLevel.Information, message: " ")).ShouldBe("Log");
     }
-
-    private static JobEvent CreateLog(
-        long sequence,
-        JobLogLevel level,
-        string message,
-        int attempt = 1)
-      => new(
-        Guid.NewGuid(),
-        JobId,
-        sequence,
-        JobEventKind.Log,
-        StartedAtUtc.AddSeconds(sequence),
-        attempt,
-        level,
-        message);
-
-    private static JobEvent CreateProgress(
-        long sequence,
-        double percent,
-        string message,
-        int attempt = 1)
-      => new(
-        Guid.NewGuid(),
-        JobId,
-        sequence,
-        JobEventKind.Progress,
-        StartedAtUtc.AddSeconds(sequence),
-        attempt,
-        Message: message,
-        ProgressPercent: percent);
 }

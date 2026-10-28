@@ -33,13 +33,13 @@ public sealed class DashboardThroughputStoreTests
         var now = new DateTimeOffset(2026, 4, 26, 12, 0, 5, TimeSpan.Zero);
         using var store = CreateStore(now);
 
-        store.Record(CreateEvent(JobEventKind.Lifecycle, now, "Queued"));
-        store.Record(CreateEvent(JobEventKind.AttemptStarted, now));
-        store.Record(CreateEvent(JobEventKind.AttemptCompleted, now));
-        store.Record(CreateEvent(JobEventKind.AttemptFailed, now));
-        store.Record(CreateEvent(JobEventKind.Lifecycle, now, "Failed"));
-        store.Record(CreateEvent(JobEventKind.Lifecycle, now, "Canceled"));
-        store.Record(CreateEvent(JobEventKind.Log, now, "ignored"));
+        store.Record(TestData.Event(kind: JobEventKind.Lifecycle, occurredAtUtc: now, message: "Queued"));
+        store.Record(TestData.Event(kind: JobEventKind.AttemptStarted, occurredAtUtc: now));
+        store.Record(TestData.Event(kind: JobEventKind.AttemptCompleted, occurredAtUtc: now));
+        store.Record(TestData.Event(kind: JobEventKind.AttemptFailed, occurredAtUtc: now));
+        store.Record(TestData.Event(kind: JobEventKind.Lifecycle, occurredAtUtc: now, message: "Failed"));
+        store.Record(TestData.Event(kind: JobEventKind.Lifecycle, occurredAtUtc: now, message: "Canceled"));
+        store.Record(TestData.Event(kind: JobEventKind.Log, occurredAtUtc: now, message: "ignored"));
 
         var bucket = store.GetSnapshot().Buckets.Single(bucket => bucket.StartedAtUtc == now);
         bucket.QueuedCount.ShouldBe(1);
@@ -56,8 +56,8 @@ public sealed class DashboardThroughputStoreTests
         var now = new DateTimeOffset(2026, 4, 26, 12, 0, 5, TimeSpan.Zero);
         using var store = CreateStore(now);
 
-        store.Record(CreateEvent(JobEventKind.Lifecycle, now.AddHours(-2), "Queued"));
-        store.Record(CreateEvent(JobEventKind.Lifecycle, now.AddSeconds(1), "Queued"));
+        store.Record(TestData.Event(kind: JobEventKind.Lifecycle, occurredAtUtc: now.AddHours(-2), message: "Queued"));
+        store.Record(TestData.Event(kind: JobEventKind.Lifecycle, occurredAtUtc: now.AddSeconds(1), message: "Queued"));
 
         store.GetSnapshot().Buckets.Sum(bucket => bucket.QueuedCount).ShouldBe(0);
     }
@@ -68,10 +68,10 @@ public sealed class DashboardThroughputStoreTests
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 4, 26, 12, 0, 0, TimeSpan.Zero));
         using var store = new DashboardThroughputStore(new DashboardLiveUpdateStream(NullLogger<DashboardLiveUpdateStream>.Instance), timeProvider);
 
-        store.Record(CreateEvent(JobEventKind.Lifecycle, timeProvider.GetUtcNow(), "Queued"));
+        store.Record(TestData.Event(kind: JobEventKind.Lifecycle, occurredAtUtc: timeProvider.GetUtcNow(), message: "Queued"));
 
         timeProvider.SetUtcNow(timeProvider.GetUtcNow().AddHours(1));
-        store.Record(CreateEvent(JobEventKind.AttemptStarted, timeProvider.GetUtcNow()));
+        store.Record(TestData.Event(kind: JobEventKind.AttemptStarted, occurredAtUtc: timeProvider.GetUtcNow()));
 
         var bucket = store.GetSnapshot().Buckets.Single(bucket => bucket.StartedAtUtc == timeProvider.GetUtcNow());
         bucket.QueuedCount.ShouldBe(0);
@@ -80,17 +80,4 @@ public sealed class DashboardThroughputStoreTests
 
     private static DashboardThroughputStore CreateStore(DateTimeOffset now)
       => new(new DashboardLiveUpdateStream(NullLogger<DashboardLiveUpdateStream>.Instance), new FakeTimeProvider(now));
-
-    private static JobEvent CreateEvent(
-        JobEventKind kind,
-        DateTimeOffset occurredAtUtc,
-        string? message = null)
-      => new(
-        Guid.NewGuid(),
-        Guid.NewGuid(),
-        EventSequence: 1,
-        kind,
-        occurredAtUtc,
-        AttemptNumber: 1,
-        Message: message);
 }

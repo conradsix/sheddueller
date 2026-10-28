@@ -1,9 +1,6 @@
 namespace Sheddueller.Dashboard.Tests;
 
-using System.Globalization;
-
 using Sheddueller.Dashboard.Internal;
-using Sheddueller.Inspection.Jobs;
 using Sheddueller.Storage;
 
 using Shouldly;
@@ -42,7 +39,7 @@ public sealed class DashboardJobActionsTests
     [InlineData(JobState.Canceled, false, false)]
     public void Cancellation_JobState_DeterminesWhetherCancelIsOffered(JobState state, bool cancellationRequested, bool expected)
     {
-        var job = CreateJob(state) with
+        var job = TestData.Job(state: state) with
         {
             CancellationRequestedAtUtc = cancellationRequested ? DateTimeOffset.UnixEpoch : null,
         };
@@ -84,26 +81,4 @@ public sealed class DashboardJobActionsTests
         title.ShouldBe("No jobs were canceled");
         description.ShouldBe("2 jobs had already finished.");
     }
-
-    private static JobInspectionSummary CreateJob(JobState state)
-      => new(
-        JobId,
-        state,
-        "Sheddueller.Dashboard.Tests.Worker",
-        "Run",
-        Priority: 0,
-        EnqueueSequence: 1,
-        DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture),
-        NotBeforeUtc: null,
-        AttemptCount: 1,
-        MaxAttempts: 3,
-        Tags: [],
-        ConcurrencyGroupKeys: [],
-        SourceScheduleKey: null,
-        LatestProgress: null,
-        QueuePosition: null,
-        ClaimedAtUtc: null,
-        CompletedAtUtc: null,
-        FailedAtUtc: null,
-        CanceledAtUtc: null);
 }
