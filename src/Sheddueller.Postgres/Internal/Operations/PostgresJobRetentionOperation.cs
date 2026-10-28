@@ -10,7 +10,19 @@ using Sheddueller.Storage;
 
 internal static class PostgresJobRetentionOperation
 {
-    private const int RetentionAdvisoryLockKey = 7870834;
+    /// <summary>
+    /// The number of job events one cleanup transaction deletes.
+    /// </summary>
+    public const int JobEventCleanupBatchSize = 1000;
+
+    /// <summary>
+    /// The advisory lock that cleanup holds, per schema, for each transaction.
+    /// </summary>
+    /// <remarks>
+    /// Terminal job cleanup and job event cleanup both delete job events, the first through the cascade from jobs, so
+    /// they share this lock: one cleanup at a time per schema, and a cleanup that finds it held skips its turn.
+    /// </remarks>
+    public const int RetentionAdvisoryLockKey = 7870834;
 
     public static async ValueTask<JobRetentionCleanupResult> ExecuteAsync(
         PostgresOperationContext context,
@@ -32,6 +44,45 @@ internal static class PostgresJobRetentionOperation
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return new JobRetentionCleanupResult(deletedCount);
+    }
+
+    /// <summary>
+    /// Deletes the events of jobs that reached their terminal state more than <paramref name="retention" /> ago, one
+    /// batch per transaction, and returns how many it deleted. Stops early, keeping what it has deleted, when another
+    /// cleanup holds the retention lock.
+    /// </summary>
+    public static async ValueTask<int> CleanupEventsAsync(
+        PostgresOperationContext context,
+        TimeSpan retention,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        if (retention <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retention), retention, "Job event retention must be positive.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);
+
+        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var totalDeleted = 0;
+        while (true)
+        {
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            if (!await TryAcquireCleanupLockAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false))
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return totalDeleted;
+            }
+
+            var deleted = await DeleteEventBatchAsync(context, connection, transaction, retention, batchSize, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            totalDeleted += deleted;
+            if (deleted < batchSize)
+            {
+                return totalDeleted;
+            }
+        }
     }
 
     private static async ValueTask<bool> TryAcquireCleanupLockAsync(
@@ -65,19 +116,15 @@ internal static class PostgresJobRetentionOperation
               select job_id
               from {context.Names.Jobs} job
               where
-                  (
-                      (state = 'Completed' and @completed_before_utc is not null and completed_at_utc < @completed_before_utc)
-                      or (state = 'Failed' and @failed_before_utc is not null and failed_at_utc < @failed_before_utc)
-                      or (state = 'Canceled' and @canceled_before_utc is not null and canceled_at_utc < @canceled_before_utc)
-                  )
+                  {PostgresSqlFragments.TerminalBefore("job", "@completed_before_utc", "@failed_before_utc", "@canceled_before_utc")}
                   and not exists (
                       select 1
                       from {context.Names.JobDependencies} dependency
                       join {context.Names.Jobs} dependent on dependent.job_id = dependency.job_id
                       where dependency.prerequisite_job_id = job.job_id
-                        and dependent.state not in ('Completed', 'Failed', 'Canceled')
+                        and dependent.state not in {PostgresSqlFragments.TerminalStates}
                   )
-              order by coalesce(completed_at_utc, failed_at_utc, canceled_at_utc) asc, enqueue_sequence asc
+              order by {PostgresSqlFragments.TerminalAt("job")} asc, enqueue_sequence asc
               limit @batch_size
               for update skip locked
           ),
@@ -97,6 +144,41 @@ internal static class PostgresJobRetentionOperation
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
           ?? throw new InvalidOperationException("PostgreSQL did not return a terminal job cleanup count.");
         return Convert.ToInt32(result, CultureInfo.InvariantCulture);
+    }
+
+    private static async ValueTask<int> DeleteEventBatchAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        TimeSpan retention,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        const string CutoffSql = "(transaction_timestamp() - @retention)";
+
+        return await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          with candidates as (
+              select event.job_id, event.event_sequence
+              from {context.Names.Jobs} job
+              join {context.Names.JobEvents} event on event.job_id = job.job_id
+              where {PostgresSqlFragments.TerminalBefore("job", CutoffSql, CutoffSql, CutoffSql)}
+              limit @batch_size
+          )
+          delete from {context.Names.JobEvents} event
+          using candidates
+          where event.job_id = candidates.job_id
+            and event.event_sequence = candidates.event_sequence;
+          """,
+          command =>
+          {
+              command.Parameters.AddWithValue("retention", retention);
+              command.Parameters.Add("batch_size", NpgsqlDbType.Integer).Value = batchSize;
+          },
+          cancellationToken)
+          .ConfigureAwait(false);
     }
 
     private static void AddNullableTimestampParameter(

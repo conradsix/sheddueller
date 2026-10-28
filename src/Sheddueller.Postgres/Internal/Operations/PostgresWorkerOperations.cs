@@ -89,7 +89,7 @@ internal static class PostgresWorkerOperations
           context,
           connection,
           transaction,
-          new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: "Canceled"),
+          new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: PostgresJobEventMessages.Canceled),
           cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

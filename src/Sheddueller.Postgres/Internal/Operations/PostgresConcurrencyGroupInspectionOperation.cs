@@ -15,8 +15,10 @@ internal static class PostgresConcurrencyGroupInspectionOperation
     {
         ValidateQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var totalCount = await ReadTotalCountAsync(context, connection, query, cancellationToken).ConfigureAwait(false);
         var groups = await ReadGroupSummaryPageAsync(context, connection, query, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         var pageItems = groups.Take(query.PageSize).ToArray();
 
         return new ConcurrencyGroupInspectionPage(
@@ -31,13 +33,14 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var summary = await ReadGroupSummaryAsync(context, connection, groupKey, cancellationToken).ConfigureAwait(false);
         if (summary is null)
         {
             return null;
         }
 
-        return new ConcurrencyGroupInspectionDetail(
+        var detail = new ConcurrencyGroupInspectionDetail(
           summary,
           await ReadClaimedJobIdsAsync(context, connection, groupKey, cancellationToken).ConfigureAwait(false),
           await ReadBlockedJobIdsAsync(context, connection, groupKey, BlockKind.Any, cancellationToken).ConfigureAwait(false))
@@ -55,6 +58,9 @@ internal static class PostgresConcurrencyGroupInspectionOperation
               BlockKind.Rate,
               cancellationToken).ConfigureAwait(false),
         };
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return detail;
     }
 
     private static async ValueTask<long> ReadTotalCountAsync(
@@ -247,7 +253,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
                  concurrency_group.configured_limit as override_limit,
                  coalesce(concurrency_group.effective_limit, 1) as effective_limit,
                  coalesce(concurrency_group.in_use_count, 0) as current_occupancy,
-                 coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1) as is_saturated,
+                 {PostgresSqlFragments.GroupIsSaturated("concurrency_group")} as is_saturated,
                  concurrency_group.default_rate_permit_count,
                  concurrency_group.default_rate_period,
                  coalesce(concurrency_group.rate_limit_override_enabled, false) as rate_limit_override_enabled,
@@ -256,10 +262,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
                  concurrency_group.effective_rate_permit_count,
                  concurrency_group.effective_rate_period,
                  concurrency_group.rate_theoretical_arrival_at_utc,
-                 coalesce(
-                     concurrency_group.effective_rate_permit_count is not null
-                         and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp(),
-                     false) as is_rate_limited,
+                 {PostgresSqlFragments.GroupIsRateLimited("concurrency_group", PostgresSqlFragments.TransactionNow)} as is_rate_limited,
                  concurrency_group.updated_at_utc
              from group_keys
              left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = group_keys.group_key
@@ -268,8 +271,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
              select job_group.group_key, count(*) as queued_count
              from {context.Names.JobConcurrencyGroups} job_group
              join {context.Names.Jobs} job on job.job_id = job_group.job_id
-             where job.state = 'Queued'
-               and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
+             where {PostgresSqlFragments.JobIsDue("job", PostgresSqlFragments.TransactionNow)}
              group by job_group.group_key
          ),
          summary as (
@@ -319,8 +321,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         join {context.Names.JobConcurrencyGroups} job_group on job_group.job_id = job.job_id
         left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
         where job_group.group_key = @group_key
-          and job.state = 'Queued'
-          and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
+          and {PostgresSqlFragments.JobIsDue("job", PostgresSqlFragments.TransactionNow)}
           and ({CreateBlockCondition(blockKind)})
         order by job.priority desc, job.enqueue_sequence asc;
         """,
@@ -331,18 +332,9 @@ internal static class PostgresConcurrencyGroupInspectionOperation
     private static string CreateBlockCondition(BlockKind blockKind)
       => blockKind switch
       {
-          BlockKind.Concurrency => "coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)",
-          BlockKind.Rate => """
-            concurrency_group.effective_rate_permit_count is not null
-            and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
-            """,
-          _ => """
-            coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
-            or (
-                concurrency_group.effective_rate_permit_count is not null
-                and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
-            )
-            """,
+          BlockKind.Concurrency => PostgresSqlFragments.GroupIsSaturated("concurrency_group"),
+          BlockKind.Rate => PostgresSqlFragments.GroupIsRateLimited("concurrency_group", PostgresSqlFragments.TransactionNow),
+          _ => $"{PostgresSqlFragments.GroupIsSaturated("concurrency_group")} or {PostgresSqlFragments.GroupIsRateLimited("concurrency_group", PostgresSqlFragments.TransactionNow)}",
       };
 
     private static ConcurrencyGroupRateLimit? ReadRateLimit(

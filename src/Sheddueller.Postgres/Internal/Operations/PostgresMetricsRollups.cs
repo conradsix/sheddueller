@@ -40,13 +40,42 @@ internal static class PostgresMetricsRollups
         86_400_000,
     ];
 
+    /// <summary>
+    /// Classifies a job event for the metrics rollups, from its kind and, for a lifecycle event, its message.
+    /// </summary>
+    public static PostgresJobEventMetric ClassifyJobEvent(
+        JobEventKind kind,
+        string? message)
+      => kind switch
+      {
+          JobEventKind.AttemptStarted => PostgresJobEventMetric.AttemptStarted,
+          JobEventKind.AttemptFailed => PostgresJobEventMetric.AttemptFailed,
+          JobEventKind.Lifecycle => message switch
+          {
+              PostgresJobEventMessages.Queued => PostgresJobEventMetric.Enqueued,
+              PostgresJobEventMessages.Completed => PostgresJobEventMetric.Succeeded,
+              PostgresJobEventMessages.Failed => PostgresJobEventMetric.Failed,
+              PostgresJobEventMessages.Canceled => PostgresJobEventMetric.Canceled,
+              not null when message.StartsWith(PostgresJobEventMessages.SupersededFailurePrefix, StringComparison.Ordinal)
+                => PostgresJobEventMetric.Failed,
+              _ => PostgresJobEventMetric.None,
+          },
+          _ => PostgresJobEventMetric.None,
+      };
+
     public static async ValueTask RecordJobEventAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         JobEvent jobEvent,
+        PostgresJobEventMetric metric,
         CancellationToken cancellationToken)
     {
+        if (metric == PostgresJobEventMetric.None)
+        {
+            return;
+        }
+
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
@@ -67,33 +96,29 @@ internal static class PostgresMetricsRollups
           counter_samples as (
               select {BucketStartedAtSql("job.enqueued_at_utc")} as bucket_started_at_utc, 1::bigint as enqueued_count, 0::bigint as claimed_started_count, 0::bigint as succeeded_count, 0::bigint as failed_count, 0::bigint as canceled_count, 0::bigint as retry_event_count
               from job
-              where @event_kind = 'Lifecycle'
-                and @event_message = 'Queued'
+              where @metric = 'Enqueued'
               union all
               select {BucketStartedAtSql("coalesce(job.claimed_at_utc, @event_occurred_at_utc)")}, 0::bigint, 1::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint
               from job
-              where @event_kind = 'AttemptStarted'
+              where @metric = 'AttemptStarted'
               union all
               select {BucketStartedAtSql("@event_occurred_at_utc")}, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 1::bigint
               from job
-              where @event_kind = 'AttemptFailed'
+              where @metric = 'AttemptFailed'
               union all
               select {BucketStartedAtSql("job.completed_at_utc")}, 0::bigint, 0::bigint, 1::bigint, 0::bigint, 0::bigint, 0::bigint
               from job
-              where @event_kind = 'Lifecycle'
-                and @event_message = 'Completed'
+              where @metric = 'Succeeded'
                 and job.completed_at_utc is not null
               union all
               select {BucketStartedAtSql("job.failed_at_utc")}, 0::bigint, 0::bigint, 0::bigint, 1::bigint, 0::bigint, 0::bigint
               from job
-              where @event_kind = 'Lifecycle'
-                and (@event_message = 'Failed' or @event_message like 'Failed;%')
+              where @metric = 'Failed'
                 and job.failed_at_utc is not null
               union all
               select {BucketStartedAtSql("job.canceled_at_utc")}, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 1::bigint, 0::bigint
               from job
-              where @event_kind = 'Lifecycle'
-                and @event_message = 'Canceled'
+              where @metric = 'Canceled'
                 and job.canceled_at_utc is not null
           ),
           bucket_counts as (
@@ -152,7 +177,7 @@ internal static class PostgresMetricsRollups
                   {BucketStartedAtSql("coalesce(job.claimed_at_utc, @event_occurred_at_utc)")} as bucket_started_at_utc,
                   extract(epoch from (coalesce(job.claimed_at_utc, @event_occurred_at_utc) - job.enqueued_at_utc)) * 1000 as value_ms
               from job
-              where @event_kind = 'AttemptStarted'
+              where @metric = 'AttemptStarted'
                 and coalesce(job.claimed_at_utc, @event_occurred_at_utc) >= job.enqueued_at_utc
               union all
               select
@@ -160,8 +185,7 @@ internal static class PostgresMetricsRollups
                   {BucketStartedAtSql("job.enqueued_at_utc")},
                   extract(epoch from (job.enqueued_at_utc - job.scheduled_fire_at_utc)) * 1000
               from job
-              where @event_kind = 'Lifecycle'
-                and @event_message = 'Queued'
+              where @metric = 'Enqueued'
                 and job.schedule_occurrence_kind = 'Automatic'
                 and job.scheduled_fire_at_utc is not null
                 and job.enqueued_at_utc >= job.scheduled_fire_at_utc
@@ -171,8 +195,7 @@ internal static class PostgresMetricsRollups
                   {BucketStartedAtSql("job.completed_at_utc")},
                   extract(epoch from (job.completed_at_utc - job.claimed_at_utc)) * 1000
               from job
-              where @event_kind = 'Lifecycle'
-                and @event_message = 'Completed'
+              where @metric = 'Succeeded'
                 and job.claimed_at_utc is not null
                 and job.completed_at_utc is not null
                 and job.completed_at_utc >= job.claimed_at_utc
@@ -182,8 +205,7 @@ internal static class PostgresMetricsRollups
                   {BucketStartedAtSql("job.failed_at_utc")},
                   extract(epoch from (job.failed_at_utc - job.claimed_at_utc)) * 1000
               from job
-              where @event_kind = 'Lifecycle'
-                and (@event_message = 'Failed' or @event_message like 'Failed;%')
+              where @metric = 'Failed'
                 and job.claimed_at_utc is not null
                 and job.failed_at_utc is not null
                 and job.failed_at_utc >= job.claimed_at_utc
@@ -193,8 +215,7 @@ internal static class PostgresMetricsRollups
                   {BucketStartedAtSql("job.canceled_at_utc")},
                   extract(epoch from (job.canceled_at_utc - job.claimed_at_utc)) * 1000
               from job
-              where @event_kind = 'Lifecycle'
-                and @event_message = 'Canceled'
+              where @metric = 'Canceled'
                 and job.claimed_at_utc is not null
                 and job.canceled_at_utc is not null
                 and job.canceled_at_utc >= job.claimed_at_utc
@@ -232,9 +253,7 @@ internal static class PostgresMetricsRollups
           set sample_count = histogram.sample_count + excluded.sample_count;
           """;
         command.Parameters.AddWithValue("job_id", jobEvent.JobId);
-        command.Parameters.Add("event_kind", NpgsqlDbType.Text).Value = PostgresConversion.ToText(jobEvent.Kind);
-        command.Parameters.Add("event_message", NpgsqlDbType.Text).Value =
-          PostgresOperationContext.ToDbValue(jobEvent.Message);
+        command.Parameters.Add("metric", NpgsqlDbType.Text).Value = metric.ToString();
         command.Parameters.Add("event_occurred_at_utc", NpgsqlDbType.TimestampTz).Value = jobEvent.OccurredAtUtc;
         AddHistogramParameters(command);
 
@@ -357,6 +376,13 @@ internal static class PostgresMetricsRollups
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Deletes rollups older than the configured retention, at most once per cleanup interval across the cluster.
+    /// </summary>
+    /// <remarks>
+    /// Runs from each job retention pass and from metrics reads. Most calls find cleanup isn't due, and decide that
+    /// with a plain read, so they write nothing.
+    /// </remarks>
     public static async ValueTask CleanupAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -364,6 +390,11 @@ internal static class PostgresMetricsRollups
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+
+        if (!await ShouldCleanupAsync(context, connection, transaction: null, configuration.CleanupInterval, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var acquired = await TryAcquireCleanupLockAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -413,10 +444,14 @@ internal static class PostgresMetricsRollups
           ?? throw new InvalidOperationException("PostgreSQL did not return a metrics cleanup lock result."));
     }
 
+    /// <summary>
+    /// Whether the last cleanup is at least <paramref name="cleanupInterval" /> old. Inside a transaction it also locks
+    /// the cleanup state row, so the check holds until that transaction records the new cleanup.
+    /// </summary>
     private static async ValueTask<bool> ShouldCleanupAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlTransaction? transaction,
         TimeSpan cleanupInterval,
         CancellationToken cancellationToken)
     {
@@ -428,7 +463,7 @@ internal static class PostgresMetricsRollups
               or last_cleanup_at_utc <= transaction_timestamp() - @cleanup_interval
           from {context.Names.MetricsRollupState}
           where singleton_id = 1
-          for update;
+          {(transaction is null ? string.Empty : "for update")};
           """;
         command.Parameters.AddWithValue("cleanup_interval", cleanupInterval);
 

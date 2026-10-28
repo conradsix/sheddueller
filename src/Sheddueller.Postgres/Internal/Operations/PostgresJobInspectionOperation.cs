@@ -54,8 +54,9 @@ internal static class PostgresJobInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var counts = await ReadStateCountsAsync(context, connection, cancellationToken).ConfigureAwait(false);
-        var nowUtc = await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
+        var nowUtc = await PostgresOperationContext.ReadTransactionTimestampAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         var runningRows = await ReadSummaryRowsAsync(
           context,
           connection,
@@ -74,19 +75,11 @@ internal static class PostgresJobInspectionOperation
           context,
           connection,
           $"""
-          where state = 'Queued'
-            and (not_before_utc is null or not_before_utc <= @now_utc)
-            and not exists (
-                select 1
-                from {context.Names.JobConcurrencyGroups} job_group
-                left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
-                where job_group.job_id = job.job_id
-                  and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
-            )
-          order by priority desc, enqueue_sequence asc
+          where {PostgresSqlFragments.JobIsClaimable(context.Names, "job", PostgresSqlFragments.TransactionNow)}
+          order by {PostgresSqlFragments.ClaimOrder("job")}
           limit 10
           """,
-          command => command.Parameters.AddWithValue("now_utc", nowUtc),
+          static _ => { },
           cancellationToken)
           .ConfigureAwait(false);
         var delayedRows = await ReadSummaryRowsAsync(
@@ -94,12 +87,12 @@ internal static class PostgresJobInspectionOperation
           connection,
           """
           where state = 'Queued'
-            and not_before_utc > @now_utc
+            and not_before_utc > transaction_timestamp()
             and failed_at_utc is null
           order by not_before_utc asc, enqueue_sequence asc
           limit 10
           """,
-          command => command.Parameters.AddWithValue("now_utc", nowUtc),
+          static _ => { },
           cancellationToken)
           .ConfigureAwait(false);
         var retryWaitingRows = await ReadSummaryRowsAsync(
@@ -107,12 +100,12 @@ internal static class PostgresJobInspectionOperation
           connection,
           """
           where state = 'Queued'
-            and not_before_utc > @now_utc
+            and not_before_utc > transaction_timestamp()
             and failed_at_utc is not null
           order by not_before_utc asc, enqueue_sequence asc
           limit 10
           """,
-          command => command.Parameters.AddWithValue("now_utc", nowUtc),
+          static _ => { },
           cancellationToken)
           .ConfigureAwait(false);
 
@@ -123,6 +116,7 @@ internal static class PostgresJobInspectionOperation
           .Concat(retryWaitingRows)
           .ToArray();
         var summaries = await CreateSummaryMapAsync(context, connection, allRows, nowUtc, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return new JobInspectionOverview(
           counts,
@@ -141,6 +135,7 @@ internal static class PostgresJobInspectionOperation
         ArgumentNullException.ThrowIfNull(query);
         ValidateJobQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
 
         void configureFilters(NpgsqlCommand command, List<string> conditions)
         {
@@ -215,6 +210,7 @@ internal static class PostgresJobInspectionOperation
                       ? newestPageRows[^1].EnqueueSequence.ToString(CultureInfo.InvariantCulture)
                       : null;
 
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                     return new JobInspectionPage(newestJobs, continuationToken, totalCount);
                 }
 
@@ -242,6 +238,7 @@ internal static class PostgresJobInspectionOperation
                       ? EncodeOperationalContinuationToken(offset + query.PageSize)
                       : null;
 
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                     return new JobInspectionPage(operationalJobs, continuationToken, totalCount);
                 }
 
@@ -319,6 +316,7 @@ internal static class PostgresJobInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var detailRow = await ReadJobDetailRowAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
         if (detailRow is null)
         {
@@ -327,7 +325,7 @@ internal static class PostgresJobInspectionOperation
 
         var (row, invocation) = detailRow.Value;
         var summaries = await CreateSummariesAsync(context, connection, [row], cancellationToken).ConfigureAwait(false);
-        return new JobInspectionDetail(
+        var detail = new JobInspectionDetail(
           summaries[0],
           row.ClaimedAtUtc,
           row.ClaimedByNodeId,
@@ -339,6 +337,9 @@ internal static class PostgresJobInspectionOperation
             PrerequisiteJobIds = await ReadPrerequisiteJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
             DependentJobIds = await ReadDependentJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
         };
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return detail;
     }
 
     public static async ValueTask<JobQueuePosition> GetQueuePositionAsync(
@@ -347,6 +348,7 @@ internal static class PostgresJobInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var row = await ReadJobRowAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
@@ -354,6 +356,7 @@ internal static class PostgresJobInspectionOperation
         }
 
         var positions = await ReadQueuePositionsAsync(context, connection, [row], nowUtc: null, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return positions[jobId];
     }
 
@@ -372,31 +375,6 @@ internal static class PostgresJobInspectionOperation
             cancellationToken.ThrowIfCancellationRequested();
             yield return jobEvent;
         }
-    }
-
-    public static async ValueTask<int> CleanupAsync(
-        PostgresOperationContext context,
-        TimeSpan retention,
-        CancellationToken cancellationToken)
-    {
-        if (retention <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(retention), retention, "Job event retention must be positive.");
-        }
-
-        await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        return await PostgresOperationContext.ExecuteCountAsync(
-          connection,
-          $"""
-          delete from {context.Names.JobEvents} event
-          using {context.Names.Jobs} job
-          where event.job_id = job.job_id
-            and job.state in ('Completed', 'Failed', 'Canceled')
-            and coalesce(job.completed_at_utc, job.failed_at_utc, job.canceled_at_utc) < transaction_timestamp() - @retention;
-          """,
-          command => command.Parameters.AddWithValue("retention", retention),
-          cancellationToken)
-          .ConfigureAwait(false);
     }
 
     private static async ValueTask<IReadOnlyDictionary<JobState, int>> ReadStateCountsAsync(
@@ -663,7 +641,8 @@ internal static class PostgresJobInspectionOperation
                         break;
                     }
 
-                    resolvedNowUtc ??= nowUtc ?? await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
+                    resolvedNowUtc ??= nowUtc
+                      ?? await PostgresOperationContext.ReadTransactionTimestampAsync(connection, transaction: null, cancellationToken).ConfigureAwait(false);
                     if (row.NotBeforeUtc is { } notBeforeUtc && notBeforeUtc > resolvedNowUtc.Value)
                     {
                         positions[row.JobId] = row.FailedAtUtc is null
@@ -687,16 +666,15 @@ internal static class PostgresJobInspectionOperation
             return positions;
         }
 
-        resolvedNowUtc ??= nowUtc ?? await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
         var readyJobIds = readyQueuedRows.Select(static row => row.JobId).Distinct().ToArray();
-        var claimablePositions = await ReadClaimablePositionsAsync(context, connection, readyJobIds, resolvedNowUtc.Value, cancellationToken)
+        var claimablePositions = await ReadClaimablePositionsAsync(context, connection, readyJobIds, cancellationToken)
           .ConfigureAwait(false);
 
         foreach (var row in readyQueuedRows)
         {
             positions[row.JobId] = claimablePositions.TryGetValue(row.JobId, out var position)
               ? new JobQueuePosition(row.JobId, JobQueuePositionKind.Claimable, position, "Job is currently claimable.")
-              : new JobQueuePosition(row.JobId, JobQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits.");
+              : new JobQueuePosition(row.JobId, JobQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits or rate limits.");
         }
 
         return positions;
@@ -706,7 +684,6 @@ internal static class PostgresJobInspectionOperation
         PostgresOperationContext context,
         NpgsqlConnection connection,
         Guid[] jobIds,
-        DateTimeOffset nowUtc,
         CancellationToken cancellationToken)
     {
         if (jobIds.Length == 0)
@@ -720,30 +697,14 @@ internal static class PostgresJobInspectionOperation
           with claimable as (
               select
                   job.job_id,
-                  row_number() over (order by job.priority desc, job.enqueue_sequence asc) as position
+                  row_number() over (order by {PostgresSqlFragments.ClaimOrder("job")}) as position
               from {context.Names.Jobs} job
-              where job.state = 'Queued'
-                and (job.not_before_utc is null or job.not_before_utc <= @now_utc)
-                and not exists (
-                    select 1
-                    from {context.Names.JobDependencies} dependency
-                    join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
-                    where dependency.job_id = job.job_id
-                      and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
-                )
-                and not exists (
-                    select 1
-                    from {context.Names.JobConcurrencyGroups} job_group
-                    left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
-                    where job_group.job_id = job.job_id
-                      and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
-                )
+              where {PostgresSqlFragments.JobIsClaimable(context.Names, "job", PostgresSqlFragments.TransactionNow)}
           )
           select job_id, position
           from claimable
           where job_id = any(@job_ids);
           """;
-        command.Parameters.AddWithValue("now_utc", nowUtc);
         command.Parameters.AddWithValue("job_ids", jobIds);
 
         var positions = new Dictionary<Guid, long>();
@@ -1089,11 +1050,10 @@ internal static class PostgresJobInspectionOperation
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
-          select distinct dependency.job_id
-          from {context.Names.JobDependencies} dependency
-          join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
-          where dependency.job_id = any(@job_ids)
-            and prerequisite.state not in ('Completed', 'Failed', 'Canceled');
+          select job.job_id
+          from {context.Names.Jobs} job
+          where job.job_id = any(@job_ids)
+            and {PostgresSqlFragments.HasUnfinishedPrerequisites(context.Names, "job")};
           """;
         command.Parameters.AddWithValue("job_ids", jobIds);
 
@@ -1105,16 +1065,6 @@ internal static class PostgresJobInspectionOperation
         }
 
         return blocked;
-    }
-
-    private static async ValueTask<DateTimeOffset> ReadCurrentTimestampAsync(
-        NpgsqlConnection connection,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = "select transaction_timestamp();";
-        return PostgresConversion.ToDateTimeOffset(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-          ?? throw new InvalidOperationException("PostgreSQL did not return transaction_timestamp()."));
     }
 
     private static string JobSelectSql(PostgresOperationContext context)
@@ -1140,18 +1090,13 @@ internal static class PostgresJobInspectionOperation
                   and job.failed_at_utc is not null then 2
              when job.not_before_utc is not null
                   and job.not_before_utc > transaction_timestamp() then 3
-             when exists (
-                 select 1
-                 from {context.Names.JobConcurrencyGroups} job_group
-                 left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
-                 where job_group.job_id = job.job_id
-                   and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
-             ) then 1
+             when {PostgresSqlFragments.HasUnfinishedPrerequisites(context.Names, "job")}
+                 or {PostgresSqlFragments.HasBlockingGroup(context.Names, "job", PostgresSqlFragments.TransactionNow)} then 1
              else 0
          end asc,
          case when job.state = 'Queued' then job.priority end desc,
          case when job.state = 'Queued' then job.enqueue_sequence end asc,
-         case when job.state in ('Completed', 'Failed', 'Canceled') then coalesce(job.completed_at_utc, job.failed_at_utc, job.canceled_at_utc) end desc nulls last,
+         {PostgresSqlFragments.TerminalAt("job")} desc nulls last,
          job.enqueue_sequence desc
          """;
 

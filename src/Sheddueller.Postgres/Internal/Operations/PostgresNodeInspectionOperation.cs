@@ -17,8 +17,10 @@ internal static class PostgresNodeInspectionOperation
     {
         ValidateQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var totalCount = await ReadTotalCountAsync(context, connection, query, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false);
         var nodes = await ReadNodeSummaryPageAsync(context, connection, query, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         var pageItems = nodes.Take(query.PageSize).ToArray();
 
         return new NodeInspectionPage(
@@ -35,15 +37,19 @@ internal static class PostgresNodeInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
         var summary = await ReadNodeSummaryAsync(context, connection, nodeId, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false);
         if (summary is null)
         {
             return null;
         }
 
-        return new NodeInspectionDetail(
+        var detail = new NodeInspectionDetail(
           summary,
           await ReadClaimedJobIdsAsync(context, connection, nodeId, cancellationToken).ConfigureAwait(false));
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return detail;
     }
 
     private static async ValueTask<long> ReadTotalCountAsync(

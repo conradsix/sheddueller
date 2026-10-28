@@ -99,4 +99,13 @@ internal static partial class ShedduellerPostgresLoggerMessages
         int attempt,
         int maxAttempts,
         long retryDelayMs);
+
+    [LoggerMessage(
+        EventIdStart + 30,
+        LogLevel.Warning,
+        "PostgreSQL metrics cleanup for schema {SchemaName} failed; the next job retention pass retries it.")]
+    public static partial void PostgresMetricsCleanupFailed(
+        this ILogger logger,
+        Exception exception,
+        string schemaName);
 }

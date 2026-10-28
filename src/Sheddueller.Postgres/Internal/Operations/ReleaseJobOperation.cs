@@ -89,7 +89,7 @@ internal static class ReleaseJobOperation
           context,
           connection,
           transaction,
-          new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: "Released"),
+          new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: PostgresJobEventMessages.Released),
           cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

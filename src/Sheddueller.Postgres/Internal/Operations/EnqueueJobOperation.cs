@@ -623,7 +623,7 @@ internal static class EnqueueJobOperation
               transaction_timestamp(),
               0,
               null,
-              'Queued',
+              @message,
               null,
               null
           from sheddueller_enqueue_events staged_event
@@ -631,7 +631,7 @@ internal static class EnqueueJobOperation
           where result.was_enqueued = true
           order by staged_event.ordinal;
           """,
-          static _ => { },
+          command => command.Parameters.AddWithValue("message", PostgresJobEventMessages.Queued),
           cancellationToken)
           .ConfigureAwait(false);
 
