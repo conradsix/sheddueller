@@ -116,7 +116,7 @@ await app.ApplyShedduellerPostgresMigrationsAsync();
 
 Run migrations during deployment or before starting workers against a new schema. Normal startup validates the configured provider; it does not silently create the schema.
 
-Reapplying migrations to an already-current schema skips schema updates and data backfills, preserving its recorded migration timestamp. Upgrading to a newer provider schema applies only the changes made since the recorded version; a schema created by a 0.1.0 preview first gets a one-time upgrade that rechecks constraints across its tables.
+Reapplying migrations to an already-current schema skips schema updates and data backfills, preserving its recorded migration timestamp. Upgrading to a newer provider schema applies only the changes made since the recorded version; a schema created by a 0.1.0 preview first gets a one-time upgrade that rechecks constraints across its tables. A migration waits at most 3 seconds for any table lock, so a long-running transaction can't stall enqueueing and claiming behind it; it backs off and retries for about two minutes before failing.
 
 Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an application needs to share or own a prebuilt `NpgsqlDataSource`; in that mode, the application also owns disposal.
 

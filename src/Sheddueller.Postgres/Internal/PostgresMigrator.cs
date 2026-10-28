@@ -4,29 +4,40 @@ namespace Sheddueller.Postgres.Internal;
 
 using System.Globalization;
 
+using Microsoft.Extensions.Logging;
+
 using Npgsql;
 
 /// <summary>
 /// Brings a schema to the provider's version: the baseline script for a new or preview schema (below
 /// <see cref="PostgresMigrationSteps.BaselineVersion" />), then each later step the schema hasn't had yet. A current
-/// schema is left untouched.
+/// schema is left untouched. A statement that can't get its table lock in time aborts the attempt, which is retried
+/// as described by <see cref="PostgresMigrationLockPolicy" />.
 /// </summary>
 internal sealed class PostgresMigrator : IPostgresMigrator
 {
     private readonly ShedduellerPostgresOptions _options;
+    private readonly ILogger _logger;
     private readonly PostgresNames _names;
     private readonly IReadOnlyList<PostgresMigrationStep> _steps;
+    private readonly PostgresMigrationLockPolicy _lockPolicy;
     private readonly int _targetVersion;
 
-    public PostgresMigrator(ShedduellerPostgresOptions options)
-      : this(options, PostgresMigrationSteps.All)
+    public PostgresMigrator(ShedduellerPostgresOptions options, ILogger<PostgresMigrator> logger)
+      : this(options, logger, PostgresMigrationSteps.All, PostgresMigrationLockPolicy.Default)
     {
     }
 
-    internal PostgresMigrator(ShedduellerPostgresOptions options, IReadOnlyList<PostgresMigrationStep> steps)
+    internal PostgresMigrator(
+        ShedduellerPostgresOptions options,
+        ILogger logger,
+        IReadOnlyList<PostgresMigrationStep> steps,
+        PostgresMigrationLockPolicy lockPolicy)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(steps);
+        ArgumentNullException.ThrowIfNull(lockPolicy);
 
         for (var index = 0; index < steps.Count; index++)
         {
@@ -37,12 +48,45 @@ internal sealed class PostgresMigrator : IPostgresMigrator
         }
 
         this._options = options;
+        this._logger = logger;
         this._names = new PostgresNames(options.SchemaName);
         this._steps = steps;
+        this._lockPolicy = lockPolicy;
         this._targetVersion = steps.Count == 0 ? PostgresMigrationSteps.BaselineVersion : steps[^1].Version;
     }
 
     public async ValueTask ApplyAsync(CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await this.ApplyOnceAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.LockNotAvailable)
+            {
+                if (attempt >= this._lockPolicy.MaxAttempts)
+                {
+                    throw new InvalidOperationException(
+                      $"PostgreSQL schema '{this._options.SchemaName}' migration couldn't lock the tables it changes after {attempt} attempts. A long-running transaction is probably holding a lock on one of them.",
+                      exception);
+                }
+
+                var retryDelay = this._lockPolicy.RetryDelayAfter(attempt);
+                this._logger.PostgresMigrationLockRetrying(
+                  exception,
+                  this._options.SchemaName,
+                  (long)this._lockPolicy.LockTimeout.TotalMilliseconds,
+                  attempt,
+                  this._lockPolicy.MaxAttempts,
+                  (long)retryDelay.TotalMilliseconds);
+                await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async ValueTask ApplyOnceAsync(CancellationToken cancellationToken)
     {
         await using var connection = await this._options.DataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -52,6 +96,16 @@ internal sealed class PostgresMigrator : IPostgresMigrator
           transaction,
           "select pg_advisory_xact_lock(7870833, hashtext(@schema_name));",
           command => command.Parameters.AddWithValue("schema_name", this._options.SchemaName),
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        // Set after the advisory lock, so concurrent migrations still wait for each other in turn.
+        await ExecuteAsync(
+          connection,
+          transaction,
+          string.Create(
+            CultureInfo.InvariantCulture,
+            $"set local lock_timeout = {(long)this._lockPolicy.LockTimeout.TotalMilliseconds};"),
           cancellationToken)
           .ConfigureAwait(false);
 

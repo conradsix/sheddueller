@@ -66,4 +66,17 @@ internal static partial class ShedduellerPostgresLoggerMessages
         Exception exception,
         Guid jobId,
         long eventSequence);
+
+    [LoggerMessage(
+        EventIdStart + 20,
+        LogLevel.Warning,
+        "PostgreSQL migration for schema {SchemaName} couldn't get a table lock within {LockTimeoutMs:D} ms (attempt {Attempt:D} of {MaxAttempts:D}); retrying in {RetryDelayMs:D} ms.")]
+    public static partial void PostgresMigrationLockRetrying(
+        this ILogger logger,
+        Exception exception,
+        string schemaName,
+        long lockTimeoutMs,
+        int attempt,
+        int maxAttempts,
+        long retryDelayMs);
 }
