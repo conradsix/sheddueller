@@ -32,7 +32,7 @@ internal static class PostgresSchedules
         {
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                schedule = PostgresReaders.ReadScheduleDefinition(reader, [], []);
+                schedule = PostgresReaders.ReadScheduleDefinition(reader);
             }
         }
 
@@ -255,7 +255,7 @@ internal static class PostgresSchedules
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                schedules.Add(PostgresReaders.ReadScheduleDefinition(reader, [], []));
+                schedules.Add(PostgresReaders.ReadScheduleDefinition(reader));
             }
         }
 

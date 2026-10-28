@@ -6,21 +6,12 @@ using Sheddueller.Storage;
 
 internal static class PostgresClaimedJobs
 {
-    public static async ValueTask<IReadOnlyList<string>?> TryLockCurrentClaimGroupsAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid jobId,
-        string nodeId,
-        Guid leaseToken,
-        CancellationToken cancellationToken)
-    {
-        var job = await TryReadCurrentClaimForFailureAsync(context, connection, transaction, jobId, nodeId, leaseToken, cancellationToken)
-          .ConfigureAwait(false);
-        return job?.GroupKeys;
-    }
-
-    public static async ValueTask<PostgresClaimedJob?> TryReadCurrentClaimForFailureAsync(
+    /// <summary>
+    /// Locks the job for the rest of the transaction and reads it, if the node still holds an unexpired claim on it
+    /// with the lease token; otherwise returns null. Completion, failure, release and observed cancellation all
+    /// start here.
+    /// </summary>
+    public static async ValueTask<PostgresClaimedJob?> TryLockCurrentClaimAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,

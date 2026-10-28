@@ -49,7 +49,8 @@ internal static class PostgresReaders
          job.retry_base_delay_ms,
          job.retry_max_delay_ms,
          job.idempotency_key,
-         {PostgresJobGroups.GroupKeysSql(names, "job")}
+         {PostgresJobGroups.GroupKeysSql(names, "job")},
+         job.cancellation_requested_at_utc
          """;
 
     /// <summary>
@@ -109,12 +110,13 @@ internal static class PostgresReaders
         PostgresConversion.FromMilliseconds(reader.GetValue(4)),
         PostgresConversion.FromMilliseconds(reader.GetValue(5)),
         reader.IsDBNull(6) ? null : reader.GetString(6),
-        reader.GetFieldValue<string[]>(7));
+        reader.GetFieldValue<string[]>(7),
+        reader.IsDBNull(8) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(8)));
 
-    public static PostgresScheduleDefinition ReadScheduleDefinition(
-        NpgsqlDataReader reader,
-        IReadOnlyList<string> groupKeys,
-        IReadOnlyList<JobTag> tags)
+    /// <summary>
+    /// Reads a schedule definition without its concurrency groups and tags, which live in their own tables.
+    /// </summary>
+    public static PostgresScheduleDefinition ReadScheduleDefinition(NpgsqlDataReader reader)
       => new(
         reader.GetString(0),
         reader.GetString(1),
@@ -127,8 +129,8 @@ internal static class PostgresReaders
         PostgresConversion.ToInvocationTargetKind(reader.GetValue(8)),
         PostgresConversion.ToParameterBindings(reader.GetValue(9)),
         PostgresConversion.ToPayload(reader.GetValue(10), reader.GetValue(11)),
-        groupKeys,
-        tags,
+        ConcurrencyGroupKeys: [],
+        Tags: [],
         PostgresConversion.ToRetryPolicy(
           reader.GetBoolean(12),
           reader.GetInt32(13),

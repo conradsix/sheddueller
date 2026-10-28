@@ -11,7 +11,7 @@ internal static class MarkJobCompletedOperation
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var job = await PostgresClaimedJobs.TryReadCurrentClaimForFailureAsync(
+        var job = await PostgresClaimedJobs.TryLockCurrentClaimAsync(
           context,
           connection,
           transaction,

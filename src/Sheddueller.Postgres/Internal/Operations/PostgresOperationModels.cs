@@ -11,7 +11,8 @@ internal sealed record PostgresClaimedJob(
     TimeSpan? RetryBaseDelay,
     TimeSpan? RetryMaxDelay,
     string? IdempotencyKey,
-    IReadOnlyList<string> GroupKeys);
+    IReadOnlyList<string> GroupKeys,
+    DateTimeOffset? CancellationRequestedAtUtc);
 
 internal sealed record PostgresRetryPolicy(
     bool IsConfigured,
