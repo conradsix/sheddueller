@@ -1,5 +1,6 @@
 <button type="button" class="@TriggerClass" popovertarget="@_id" aria-haspopup="menu" aria-label="@Label"
-        data-sd-tooltip="@(TriggerContent is null ? Label : null)" disabled="@Disabled" @attributes="AdditionalAttributes">
+        data-sd-tooltip="@(TriggerContent is null ? Label : null)" disabled="@Disabled" @onclick="OnTriggerClick"
+        @attributes="AdditionalAttributes">
     @if (Icon is not null)
     {
         <Icon Name="@Icon" />
@@ -49,6 +50,12 @@
 
     [Parameter]
     public string? Class { get; set; }
+
+    /// <summary>
+    /// Raised when the trigger is clicked, before the menu opens; use it to reset menu state.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnTriggerClick { get; set; }
 
     [Parameter]
     public RenderFragment? ChildContent { get; set; }

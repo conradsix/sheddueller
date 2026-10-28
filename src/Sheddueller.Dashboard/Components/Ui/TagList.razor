@@ -1,0 +1,72 @@
+@if (Values.Count == 0)
+{
+    <span class="sd-muted">@EmptyText</span>
+}
+else
+{
+    <div class="sd-tags sd-tags--nowrap" title="@Title">
+        @for (var index = 0; index < VisibleCount; index++)
+        {
+            var value = Values[index];
+            @if (HrefFactory is null)
+            {
+                <span class="sd-tag">@value</span>
+            }
+            else
+            {
+                <a class="sd-tag" href="@HrefFactory(value)" data-sd-tooltip="@TooltipFor(value)">@value</a>
+            }
+        }
+        @if (HiddenCount > 0)
+        {
+            <DropdownMenu Label="@($"{HiddenCount} more")" Variant="ButtonVariant.Outline" Size="ButtonSize.ExtraSmall"
+                          Class="sd-tag sd-tags__more" ShowChevron="false">
+                <TriggerContent>+@HiddenCount</TriggerContent>
+                <ChildContent>
+                    @for (var index = VisibleCount; index < Values.Count; index++)
+                    {
+                        var value = Values[index];
+                        <MenuItem Href="@HrefFactory?.Invoke(value)" Icon="@(HrefFactory is null ? null : "list-filter")">
+                            <span class="sd-mono">@value</span>
+                        </MenuItem>
+                    }
+                </ChildContent>
+            </DropdownMenu>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> Values { get; set; } = [];
+
+    [Parameter]
+    public int MaxVisible { get; set; } = 2;
+
+    /// <summary>
+    /// Makes each value a link, typically to filter by it.
+    /// </summary>
+    [Parameter]
+    public Func<string, string>? HrefFactory { get; set; }
+
+    /// <summary>
+    /// Tooltip prefix for linked values, e.g. <c>Filter by tag</c>.
+    /// </summary>
+    [Parameter]
+    public string? TooltipPrefix { get; set; }
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter]
+    public string EmptyText { get; set; } = "—";
+
+    private int VisibleCount
+      => Math.Min(this.Values.Count, Math.Max(1, this.MaxVisible));
+
+    private int HiddenCount
+      => this.Values.Count - this.VisibleCount;
+
+    private string? TooltipFor(string value)
+      => this.TooltipPrefix is null ? null : string.Concat(this.TooltipPrefix, " ", value);
+}

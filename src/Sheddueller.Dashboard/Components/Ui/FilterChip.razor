@@ -1,0 +1,21 @@
+<span class="sd-filter-chip" @attributes="AdditionalAttributes">
+    <span class="sd-filter-chip__label">@Label</span>
+    <span class="sd-filter-chip__value" title="@Value">@Value</span>
+    <button type="button" class="sd-filter-chip__remove" aria-label="@($"Remove {Label} filter {Value}")" @onclick="OnRemove">
+        <Icon Name="x" />
+    </button>
+</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}

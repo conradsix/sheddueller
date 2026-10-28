@@ -1,0 +1,113 @@
+@inherits DialogBase
+
+<dialog @ref="Element" class="sd-dialog" aria-labelledby="@TitleId" closedby="any" @attributes="AdditionalAttributes">
+    <form @onsubmit="ConfirmAsync" @onsubmit:preventDefault="true">
+        <h2 id="@TitleId" class="sd-dialog__title">@Title</h2>
+        <div class="sd-dialog__body">
+            @ChildContent
+            <label class="sd-field">
+                <span>@Label</span>
+                <input @ref="_input" class="sd-input" value="@_value" placeholder="@Placeholder" autocomplete="off"
+                       aria-invalid="@(_error is null ? null : "true")" @oninput="OnInput" />
+                @if (_error is not null)
+                {
+                    <span class="sd-field__error" role="alert">@_error</span>
+                }
+            </label>
+        </div>
+        <div class="sd-dialog__footer">
+            <Button Variant="ButtonVariant.Outline" OnClick="CloseAsync">Cancel</Button>
+            <Button Type="submit" Variant="ButtonVariant.Primary" Disabled="@string.IsNullOrWhiteSpace(_value)">@ConfirmLabel</Button>
+        </div>
+    </form>
+</dialog>
+
+@code {
+    private ElementReference _input;
+    private string _value = string.Empty;
+    private string? _error;
+    private bool _wasOpen;
+    private bool _focusPending;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The value the field starts with each time the dialog opens.
+    /// </summary>
+    [Parameter]
+    public string InitialValue { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    [Parameter]
+    public string ConfirmLabel { get; set; } = "Save";
+
+    /// <summary>
+    /// Returns an error message for an invalid value, or null when it is acceptable.
+    /// </summary>
+    [Parameter]
+    public Func<string, string?>? Validate { get; set; }
+
+    /// <summary>
+    /// Raised with the trimmed value when it passes validation; the dialog then closes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnConfirm { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (this.Open && !this._wasOpen)
+        {
+            this._value = this.InitialValue;
+            this._error = null;
+            this._focusPending = true;
+        }
+
+        this._wasOpen = this.Open;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        if (this._focusPending && this.Open)
+        {
+            this._focusPending = false;
+            await this._input.FocusAsync();
+        }
+    }
+
+    private void OnInput(ChangeEventArgs args)
+    {
+        this._value = args.Value as string ?? string.Empty;
+        this._error = null;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        var value = this._value.Trim();
+        if (value.Length == 0)
+        {
+            return;
+        }
+
+        this._error = this.Validate?.Invoke(value);
+        if (this._error is not null)
+        {
+            return;
+        }
+
+        await this.OnConfirm.InvokeAsync(value);
+        await this.CloseAsync();
+    }
+}

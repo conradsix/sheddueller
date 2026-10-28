@@ -16,7 +16,7 @@ internal static class DashboardJobColumnWidths
       {
           ShedduellerDashboardJobColumnKind.JobId => 64,
           ShedduellerDashboardJobColumnKind.Enqueued or ShedduellerDashboardJobColumnKind.TerminalTime => 160,
-          ShedduellerDashboardJobColumnKind.State => 112,
+          ShedduellerDashboardJobColumnKind.State => 128,
           ShedduellerDashboardJobColumnKind.Queue => 96,
           ShedduellerDashboardJobColumnKind.Handler => 220,
           ShedduellerDashboardJobColumnKind.Tags => 320,
