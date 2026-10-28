@@ -1,0 +1,75 @@
+@inherits DialogBase
+
+<dialog @ref="Element" class="sd-dialog" aria-labelledby="@TitleId" closedby="any" @attributes="AdditionalAttributes">
+    <h2 id="@TitleId" class="sd-dialog__title">@Title</h2>
+    <div class="sd-dialog__body">
+        @ChildContent
+        @if (RequireText is not null)
+        {
+            <label class="sd-field">
+                <span>Type <span class="sd-mono">@RequireText</span> to confirm</span>
+                <input class="sd-input" autocomplete="off" spellcheck="false" value="@_typed"
+                       @oninput="args => _typed = args.Value as string ?? string.Empty" />
+            </label>
+        }
+    </div>
+    <div class="sd-dialog__footer">
+        <Button Variant="ButtonVariant.Outline" OnClick="CloseAsync" Disabled="Busy">@CancelLabel</Button>
+        <Button Variant="@(Destructive ? ButtonVariant.Destructive : ButtonVariant.Primary)" Disabled="@(!CanConfirm)"
+                Icon="@(Busy ? "loader-circle" : null)" OnClick="ConfirmAsync">@ConfirmLabel</Button>
+    </div>
+</dialog>
+
+@code {
+    private string _typed = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Says what will happen and whether it can be undone.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public string ConfirmLabel { get; set; } = "Confirm";
+
+    [Parameter]
+    public string CancelLabel { get; set; } = "Cancel";
+
+    [Parameter]
+    public bool Destructive { get; set; }
+
+    /// <summary>
+    /// When set, the confirm button stays disabled until this exact text is typed.
+    /// </summary>
+    [Parameter]
+    public string? RequireText { get; set; }
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback OnConfirm { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool CanConfirm
+      => !this.Busy && (this.RequireText is null || string.Equals(this._typed.Trim(), this.RequireText, StringComparison.Ordinal));
+
+    protected override void OnParametersSet()
+    {
+        if (!this.Open)
+        {
+            this._typed = string.Empty;
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
+        await this.OnConfirm.InvokeAsync();
+        await this.CloseAsync();
+    }
+}

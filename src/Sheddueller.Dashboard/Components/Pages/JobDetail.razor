@@ -9,8 +9,8 @@
 <div class="job-detail-page">
     <header class="job-detail-toolbar">
         <div class="job-detail-toolbar__primary">
-            <a class="job-detail-back-link" href="jobs">
-                <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+            <a class="job-detail-back-link" href="@JobsListHref">
+                <Icon Name="arrow_back" />
                 <span>Jobs</span>
             </a>
             <span class="job-detail-toolbar__title">Job Detail</span>
@@ -19,7 +19,7 @@
         <div class="job-detail-actions" title="@CancelButtonTitle">
             <button class="@CancelButtonClass" type="button" title="@CancelButtonTitle"
                     aria-label="@CancelButtonAriaLabel" @onclick="CancelJobAsync" disabled="@IsCancelButtonDisabled">
-                <span class="material-symbols-outlined" aria-hidden="true">@CancelButtonIcon</span>
+                <Icon Name="@CancelButtonIcon" />
                 <span>@CancelButtonText</span>
             </button>
         </div>
@@ -35,7 +35,7 @@
     @if (_error is not null)
     {
         <section class="job-detail-message job-detail-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h1>Job detail failed to load</h1>
                 <p>@_error</p>
@@ -45,7 +45,7 @@
     else if (_isLoading && _detail is null)
     {
         <section class="job-detail-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h1>Loading job detail</h1>
                 <p>Reading scheduler job record and durable events.</p>
@@ -57,7 +57,7 @@
         <section class="job-detail-not-found-canvas" aria-live="polite">
             <div class="job-detail-not-found-card">
                 <div class="job-detail-not-found-card__icon" aria-hidden="true">
-                    <span class="material-symbols-outlined">search_off</span>
+                    <Icon Name="search_off" />
                 </div>
 
                 <h1>Job Not Found</h1>
@@ -66,8 +66,8 @@
                     <span class="job-detail-not-found-card__id">@DashboardFormat.JobId(JobId)</span>
                 </p>
 
-                <a class="job-detail-not-found-card__action" href="jobs">
-                    <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+                <a class="job-detail-not-found-card__action" href="@JobsListHref">
+                    <Icon Name="arrow_back" />
                     <span>Return to Jobs</span>
                 </a>
             </div>
@@ -334,7 +334,7 @@
                                 <strong>Show Progress</strong>
                             </label>
                             <button class="job-detail-button job-detail-button--secondary job-detail-button--compact" type="button" @onclick="ToggleLogsPaused">
-                                <span class="material-symbols-outlined" aria-hidden="true">@(_logsPaused ? "play_arrow" : "pause")</span>
+                                <Icon Name="@(_logsPaused ? "play_arrow" : "pause")" />
                                 <span>@(_logsPaused ? "Resume" : "Pause")</span>
                             </button>
                             <div class="job-detail-stream-status @(_logsPaused ? "job-detail-stream-status--paused" : null)">
@@ -342,7 +342,7 @@
                                 <strong>@(_logsPaused ? "PAUSED" : "LIVE")</strong>
                             </div>
                             <button class="job-detail-icon-button" type="button" disabled aria-label="Download logs" title="Download logs">
-                                <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                                <Icon Name="download" />
                             </button>
                         </div>
                     </div>
@@ -387,6 +387,11 @@
                             </tbody>
                         </table>
                     </div>
+                    @if (HasMoreEvents)
+                    {
+                        <button class="job-detail-button job-detail-button--secondary job-detail-button--compact" type="button"
+                                @onclick="LoadMoreEventsAsync" disabled="@_isLoadingMoreEvents">@LoadMoreEventsText</button>
+                    }
                 </section>
             </div>
         </div>
@@ -428,23 +433,19 @@
     }
 
     .job-detail-toolbar__title {
-        color: var(--sd-primary);
+        color: var(--sd-on-surface);
         font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
+        font-weight: 500;
         line-height: 16px;
-        text-transform: uppercase;
     }
 
     .job-detail-back-link {
         gap: 6px;
         color: var(--sd-on-surface-variant);
         font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
+        font-weight: 500;
         line-height: 16px;
         text-decoration: none;
-        text-transform: uppercase;
     }
 
     .job-detail-back-link:hover {
@@ -457,13 +458,14 @@
         align-items: flex-start;
         gap: 12px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
         padding: 16px;
     }
 
-    .job-detail-message .material-symbols-outlined,
-    .job-detail-inline-alert .material-symbols-outlined {
+    .job-detail-message .sd-icon,
+    .job-detail-inline-alert .sd-icon {
         color: var(--sd-primary);
     }
 
@@ -482,8 +484,8 @@
         color: var(--sd-on-error-container);
     }
 
-    .job-detail-message--error .material-symbols-outlined,
-    .job-detail-inline-alert--error .material-symbols-outlined {
+    .job-detail-message--error .sd-icon,
+    .job-detail-inline-alert--error .sd-icon {
         color: var(--sd-error);
     }
 
@@ -493,7 +495,7 @@
         color: var(--sd-warning);
     }
 
-    .job-detail-inline-alert--warning .material-symbols-outlined {
+    .job-detail-inline-alert--warning .sd-icon {
         color: var(--sd-warning);
     }
 
@@ -503,7 +505,7 @@
         color: var(--sd-success);
     }
 
-    .job-detail-inline-alert--success .material-symbols-outlined {
+    .job-detail-inline-alert--success .sd-icon {
         color: var(--sd-success);
     }
 
@@ -522,7 +524,8 @@
         align-items: center;
         flex-direction: column;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
         padding: 32px;
         text-align: center;
@@ -541,7 +544,7 @@
         color: var(--sd-primary);
     }
 
-    .job-detail-not-found-card__icon .material-symbols-outlined {
+    .job-detail-not-found-card__icon .sd-icon {
         font-size: 32px;
     }
 
@@ -565,10 +568,10 @@
         overflow: hidden;
         margin-top: 8px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         background: var(--sd-surface-high);
         color: var(--sd-primary);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         font-size: 13px;
         line-height: 18px;
         padding: 2px 8px;
@@ -584,16 +587,14 @@
         gap: 8px;
         margin-top: 32px;
         border: 1px solid var(--sd-primary);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-primary);
         color: var(--sd-on-primary);
         padding: 8px 14px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
         text-decoration: none;
-        text-transform: uppercase;
     }
 
     .job-detail-not-found-card__action:hover {
@@ -601,14 +602,15 @@
         color: var(--sd-primary);
     }
 
-    .job-detail-not-found-card__action .material-symbols-outlined {
+    .job-detail-not-found-card__action .sd-icon {
         font-size: 16px;
     }
 
     .job-detail-hero,
     .job-detail-panel {
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
     }
 
@@ -635,7 +637,7 @@
 
     .job-detail-title-row h1 {
         overflow: hidden;
-        color: var(--sd-primary);
+        color: var(--sd-on-surface);
         font-size: 24px;
         line-height: 32px;
         text-overflow: ellipsis;
@@ -659,14 +661,14 @@
     .job-detail-progress-percent,
     .job-detail-log-table,
     .job-detail-timeline__time span {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
     }
 
     .job-detail-handler {
         display: inline-block;
         max-width: min(760px, 80vw);
         overflow: hidden;
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-container);
         color: var(--sd-primary);
         padding: 1px 5px;
@@ -695,7 +697,7 @@
         align-items: center;
         justify-content: center;
         gap: 7px;
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         padding: 7px 12px;
         font-size: 12px;
         font-weight: 700;
@@ -755,12 +757,10 @@
         border: 1px solid var(--sd-outline-variant);
         border-radius: 999px;
         padding: 3px 9px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
         text-decoration: none;
-        text-transform: uppercase;
         white-space: nowrap;
     }
 
@@ -835,11 +835,9 @@
     .job-detail-metadata-item>span,
     .job-detail-log-table th {
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .job-detail-progress-line {
@@ -898,7 +896,7 @@
 
     .job-detail-disposition {
         width: fit-content;
-        border-radius: 2px;
+        border-radius: 6px;
         background: var(--sd-surface-container);
         color: var(--sd-on-surface);
         text-transform: none;
@@ -921,7 +919,7 @@
 
     .job-detail-panel h2 {
         border-bottom: 1px solid var(--sd-outline-variant);
-        color: var(--sd-primary);
+        color: var(--sd-on-surface);
         padding-bottom: 12px;
     }
 
@@ -977,7 +975,7 @@
 
     .job-detail-value-timestamp__absolute {
         color: var(--sd-on-surface-variant);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         font-size: 12px;
         line-height: 16px;
     }
@@ -1004,7 +1002,7 @@
         max-width: 100%;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         background: var(--sd-surface-low);
         color: var(--sd-on-surface-variant);
         font-size: 10px;
@@ -1046,7 +1044,7 @@
         overflow: auto;
         margin: 0;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-container);
         color: var(--sd-on-surface);
         font-size: 13px;
@@ -1060,11 +1058,11 @@
         overflow: auto;
         margin: 0;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-container);
         box-shadow: none;
         color: var(--sd-on-surface);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         font-size: 13px;
         line-height: 20px;
         padding: 10px;
@@ -1131,7 +1129,7 @@
         max-height: 240px;
         margin-top: 8px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-container);
         color: var(--sd-on-surface);
         font-size: 12px;
@@ -1220,7 +1218,7 @@
     }
 
     .job-detail-timeline-item--failed .job-detail-timeline__content span {
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-error-container);
         padding: 2px 5px;
     }
@@ -1288,15 +1286,13 @@
         min-height: 30px;
         gap: 7px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface);
         padding: 5px 9px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .job-detail-stream-status span {
@@ -1323,7 +1319,7 @@
         align-items: center;
         gap: 8px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface-variant);
         cursor: pointer;
@@ -1379,11 +1375,9 @@
     }
 
     .job-detail-switch strong {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
         white-space: nowrap;
     }
 
@@ -1542,7 +1536,7 @@
 @code {
     private const int EventPageSize = 500;
 
-    private readonly List<JobEvent> _events = [];
+    private readonly DashboardJobEventLog _eventLog = new(EventPageSize);
     private ElementReference _invocationCodeElement;
     private JobInspectionDetail? _detail;
     private Guid? _loadedJobId;
@@ -1551,12 +1545,27 @@
     private string? _highlightedInvocationCall;
     private JobDetailActionAlertKind _actionAlertKind;
     private bool _isLoading;
+    private bool _isLoadingMoreEvents;
     private bool _isCancelRunning;
     private bool _logsPaused;
     private bool _showProgressLogs;
 
     [Parameter]
     public Guid JobId { get; set; }
+
+    [Inject]
+    private DashboardNavigationState NavigationState { get; set; } = null!;
+
+    private string JobsListHref
+      => this.NavigationState.JobsListHref;
+
+    private bool HasMoreEvents
+      => this._detail is not null && this._eventLog.HasMoreToRead;
+
+    private string LoadMoreEventsText
+      => this._isLoadingMoreEvents
+        ? "Loading Events"
+        : string.Create(CultureInfo.InvariantCulture, $"Load More Events ({DashboardFormat.Count(this._eventLog.Events.Count)} loaded)");
 
     private string ActionAlertClass
       => this._actionAlertKind switch
@@ -1607,7 +1616,8 @@
         this.InitializeLiveRefresh(
           this.RefreshDetailAsync,
           showRefreshing: true,
-          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._detail is null ? null : nowUtc));
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._detail is null ? null : nowUtc),
+          queuedRefreshAsync: this.RefreshSummaryAsync);
         LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
     }
 
@@ -1620,7 +1630,8 @@
 
         this._loadedJobId = this.JobId;
         this._detail = null;
-        this._events.Clear();
+        this._eventLog.Clear();
+        this._isLoadingMoreEvents = false;
         this._highlightedInvocationCall = null;
         this._error = null;
         this.ClearActionAlert();
@@ -1663,8 +1674,12 @@
         return ValueTask.CompletedTask;
     }
 
-    private void ToggleLogsPaused()
-      => this._logsPaused = !this._logsPaused;
+    // Paused means no live appends and no list replacement. Resuming catches up on anything missed while paused.
+    private Task ToggleLogsPaused()
+    {
+        this._logsPaused = !this._logsPaused;
+        return this._logsPaused ? Task.CompletedTask : this.LiveRefresh.RefreshNowAsync();
+    }
 
     private void ToggleProgressLogs(ChangeEventArgs eventArgs)
       => this._showProgressLogs = eventArgs.Value is true;
@@ -1702,14 +1717,24 @@
     {
         _ = cancellationToken;
 
-        if (jobEvent.JobId != this.JobId || this._logsPaused)
+        if (jobEvent.JobId != this.JobId)
         {
             return;
         }
 
         await this.ApplyPageStateAsync(() =>
         {
-            this.AppendOrReplaceEvent(jobEvent);
+            if (jobEvent.JobId != this.JobId)
+            {
+                return;
+            }
+
+            // A paused log stream takes no appends; the summary still reflects the live job.
+            if (!this._logsPaused)
+            {
+                _ = this._eventLog.Append(jobEvent);
+            }
+
             this.ApplyLiveEventToDetail(jobEvent);
             this.LiveRefresh.MarkLiveActivity(jobEvent.OccurredAtUtc);
         });
@@ -1718,6 +1743,7 @@
 
     private async Task LoadAsync()
     {
+        var jobId = this.JobId;
         await this.ApplyPageStateAsync(() =>
         {
             if (this._detail is null)
@@ -1731,11 +1757,24 @@
 
         try
         {
-            var (detail, events) = await this.ReadDetailAsync(CancellationToken.None);
+            var detail = await Reader.GetJobAsync(jobId);
+            var events = detail is null
+              ? []
+              : await this.ReadEventPageAsync(jobId, afterEventSequence: null, CancellationToken.None);
 
             await this.ApplyPageStateAsync(() =>
             {
-                this.ApplyLoadedDetail(detail, events);
+                if (jobId != this.JobId)
+                {
+                    return;
+                }
+
+                this._detail = detail;
+                if (detail is not null)
+                {
+                    _ = this._eventLog.AppendPage(events);
+                }
+
                 this._isLoading = false;
                 this.LiveRefresh.MarkUpdated();
             });
@@ -1744,62 +1783,108 @@
         {
             await this.ApplyPageStateAsync(() =>
             {
-                this._error = exception.Message;
-                this._isLoading = false;
+                if (jobId == this.JobId)
+                {
+                    this._error = exception.Message;
+                    this._isLoading = false;
+                }
             });
         }
     }
 
-    private async Task RefreshDetailAsync(CancellationToken cancellationToken)
-    {
-        var (detail, events) = await this.ReadDetailAsync(cancellationToken);
+    // Explicit refresh (manual refresh, resume, auto-refresh re-enabled, after cancel): the job summary plus any
+    // durable events not yet loaded, read incrementally after the loaded run.
+    private Task RefreshDetailAsync(CancellationToken cancellationToken)
+      => this.RefreshAsync(catchUpEvents: true, cancellationToken);
 
-        await this.ApplyPageStateAsync(() => this.ApplyLoadedDetail(detail, events));
+    // Live-event refresh: the pushed event is already in the log, so only the job summary is re-read.
+    private Task RefreshSummaryAsync(CancellationToken cancellationToken)
+      => this.RefreshAsync(catchUpEvents: false, cancellationToken);
+
+    private async Task RefreshAsync(
+        bool catchUpEvents,
+        CancellationToken cancellationToken)
+    {
+        var jobId = this.JobId;
+        long? readThroughSequence = null;
+        var readEvents = false;
+        await this.InvokeAsync(() =>
+        {
+            readThroughSequence = this._eventLog.ReadThroughSequence;
+            readEvents = (catchUpEvents || this._detail is null)
+              && !this._logsPaused
+              && !this._eventLog.HasMoreToRead;
+        });
+
+        var detail = await Reader.GetJobAsync(jobId, cancellationToken);
+        var events = detail is not null && readEvents
+          ? await this.ReadEventPageAsync(jobId, readThroughSequence, cancellationToken)
+          : [];
+
+        await this.ApplyPageStateAsync(() =>
+        {
+            if (jobId != this.JobId)
+            {
+                return;
+            }
+
+            this._detail = detail;
+            if (detail is not null && readEvents && !this._logsPaused)
+            {
+                _ = this._eventLog.AppendPage(events);
+            }
+        });
     }
 
-    private async Task<(JobInspectionDetail? Detail, IReadOnlyList<JobEvent> Events)> ReadDetailAsync(CancellationToken cancellationToken)
+    private async Task LoadMoreEventsAsync()
     {
-        var detail = await Reader.GetJobAsync(this.JobId, cancellationToken);
-        var events = new List<JobEvent>();
-        if (detail is not null)
+        if (this._isLoadingMoreEvents || !this.HasMoreEvents)
         {
-            await foreach (var jobEvent in Reader.ReadEventsAsync(
-                this.JobId,
-                new JobEventReadOptions(Limit: EventPageSize),
-                cancellationToken)
-              )
+            return;
+        }
+
+        var jobId = this.JobId;
+        this._isLoadingMoreEvents = true;
+
+        try
+        {
+            var events = await this.ReadEventPageAsync(jobId, this._eventLog.ReadThroughSequence, CancellationToken.None);
+            if (jobId == this.JobId)
             {
-                events.Add(jobEvent);
+                _ = this._eventLog.AppendPage(events);
             }
         }
-
-        return (detail, events);
+        catch (Exception exception)
+        {
+            if (jobId == this.JobId)
+            {
+                this.SetActionError(string.Create(CultureInfo.InvariantCulture, $"Loading more events failed: {exception.Message}"));
+            }
+        }
+        finally
+        {
+            if (jobId == this.JobId)
+            {
+                this._isLoadingMoreEvents = false;
+            }
+        }
     }
 
-    private void ApplyLoadedDetail(
-        JobInspectionDetail? detail,
-        IReadOnlyList<JobEvent> events)
+    private async Task<IReadOnlyList<JobEvent>> ReadEventPageAsync(
+        Guid jobId,
+        long? afterEventSequence,
+        CancellationToken cancellationToken)
     {
-        this._detail = detail;
-        this._events.Clear();
-        this._events.AddRange(events.OrderBy(static jobEvent => jobEvent.EventSequence));
-    }
-
-    private void AppendOrReplaceEvent(JobEvent jobEvent)
-    {
-        var index = this._events.FindIndex(candidate =>
-          candidate.EventId == jobEvent.EventId || candidate.EventSequence == jobEvent.EventSequence);
-
-        if (index >= 0)
+        var events = new List<JobEvent>();
+        await foreach (var jobEvent in Reader.ReadEventsAsync(
+            jobId,
+            new JobEventReadOptions(afterEventSequence, EventPageSize),
+            cancellationToken))
         {
-            this._events[index] = jobEvent;
-        }
-        else
-        {
-            this._events.Add(jobEvent);
+            events.Add(jobEvent);
         }
 
-        this._events.Sort(static (left, right) => left.EventSequence.CompareTo(right.EventSequence));
+        return events;
     }
 
     private void ApplyLiveEventToDetail(JobEvent jobEvent)
@@ -1926,10 +2011,10 @@
       => this._actionMessage = null;
 
     private IReadOnlyList<JobEvent> GetLifecycleEvents()
-      => [.. this._events.Where(DashboardFormat.IsLifecycleEvent)];
+      => [.. this._eventLog.Events.Where(DashboardFormat.IsLifecycleEvent)];
 
     private IReadOnlyList<JobEvent> GetLogEvents()
-      => [.. this._events
+      => [.. this._eventLog.Events
         .Where(DashboardFormat.IsLogEvent)
         .Where(jobEvent => this._showProgressLogs || jobEvent.Kind != JobEventKind.Progress)];
 

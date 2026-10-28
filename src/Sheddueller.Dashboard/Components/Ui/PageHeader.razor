@@ -1,0 +1,43 @@
+<header class="sd-page-header" @attributes="AdditionalAttributes">
+    <div class="sd-page-header__main">
+        <div class="sd-page-header__title-row">
+            <h1 class="sd-page-header__title">@Title</h1>
+            @TitleAddon
+        </div>
+        @if (Description is not null)
+        {
+            <p class="sd-page-header__description">@Description</p>
+        }
+        @ChildContent
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="sd-page-header__actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Content beside the title, such as a status badge or view switcher.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? TitleAddon { get; set; }
+
+    /// <summary>
+    /// Content under the description, such as a metadata row.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}

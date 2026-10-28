@@ -1,757 +1,177 @@
 @inherits LayoutComponentBase
 @implements IDisposable
+@inject NavigationManager Navigation
+@inject DashboardNavigationState NavigationState
 
 <CascadingValue Name="DashboardShellRefresh" Value="_refreshContext">
-    <div class="sd-dashboard-shell">
+    <div class="sd-shell">
         <aside class="sd-sidebar" aria-label="Dashboard navigation">
-            <div class="sd-sidebar__brand">
-                <span class="sd-sidebar__title">Sheddueller</span>
-                <span class="sd-sidebar__subtitle">Dashboard</span>
-            </div>
+            <a class="sd-brand" href="">
+                <span class="sd-brand__mark" aria-hidden="true">
+                    <svg viewBox="0 0 18 18" fill="currentColor">
+                        <rect x="2" y="3" width="9" height="2.6" rx="1.3" />
+                        <rect x="5" y="7.7" width="11" height="2.6" rx="1.3" />
+                        <rect x="2" y="12.4" width="6" height="2.6" rx="1.3" />
+                        <rect x="10" y="12.4" width="6" height="2.6" rx="1.3" opacity=".55" />
+                    </svg>
+                </span>
+                <span class="sd-brand__text">
+                    <span class="sd-brand__name">Sheddueller</span>
+                    <span class="sd-brand__caption">Dashboard</span>
+                </span>
+            </a>
 
-            <nav class="sd-sidebar__nav" aria-label="Primary">
-                <NavLink class="sd-sidebar__link" href="" Match="NavLinkMatch.All">
-                    <span class="material-symbols-outlined" aria-hidden="true">dashboard</span>
-                    <span>Overview</span>
-                </NavLink>
-                <NavLink class="sd-sidebar__link" href="jobs">
-                    <span class="material-symbols-outlined" aria-hidden="true">format_list_bulleted</span>
-                    <span>Jobs</span>
-                </NavLink>
-                <NavLink class="sd-sidebar__link" href="schedules">
-                    <span class="material-symbols-outlined" aria-hidden="true">event_repeat</span>
-                    <span>Schedules</span>
-                </NavLink>
-                <NavLink class="sd-sidebar__link" href="concurrency-groups">
-                    <span class="material-symbols-outlined" aria-hidden="true">layers</span>
-                    <span>Concurrency Groups</span>
-                </NavLink>
-                <NavLink class="sd-sidebar__link" href="nodes">
-                    <span class="material-symbols-outlined" aria-hidden="true">dns</span>
-                    <span>Nodes</span>
-                </NavLink>
-                <NavLink class="sd-sidebar__link" href="metrics">
-                    <span class="material-symbols-outlined" aria-hidden="true">analytics</span>
-                    <span>Metrics</span>
-                </NavLink>
-                <NavLink class="sd-sidebar__link" href="settings">
-                    <span class="material-symbols-outlined" aria-hidden="true">settings</span>
-                    <span>Settings</span>
+            <nav class="sd-nav" aria-label="Primary">
+                <div class="sd-nav__label">Monitor</div>
+                @foreach (var item in MonitorNavigation)
+                {
+                    <NavLink class="sd-nav__item" href="@item.Href" Match="@item.Match" data-sd-nav="@item.Key" data-sd-nav-key="@item.ShortcutKey"
+                             data-sd-tooltip="@item.Label" data-sd-tooltip-when="collapsed" data-sd-tooltip-side="right">
+                        <Icon Name="@item.Icon" />
+                        <span class="sd-nav__text">@item.Label</span>
+                    </NavLink>
+                }
+
+                <div class="sd-nav__label">Configure</div>
+                <NavLink class="sd-nav__item" href="settings" data-sd-nav="settings"
+                         data-sd-tooltip="Settings" data-sd-tooltip-when="collapsed" data-sd-tooltip-side="right">
+                    <Icon Name="settings" />
+                    <span class="sd-nav__text">Settings</span>
                 </NavLink>
             </nav>
 
-            @if (CurrentRefresh is { } refresh)
-            {
-                <nav class="sd-sidebar__nav sd-sidebar__nav--footer" aria-label="Refresh controls">
-                    <div class="sd-shell-refresh">
-                        <span class="sd-shell-refresh__label">Live Refresh</span>
-                        <LiveStatus IsRefreshing="refresh.Coordinator.IsRefreshing" ShowRefreshing="refresh.ShowRefreshing"
-                                    LastUpdatedUtc="@refresh.GetLastUpdatedUtc(DateTimeOffset.UtcNow)" />
-                        <button class="@ShellRefreshButtonClass(refresh)" type="button"
-                                @onclick="ToggleShellAutoRefreshAsync" aria-pressed="@refresh.Coordinator.AutoRefreshEnabled">
-                            <span class="material-symbols-outlined" aria-hidden="true">sync</span>
-                            <span>Auto-refresh @AutoRefreshStateText(refresh)</span>
+            <div class="sd-sidebar__footer">
+                <div class="sd-theme-row">
+                    <span>Theme</span>
+                    <div class="sd-tabs sd-tabs--sm" role="radiogroup" aria-label="Theme">
+                        <button type="button" class="sd-tabs__tab" role="radio" data-sd-theme="system" aria-label="Match system theme" data-sd-tooltip="System">
+                            <Icon Name="monitor" />
+                        </button>
+                        <button type="button" class="sd-tabs__tab" role="radio" data-sd-theme="light" aria-label="Light theme" data-sd-tooltip="Light">
+                            <Icon Name="sun" />
+                        </button>
+                        <button type="button" class="sd-tabs__tab" role="radio" data-sd-theme="dark" aria-label="Dark theme" data-sd-tooltip="Dark">
+                            <Icon Name="moon" />
                         </button>
                     </div>
-                </nav>
-            }
+                </div>
+                <button type="button" class="sd-nav__item" data-sd-open-dialog="sd-shortcuts"
+                        data-sd-tooltip="Keyboard shortcuts" data-sd-tooltip-when="collapsed" data-sd-tooltip-side="right">
+                    <Icon Name="keyboard" />
+                    <span class="sd-nav__text">Keyboard shortcuts</span>
+                    <Kbd>?</Kbd>
+                </button>
+            </div>
         </aside>
+        <div class="sd-scrim" data-sd-action="close-nav"></div>
 
-        <div class="sd-workspace">
+        <div class="sd-inset">
+            <header class="sd-topbar">
+                <IconButton Icon="panel-left" Label="Toggle sidebar" data-sd-action="toggle-sidebar" />
+                <span class="sd-topbar__divider" aria-hidden="true"></span>
+                <nav class="sd-breadcrumbs" aria-label="Breadcrumb">
+                    @if (_breadcrumbParent is { } parent)
+                    {
+                        <a href="@parent.Href">@parent.Label</a>
+                        <Icon Name="chevron-right" />
+                    }
+                    <span aria-current="page">@_breadcrumbCurrent</span>
+                </nav>
+                <span class="sd-topbar__spacer"></span>
+
+                <button type="button" class="sd-command-trigger" data-sd-action="command" aria-label="Open command menu">
+                    <Icon Name="search" />
+                    <span class="sd-command-trigger__text">Go to a page, job or action…</span>
+                    <Kbd><span data-sd-mod-key></span>K</Kbd>
+                </button>
+
+                @if (CurrentRefresh is { } refresh)
+                {
+                    <IconButton Icon="refresh-cw" Label="Refresh now" Disabled="refresh.Coordinator.IsRefreshing"
+                                OnClick="RefreshNowAsync" data-sd-action-refresh="true" />
+                    <button type="button" class="@LiveClass(refresh)" aria-pressed="@(refresh.Coordinator.AutoRefreshEnabled ? "true" : "false")"
+                            data-sd-action-live="true" data-sd-tooltip="@LiveTooltip(refresh)" @onclick="ToggleShellAutoRefreshAsync">
+                        <span class="sd-live__dot" aria-hidden="true"></span>
+                        <span>@LiveText(refresh)</span>
+                    </button>
+                }
+            </header>
+
             <main class="sd-main">
                 @Body
             </main>
         </div>
     </div>
+
+    <dialog id="sd-command" class="sd-command" aria-label="Command menu" closedby="any">
+        <div class="sd-command__input">
+            <Icon Name="search" />
+            <input id="sd-command-input" placeholder="Go to a page, open a job by ID, or run an action…" autocomplete="off"
+                   spellcheck="false" role="combobox" aria-expanded="true" aria-controls="sd-command-list" aria-label="Command" />
+        </div>
+        <div class="sd-command__list" id="sd-command-list" role="listbox" aria-label="Results"></div>
+        <div class="sd-command__footer">
+            <span><Kbd>↑</Kbd><Kbd>↓</Kbd> Move</span>
+            <span><Kbd>↵</Kbd> Open</span>
+            <span><Kbd>Esc</Kbd> Close</span>
+        </div>
+    </dialog>
+
+    <dialog id="sd-shortcuts" class="sd-dialog" aria-labelledby="sd-shortcuts-title" closedby="any">
+        <h2 id="sd-shortcuts-title" class="sd-dialog__title">Keyboard shortcuts</h2>
+        <div class="sd-shortcuts">
+            @foreach (var shortcut in Shortcuts)
+            {
+                <div class="sd-shortcuts__row">
+                    <span>@shortcut.Description</span>
+                    <span class="sd-shortcuts__keys">
+                        @foreach (var key in shortcut.Keys)
+                        {
+                            @if (key == "mod")
+                            {
+                                <Kbd data-sd-mod-key="true"></Kbd>
+                            }
+                            else
+                            {
+                                <Kbd>@key</Kbd>
+                            }
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+        <div class="sd-dialog__footer">
+            <Button Variant="ButtonVariant.Primary" data-sd-close-dialog="true">Done</Button>
+        </div>
+    </dialog>
 </CascadingValue>
 
-<style>
-    :root {
-        --sd-background: #fcf8fa;
-        --sd-surface: #ffffff;
-        --sd-surface-lowest: #ffffff;
-        --sd-surface-low: #f6f3f5;
-        --sd-surface-container: #f0edef;
-        --sd-surface-high: #eae7e9;
-        --sd-surface-variant: #e4e2e4;
-        --sd-on-surface: #1b1b1d;
-        --sd-on-surface-variant: #45464d;
-        --sd-outline: #76777d;
-        --sd-outline-variant: #c6c6cd;
-        --sd-primary: #000000;
-        --sd-on-primary: #ffffff;
-        --sd-secondary: #515f74;
-        --sd-secondary-container: #d5e3fd;
-        --sd-on-secondary-container: #57657b;
-        --sd-error: #ba1a1a;
-        --sd-error-container: #ffdad6;
-        --sd-on-error-container: #93000a;
-        --sd-warning: #8a5a00;
-        --sd-warning-container: #ffedcc;
-        --sd-success: #166534;
-        --sd-success-container: #dcfce7;
-        --sd-info: #1d4ed8;
-        --sd-info-container: #dbeafe;
-        --sd-sidebar-width: 240px;
-        --sd-page-margin: 24px;
-        --sd-gutter: 16px;
-        --sd-density-high: 8px;
-        --sd-density-comfortable: 16px;
-        --sd-radius: 4px;
-        color-scheme: light dark;
-    }
-
-    @@media (prefers-color-scheme: dark) {
-        :root {
-            --sd-background: #0b1326;
-            --sd-surface: #131b2e;
-            --sd-surface-lowest: #060e20;
-            --sd-surface-low: #171f33;
-            --sd-surface-container: #060e20;
-            --sd-surface-high: #222a3d;
-            --sd-surface-variant: #2d3449;
-            --sd-on-surface: #dae2fd;
-            --sd-on-surface-variant: #bdc8d1;
-            --sd-outline: #87929a;
-            --sd-outline-variant: #3e484f;
-            --sd-primary: #8ed5ff;
-            --sd-on-primary: #00354a;
-            --sd-secondary: #bcc7de;
-            --sd-secondary-container: #3e495d;
-            --sd-on-secondary-container: #d8e3fb;
-            --sd-error: #ffb4ab;
-            --sd-error-container: #93000a;
-            --sd-on-error-container: #ffdad6;
-            --sd-warning: #ffc176;
-            --sd-warning-container: #613b00;
-            --sd-success: #10b981;
-            --sd-success-container: #063f33;
-            --sd-info: #38bdf8;
-            --sd-info-container: #0b3c53;
-            color-scheme: dark;
-        }
-    }
-
-    html,
-    body {
-        height: 100%;
-    }
-
-    body {
-        margin: 0;
-        background: var(--sd-background);
-        color: var(--sd-on-surface);
-        font-family: Inter, Arial, sans-serif;
-        font-size: 14px;
-        line-height: 20px;
-        overflow: hidden;
-    }
-
-    *,
-    *::before,
-    *::after {
-        box-sizing: border-box;
-    }
-
-    a {
-        color: inherit;
-    }
-
-    .sd-chip-list {
-        position: relative;
-        overflow: visible;
-    }
-
-    .sd-chip-list .sd-chip {
-        max-width: 180px;
-        flex: 0 0 auto;
-    }
-
-    .sd-chip-overflow {
-        position: relative;
-        display: inline-flex;
-        flex: 0 0 auto;
-    }
-
-    .sd-chip-overflow__summary {
-        display: inline-flex;
-        min-width: 30px;
-        max-width: none;
-        appearance: none;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        font: inherit;
-    }
-
-    .sd-chip-overflow:hover .sd-chip-overflow__summary,
-    .sd-chip-overflow:focus-within .sd-chip-overflow__summary {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .sd-chip-overflow__panel {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        z-index: 30;
-        display: none;
-        min-width: 220px;
-        max-width: min(420px, 70vw);
-        gap: 2px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 4px;
-        background: var(--sd-surface-lowest);
-        box-shadow: 0 12px 28px rgb(0 0 0 / 30%);
-        padding: 10px 6px 6px;
-        white-space: normal;
-    }
-
-    .sd-chip-overflow:hover .sd-chip-overflow__panel,
-    .sd-chip-overflow:focus-within .sd-chip-overflow__panel {
-        display: grid;
-    }
-
-    .sd-chip-overflow__item {
-        display: block;
-        overflow-wrap: anywhere;
-        border-radius: 2px;
-        color: var(--sd-on-surface);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 11px;
-        line-height: 16px;
-        padding: 4px 6px;
-        text-decoration: none;
-        white-space: normal;
-    }
-
-    a.sd-chip-overflow__item:hover {
-        background: var(--sd-surface-low);
-        color: var(--sd-primary);
-    }
-
-    button,
-    input,
-    select {
-        font: inherit;
-    }
-
-    .material-symbols-outlined {
-        font-family: 'Material Symbols Outlined';
-        font-size: 20px;
-        font-style: normal;
-        font-weight: normal;
-        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-        line-height: 1;
-    }
-
-    .sd-dashboard-shell {
-        display: flex;
-        height: 100vh;
-        overflow: hidden;
-        background: var(--sd-background);
-        color: var(--sd-on-surface);
-    }
-
-    .sd-sidebar {
-        position: fixed;
-        inset: 0 auto 0 0;
-        z-index: 50;
-        display: flex;
-        width: var(--sd-sidebar-width);
-        flex-direction: column;
-        border-right: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-    }
-
-    .sd-sidebar__brand {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 24px;
-        border-bottom: 1px solid var(--sd-outline-variant);
-    }
-
-    .sd-sidebar__title {
-        color: var(--sd-primary);
-        font-family: "Space Grotesk", Inter, Arial, sans-serif;
-        font-size: 18px;
-        font-weight: 600;
-        line-height: 24px;
-        text-transform: uppercase;
-    }
-
-    .sd-sidebar__subtitle {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    .sd-sidebar__nav {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        gap: 4px;
-        padding: 16px 12px;
-    }
-
-    .sd-sidebar__nav--footer {
-        flex: 0;
-        border-top: 1px solid var(--sd-outline-variant);
-    }
-
-    .sd-sidebar__link {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        min-height: 36px;
-        padding: 8px 16px;
-        border-radius: 2px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-        text-decoration: none;
-        transition: background-color 150ms ease, color 150ms ease;
-    }
-
-    .sd-sidebar__link:hover {
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface);
-    }
-
-    .sd-sidebar__link.active {
-        border-right: 2px solid var(--sd-primary);
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface);
-    }
-
-    .sd-sidebar__link--muted {
-        cursor: default;
-    }
-
-    .sd-shell-refresh {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding: 0 4px;
-    }
-
-    .sd-shell-refresh__label {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    .sd-shell-refresh .sd-live-status {
-        width: 100%;
-        justify-content: flex-start;
-    }
-
-    button.sd-shell-refresh__button {
-        display: inline-flex;
-        width: 100%;
-        min-height: 32px;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface-variant);
-        padding: 6px 8px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    button.sd-shell-refresh__button--active {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    button.sd-shell-refresh__button:hover {
-        color: var(--sd-primary);
-    }
-
-    .sd-workspace {
-        display: flex;
-        width: calc(100% - var(--sd-sidebar-width));
-        height: 100vh;
-        min-height: 0;
-        margin-left: var(--sd-sidebar-width);
-        flex-direction: column;
-    }
-
-    .sd-live-status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        min-height: 28px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface);
-        color: var(--sd-on-surface-variant);
-        padding: 5px 10px;
-        font-size: 12px;
-        line-height: 16px;
-        white-space: nowrap;
-    }
-
-    .sd-live-status__dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: var(--sd-success);
-    }
-
-    .sd-live-status--refreshing .sd-live-status__dot {
-        background: var(--sd-info);
-    }
-
-    .sd-live-status--error {
-        border-color: var(--sd-error-container);
-        color: var(--sd-error);
-    }
-
-    .sd-live-status--error .sd-live-status__dot {
-        background: var(--sd-error);
-    }
-
-    .sd-main {
-        flex: 1 1 auto;
-        min-height: 0;
-        overflow-y: auto;
-        padding: var(--sd-page-margin);
-    }
-
-    :where(.sd-main h1, .sd-main h2, .sd-main h3) {
-        margin: 0;
-        font-family: "Space Grotesk", Inter, Arial, sans-serif;
-        font-weight: 600;
-    }
-
-    :where(.sd-main h1) {
-        font-size: 24px;
-        line-height: 32px;
-    }
-
-    :where(.sd-main h2) {
-        font-size: 18px;
-        line-height: 24px;
-    }
-
-    :where(.sd-main h3) {
-        font-size: 16px;
-        line-height: 22px;
-    }
-
-    :where(.sd-main p) {
-        margin: 0;
-    }
-
-    :where(.sd-main table) {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    :where(.sd-main th, .sd-main td) {
-        border-bottom: 1px solid var(--sd-surface-variant);
-        padding: 8px 16px;
-        text-align: left;
-        vertical-align: top;
-    }
-
-    :where(.sd-main th) {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-        white-space: nowrap;
-    }
-
-    :where(.sd-main form) {
-        display: grid;
-        gap: 12px;
-        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-        margin-bottom: 16px;
-    }
-
-    :where(.sd-main label) {
-        display: grid;
-        gap: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    :where(.sd-main input:not([type="search"]), .sd-main select) {
-        width: 100%;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface);
-        color: var(--sd-on-surface);
-        padding: 7px 10px;
-    }
-
-    .sd-table-shell {
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface-lowest);
-    }
-
-    .sd-table-toolbar,
-    .sd-table-controls,
-    .sd-table-switch,
-    .sd-table-pagination {
-        display: flex;
-        align-items: center;
-    }
-
-    .sd-table-toolbar {
-        justify-content: space-between;
-        gap: 16px;
-        border-bottom: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface);
-        padding: 8px 16px;
-    }
-
-    .sd-table-toolbar h2 {
-        flex: 0 0 auto;
-        font-size: 18px;
-        line-height: 24px;
-    }
-
-    .sd-table-controls {
-        justify-content: flex-end;
-        gap: 8px;
-    }
-
-    .sd-table-search {
-        position: relative;
-        display: block;
-        width: 220px;
-    }
-
-    .sd-table-search .material-symbols-outlined {
-        position: absolute;
-        top: 7px;
-        left: 8px;
-        color: var(--sd-outline);
-        font-size: 16px;
-    }
-
-    .sd-table-search input,
-    .sd-table-select {
-        min-height: 32px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .sd-table-search input {
-        width: 100%;
-        padding: 6px 10px 6px 32px;
-    }
-
-    .sd-table-search input::placeholder,
-    .sd-table-select::placeholder {
-        color: var(--sd-outline);
-        font-family: Inter, Arial, sans-serif;
-    }
-
-    .sd-table-select {
-        padding: 6px 8px;
-    }
-
-    .sd-table-switch {
-        min-height: 32px;
-        gap: 8px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface-variant);
-        cursor: pointer;
-        padding: 5px 9px;
-        user-select: none;
-    }
-
-    .sd-table-switch input {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip: rect(0 0 0 0);
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
-
-    .sd-table-switch span {
-        position: relative;
-        display: inline-flex;
-        width: 28px;
-        height: 16px;
-        flex: 0 0 auto;
-        align-items: center;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-    }
-
-    .sd-table-switch span::before {
-        width: 10px;
-        height: 10px;
-        margin-left: 2px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-        content: "";
-        transition: margin-left 150ms ease, background-color 150ms ease;
-    }
-
-    .sd-table-switch input:checked+span {
-        border-color: var(--sd-primary);
-        background: var(--sd-secondary-container);
-    }
-
-    .sd-table-switch input:checked+span::before {
-        margin-left: 14px;
-        background: var(--sd-primary);
-    }
-
-    .sd-table-switch input:focus-visible+span {
-        outline: 2px solid var(--sd-primary);
-        outline-offset: 2px;
-    }
-
-    .sd-table-switch strong {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-        white-space: nowrap;
-    }
-
-    .sd-table-wrap {
-        overflow: auto;
-    }
-
-    .sd-table-pagination {
-        min-height: 56px;
-        justify-content: space-between;
-        gap: 12px;
-        border-top: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-low);
-        color: var(--sd-on-surface-variant);
-        padding: 12px 16px;
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    button.sd-table-load-more-button {
-        display: inline-flex;
-        min-width: 160px;
-        min-height: 32px;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 10px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    button.sd-table-load-more-button:hover {
-        color: var(--sd-primary);
-    }
-
-    .sd-table-shell button:disabled,
-    .sd-table-shell input:disabled,
-    .sd-table-shell select:disabled {
-        cursor: progress;
-        opacity: 0.65;
-    }
-
-    @@media (max-width: 1120px) {
-        .sd-table-toolbar {
-            align-items: stretch;
-            flex-direction: column;
-        }
-
-        .sd-table-controls {
-            justify-content: flex-start;
-            flex-wrap: wrap;
-        }
-    }
-
-    @@media (max-width: 720px) {
-
-        .sd-table-controls,
-        .sd-table-search,
-        .sd-table-select,
-        .sd-table-switch,
-        .sd-table-pagination {
-            width: 100%;
-        }
-
-        .sd-table-controls,
-        .sd-table-pagination {
-            align-items: stretch;
-            flex-direction: column;
-        }
-    }
-
-    :where(.sd-main button) {
-        border: 1px solid var(--sd-primary);
-        border-radius: var(--sd-radius);
-        background: var(--sd-primary);
-        color: var(--sd-on-primary);
-        padding: 7px 12px;
-    }
-
-    ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    ::-webkit-scrollbar-thumb {
-        border-radius: 3px;
-        background: var(--sd-outline-variant);
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: var(--sd-outline);
-    }
-</style>
-
 @code {
+    private static readonly NavigationItem[] MonitorNavigation =
+    [
+        new("overview", "Overview", "", "layout-dashboard", "o", NavLinkMatch.All),
+        new("jobs", "Jobs", "jobs", "list", "j", NavLinkMatch.Prefix),
+        new("schedules", "Schedules", "schedules", "calendar-clock", "s", NavLinkMatch.Prefix),
+        new("concurrency-groups", "Concurrency groups", "concurrency-groups", "layers", "c", NavLinkMatch.Prefix),
+        new("nodes", "Nodes", "nodes", "server", "n", NavLinkMatch.Prefix),
+        new("metrics", "Metrics", "metrics", "activity", "m", NavLinkMatch.Prefix),
+    ];
+
+    private static readonly ShortcutItem[] Shortcuts =
+    [
+        new("Open the command menu", ["mod", "K"]),
+        new("Focus the page search", ["/"]),
+        new("Go to Overview, Jobs, Schedules", ["G", "O", "·", "G", "J", "·", "G", "S"]),
+        new("Go to Concurrency groups, Nodes, Metrics", ["G", "C", "·", "G", "N", "·", "G", "M"]),
+        new("Pause or resume live updates", ["P"]),
+        new("Collapse the sidebar", ["["]),
+        new("Close a dialog or menu", ["Esc"]),
+        new("Show this list", ["?"]),
+    ];
+
     private readonly DashboardShellRefreshContext _refreshContext = new();
+    private (string Label, string Href)? _breadcrumbParent;
+    private string _breadcrumbCurrent = "Overview";
     private bool _disposed;
 
     private DashboardShellRefreshRegistration? CurrentRefresh
@@ -760,12 +180,15 @@
     protected override void OnInitialized()
     {
         this._refreshContext.Changed += this.OnRefreshContextChanged;
+        this.Navigation.LocationChanged += this.OnLocationChanged;
+        this.UpdateBreadcrumbs();
     }
 
     public void Dispose()
     {
         this._disposed = true;
         this._refreshContext.Changed -= this.OnRefreshContextChanged;
+        this.Navigation.LocationChanged -= this.OnLocationChanged;
     }
 
     private void OnRefreshContextChanged()
@@ -776,14 +199,93 @@
         }
     }
 
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+    {
+        if (!this._disposed)
+        {
+            _ = this.InvokeAsync(() =>
+            {
+                this.UpdateBreadcrumbs();
+                this.StateHasChanged();
+            });
+        }
+    }
+
+    private void UpdateBreadcrumbs()
+    {
+        var path = this.Navigation.ToBaseRelativePath(this.Navigation.Uri);
+        var end = path.IndexOfAny(['?', '#']);
+        var segments = (end >= 0 ? path[..end] : path).Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        this._breadcrumbParent = null;
+        if (segments.Length == 0)
+        {
+            this._breadcrumbCurrent = "Overview";
+            return;
+        }
+
+        if (segments.Length > 1 && string.Equals(segments[0], "jobs", StringComparison.OrdinalIgnoreCase))
+        {
+            this._breadcrumbParent = ("Jobs", this.NavigationState.JobsListHref);
+            var id = Uri.UnescapeDataString(segments[1]);
+            this._breadcrumbCurrent = string.Concat("Job ", id.Length > 8 ? id[..8] : id);
+            return;
+        }
+
+        this._breadcrumbCurrent = segments[0].ToLowerInvariant() switch
+        {
+            "jobs" => "Jobs",
+            "schedules" => "Schedules",
+            "concurrency-groups" => "Concurrency groups",
+            "nodes" => "Nodes",
+            "metrics" => "Metrics",
+            "settings" => "Settings",
+            _ => "Not found",
+        };
+    }
+
     private async Task ToggleShellAutoRefreshAsync()
       => await this._refreshContext.ToggleCurrentAutoRefreshAsync();
 
-    private static string ShellRefreshButtonClass(DashboardShellRefreshRegistration refresh)
-      => refresh.Coordinator.AutoRefreshEnabled
-        ? "sd-shell-refresh__button sd-shell-refresh__button--active"
-        : "sd-shell-refresh__button";
+    private async Task RefreshNowAsync()
+      => await this._refreshContext.RefreshCurrentAsync();
 
-    private static string AutoRefreshStateText(DashboardShellRefreshRegistration refresh)
-      => refresh.Coordinator.AutoRefreshEnabled ? "On" : "Off";
+    private static string LiveClass(DashboardShellRefreshRegistration refresh)
+    {
+        var coordinator = refresh.Coordinator;
+        var state = coordinator.RefreshError is not null
+          ? "sd-live--error"
+          : !coordinator.AutoRefreshEnabled
+            ? "sd-live--paused"
+            : coordinator.IsRefreshing && refresh.ShowRefreshing ? "sd-live--refreshing" : null;
+
+        return UiClasses.Join(UiClasses.Button(ButtonVariant.Outline, ButtonSize.Small, iconOnly: false), "sd-live", state);
+    }
+
+    private static string LiveText(DashboardShellRefreshRegistration refresh)
+      => refresh.Coordinator.RefreshError is not null
+        ? "Refresh failed"
+        : refresh.Coordinator.AutoRefreshEnabled ? "Live" : "Paused";
+
+    private static string LiveTooltip(DashboardShellRefreshRegistration refresh)
+    {
+        var coordinator = refresh.Coordinator;
+        if (coordinator.RefreshError is { } error)
+        {
+            return string.Concat("Last refresh failed: ", error);
+        }
+
+        var nowUtc = DateTimeOffset.UtcNow;
+        var lastUpdatedUtc = refresh.GetLastUpdatedUtc(nowUtc);
+        var updated = lastUpdatedUtc is null
+          ? "Not updated yet"
+          : DashboardFormat.Relative(lastUpdatedUtc, nowUtc, prefix: "Updated", allowFuture: false);
+        return coordinator.AutoRefreshEnabled
+          ? string.Concat(updated, ". Click to pause live updates.")
+          : string.Concat(updated, ". Live updates are paused; click to resume.");
+    }
+
+    private sealed record NavigationItem(string Key, string Label, string Href, string Icon, string ShortcutKey, NavLinkMatch Match);
+
+    private sealed record ShortcutItem(string Description, string[] Keys);
 }

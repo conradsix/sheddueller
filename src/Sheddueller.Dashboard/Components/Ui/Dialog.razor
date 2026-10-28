@@ -1,0 +1,30 @@
+@inherits DialogBase
+
+<dialog @ref="Element" class="@CssClass" aria-labelledby="@TitleId" closedby="any" @attributes="AdditionalAttributes">
+    <h2 id="@TitleId" class="sd-dialog__title">@Title</h2>
+    <div class="sd-dialog__body">@ChildContent</div>
+    @if (Footer is not null)
+    {
+        <div class="sd-dialog__footer">@Footer</div>
+    }
+</dialog>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Footer { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join("sd-dialog", this.Class);
+}

@@ -1,0 +1,12 @@
+<span class="sd-skeleton" style="@Style" aria-hidden="true"></span>
+
+@code {
+    [Parameter]
+    public string Width { get; set; } = "100%";
+
+    [Parameter]
+    public string Height { get; set; } = "14px";
+
+    private string Style
+      => string.Concat("width:", this.Width, ";height:", this.Height);
+}

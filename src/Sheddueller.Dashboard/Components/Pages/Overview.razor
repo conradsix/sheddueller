@@ -14,7 +14,7 @@
     @if (_loadError is not null)
     {
         <section class="overview-panel overview-message overview-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h2>Overview data failed to load</h2>
                 <p>@_loadError</p>
@@ -24,7 +24,7 @@
     else if (_overview is null)
     {
         <section class="overview-panel overview-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h2>Loading overview</h2>
                 <p>Reading current scheduler state.</p>
@@ -315,7 +315,8 @@
             justify-content: center;
             gap: 8px;
             border: 1px solid var(--sd-outline-variant);
-            border-radius: var(--sd-radius);
+            border-radius: calc(var(--radius) + 2px);
+            box-shadow: var(--shadow-sm);
             background: var(--sd-surface);
             padding: 16px;
             text-decoration: none;
@@ -332,16 +333,14 @@
 
         .summary-card__label {
             color: var(--sd-on-surface-variant);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            line-height: 12px;
-            text-transform: uppercase;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 16px;
         }
 
         .summary-card__value {
             color: var(--sd-on-surface);
-            font-family: "Space Grotesk", Inter, Arial, sans-serif;
+            font-family: var(--font-sans);
             font-size: 24px;
             font-weight: 600;
             line-height: 32px;
@@ -370,7 +369,8 @@
             position: relative;
             overflow: hidden;
             border: 1px solid var(--sd-outline-variant);
-            border-radius: var(--sd-radius);
+            border-radius: calc(var(--radius) + 2px);
+            box-shadow: var(--shadow-sm);
             background: var(--sd-surface);
         }
 
@@ -467,7 +467,7 @@
 
         .job-id-link {
             color: var(--sd-primary);
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-family: var(--font-mono);
             font-size: 12px;
             line-height: 16px;
             text-decoration-color: var(--sd-outline-variant);
@@ -493,7 +493,7 @@
         .overview-handler,
         .overview-chip,
         .overview-context {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-family: var(--font-mono);
         }
 
         .overview-handler,
@@ -515,7 +515,7 @@
         .overview-compact-handler {
             display: block;
             overflow: hidden;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-family: var(--font-mono);
             font-size: 11px;
             line-height: 16px;
             text-overflow: ellipsis;
@@ -540,7 +540,7 @@
             max-width: 180px;
             overflow: hidden;
             border: 1px solid var(--sd-outline-variant);
-            border-radius: 2px;
+            border-radius: 6px;
             background: var(--sd-surface-low);
             color: var(--sd-on-surface-variant);
             font-size: 10px;
@@ -574,7 +574,7 @@
             max-width: 220px;
             overflow: hidden;
             color: var(--sd-error);
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-family: var(--font-mono);
             font-size: 11px;
             line-height: 16px;
             text-overflow: ellipsis;
@@ -647,7 +647,7 @@
 
         .timestamp-block__absolute {
             color: var(--sd-on-surface-variant);
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-family: var(--font-mono);
             font-size: 10px;
             line-height: 12px;
             white-space: nowrap;
@@ -667,7 +667,7 @@
             padding: 16px;
         }
 
-        .overview-message .material-symbols-outlined {
+        .overview-message .sd-icon {
             color: var(--sd-on-surface-variant);
         }
 
@@ -685,7 +685,7 @@
             border-color: var(--sd-error-container);
         }
 
-        .overview-message--error .material-symbols-outlined,
+        .overview-message--error .sd-icon,
         .overview-message--error h2 {
             color: var(--sd-error);
         }
@@ -737,15 +737,13 @@
         }
 
         .attempt-pill {
-            border-radius: 2px;
+            border-radius: 6px;
             background: var(--sd-surface-variant);
             color: var(--sd-on-surface);
             padding: 2px 6px;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            line-height: 12px;
-            text-transform: uppercase;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 16px;
             white-space: nowrap;
         }
 

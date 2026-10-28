@@ -14,7 +14,7 @@
     @if (_loadError is not null)
     {
         <section class="groups-message groups-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h2>Concurrency groups failed to load</h2>
                 <p>@_loadError</p>
@@ -24,7 +24,7 @@
     else if (_isLoading && _page is null)
     {
         <section class="groups-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h2>Loading concurrency groups</h2>
                 <p>Reading scheduler group occupancy and blocked work.</p>
@@ -58,37 +58,19 @@
             </Toolbar>
             <ChildContent>
                 <table class="groups-table">
-                    <colgroup>
-                        <col class="groups-table__col--key" />
-                        <col class="groups-table__col--number" />
-                        <col class="groups-table__col--source" />
-                        <col class="groups-table__col--rate" />
-                        <col class="groups-table__col--source" />
-                        <col class="groups-table__col--timestamp" />
-                        <col class="groups-table__col--number" />
-                        <col class="groups-table__col--number" />
-                        <col class="groups-table__col--state" />
-                        <col class="groups-table__col--timestamp" />
-                        @if (CanEditLimits)
-                        {
-                            <col class="groups-table__col--actions" />
-                        }
-                    </colgroup>
                     <thead>
                         <tr>
-                            <th>Group Key</th>
-                            <th class="groups-table__number">Effective Limit</th>
-                            <th>Limit Source</th>
-                            <th>Effective Rate</th>
-                            <th>Rate Source</th>
-                            <th>Next Permit</th>
-                            <th class="groups-table__number">Current Occupancy</th>
-                            <th class="groups-table__number">Blocked Jobs</th>
-                            <th>Saturation State</th>
-                            <th>Last Updated</th>
+                            <th>Group</th>
+                            <th class="groups-table__number" title="Effective concurrency limit and where it comes from">Limit</th>
+                            <th title="Effective rate limit and where it comes from">Rate</th>
+                            <th>Next permit</th>
+                            <th class="groups-table__number" title="Jobs currently running in this group">Running</th>
+                            <th class="groups-table__number">Blocked</th>
+                            <th>State</th>
+                            <th>Updated</th>
                             @if (CanEditLimits)
                             {
-                                <th>Actions</th>
+                                <th class="groups-table__actions"><span class="sd-sr-only">Actions</span></th>
                             }
                         </tr>
                     </thead>
@@ -117,8 +99,6 @@
                                         {
                                             <span class="groups-count">@DashboardFormat.Count(group.EffectiveLimit)</span>
                                         }
-                                    </td>
-                                    <td>
                                         <span class="@LimitSourceClass(group)" title="@LimitSourceTitle(group)">@LimitSourceText(group)</span>
                                     </td>
                                     <td>
@@ -142,8 +122,6 @@
                                         {
                                             <span class="groups-count">@FormatRateLimit(group.EffectiveRateLimit)</span>
                                         }
-                                    </td>
-                                    <td>
                                         <span class="@RateLimitSourceClass(group)" title="@RateLimitSourceTitle(group)">@RateLimitSourceText(group)</span>
                                     </td>
                                     <td>
@@ -157,7 +135,7 @@
                                         }
                                         else
                                         {
-                                            <TimestampBlock BaseClass="groups-timestamp" Value="group.NextRatePermitAtUtc"
+                                            <TimestampBlock BaseClass="groups-timestamp" Value="group.NextRatePermitAtUtc" Inline="true"
                                                             EmptyText="Available now" AllowFutureRelative="true" />
                                         }
                                     </td>
@@ -171,59 +149,47 @@
                                             @SaturationStateText(group)
                                         </span>
                                     </td>
-                                    <td><TimestampBlock BaseClass="groups-timestamp" Value="group.UpdatedAtUtc"
+                                    <td><TimestampBlock BaseClass="groups-timestamp" Value="group.UpdatedAtUtc" Inline="true"
                                                         EmptyText="No updates" AllowFutureRelative="false" /></td>
                                     @if (CanEditLimits)
                                     {
-                                        <td>
+                                        <td class="groups-table__actions">
                                             <div class="groups-actions">
                                                 @if (IsEditing(group))
                                                 {
                                                     <button class="groups-icon-button groups-icon-button--primary" type="button" title="Save Limit"
                                                             aria-label="@SaveLimitLabel(group)" @onclick="@(() => SaveLimitAsync(group))" disabled="@IsActionDisabled">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">save</span>
+                                                        <Icon Name="save" />
                                                     </button>
                                                     <button class="groups-icon-button" type="button" title="Cancel Edit"
                                                             aria-label="@CancelEditLabel(group)" @onclick="CancelEdit" disabled="@_isActionRunning">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                                                        <Icon Name="close" />
                                                     </button>
                                                 }
                                                 else if (IsEditingRate(group))
                                                 {
                                                     <button class="groups-icon-button groups-icon-button--primary" type="button" title="Save Rate Limit"
                                                             aria-label="@SaveRateLimitLabel(group)" @onclick="@(() => SaveRateLimitAsync(group))" disabled="@IsActionDisabled">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">save</span>
+                                                        <Icon Name="save" />
                                                     </button>
                                                     <button class="groups-icon-button" type="button" title="Cancel Rate Edit"
                                                             aria-label="@CancelRateEditLabel(group)" @onclick="CancelEdit" disabled="@_isActionRunning">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                                                        <Icon Name="close" />
                                                     </button>
                                                 }
                                                 else
                                                 {
-                                                    <button class="groups-icon-button" type="button" title="Edit Limit"
-                                                            aria-label="@EditLimitLabel(group)" @onclick="@(() => StartEdit(group))" disabled="@IsActionDisabled">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">edit</span>
-                                                    </button>
-                                                    <button class="groups-icon-button" type="button" title="Reset Override"
-                                                            aria-label="@ResetLimitLabel(group)" @onclick="@(() => ResetLimitAsync(group))"
-                                                            disabled="@(IsActionDisabled || group.OverrideLimit is null)">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>
-                                                    </button>
-                                                    <button class="groups-icon-button" type="button" title="Edit Rate Limit"
-                                                            aria-label="@EditRateLimitLabel(group)" @onclick="@(() => StartRateEdit(group))" disabled="@IsActionDisabled">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">speed</span>
-                                                    </button>
-                                                    <button class="groups-icon-button" type="button" title="Set Unlimited Rate"
-                                                            aria-label="@SetUnlimitedRateLimitLabel(group)" @onclick="@(() => SetUnlimitedRateLimitAsync(group))"
-                                                            disabled="@IsActionDisabled">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">all_inclusive</span>
-                                                    </button>
-                                                    <button class="groups-icon-button" type="button" title="Reset Rate Override"
-                                                            aria-label="@ResetRateLimitLabel(group)" @onclick="@(() => ResetRateLimitAsync(group))"
-                                                            disabled="@(IsActionDisabled || !group.HasRateLimitOverride)">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>
-                                                    </button>
+                                                    <DropdownMenu Label="@($"Actions for {group.GroupKey}")" Icon="ellipsis" Size="ButtonSize.Small"
+                                                                  Disabled="@_isActionRunning">
+                                                        <MenuItem Icon="pencil" OnClick="@(() => StartEdit(group))">Edit limit</MenuItem>
+                                                        <MenuItem Icon="rotate-ccw" Disabled="@(group.OverrideLimit is null)"
+                                                                  OnClick="@(() => ResetLimitAsync(group))">Reset limit to default</MenuItem>
+                                                        <MenuSeparator />
+                                                        <MenuItem Icon="gauge" OnClick="@(() => StartRateEdit(group))">Edit rate limit</MenuItem>
+                                                        <MenuItem Icon="infinity" OnClick="@(() => SetUnlimitedRateLimitAsync(group))">Remove rate limit</MenuItem>
+                                                        <MenuItem Icon="rotate-ccw" Disabled="@(!group.HasRateLimitOverride)"
+                                                                  OnClick="@(() => ResetRateLimitAsync(group))">Reset rate to default</MenuItem>
+                                                    </DropdownMenu>
                                                 }
                                             </div>
                                         </td>
@@ -268,13 +234,14 @@
         align-items: flex-start;
         gap: 12px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
         padding: 16px;
     }
 
-    .groups-message .material-symbols-outlined,
-    .groups-inline-alert .material-symbols-outlined {
+    .groups-message .sd-icon,
+    .groups-inline-alert .sd-icon {
         color: var(--sd-primary);
     }
 
@@ -285,8 +252,8 @@
         color: var(--sd-on-error-container);
     }
 
-    .groups-message--error .material-symbols-outlined,
-    .groups-inline-alert--error .material-symbols-outlined {
+    .groups-message--error .sd-icon,
+    .groups-inline-alert--error .sd-icon {
         color: var(--sd-error);
     }
 
@@ -305,42 +272,27 @@
         color: var(--sd-success);
     }
 
-    .groups-inline-alert--success .material-symbols-outlined {
+    .groups-inline-alert--success .sd-icon {
         color: var(--sd-success);
     }
 
+    /* Columns size to their content; the group key takes what is left and truncates. */
     .groups-table {
-        min-width: 1840px;
-        table-layout: fixed;
         white-space: nowrap;
     }
 
-    .groups-table__col--key {
-        width: 320px;
+    .groups-table th:first-child {
+        min-width: 12rem;
     }
 
-    .groups-table__col--number {
-        width: 136px;
+    .groups-table td:first-child {
+        width: 100%;
+        max-width: 0;
     }
 
-    .groups-table__col--source {
-        width: 148px;
-    }
-
-    .groups-table__col--rate {
-        width: 300px;
-    }
-
-    .groups-table__col--state {
-        width: 176px;
-    }
-
-    .groups-table__col--timestamp {
-        width: 204px;
-    }
-
-    .groups-table__col--actions {
-        width: 232px;
+    .groups-table__actions {
+        width: 1%;
+        text-align: right;
     }
 
     .groups-table thead {
@@ -360,11 +312,9 @@
 
     .groups-table th {
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12.5px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .groups-table td {
@@ -395,7 +345,7 @@
     .groups-blocked-count,
     .groups-rate-available,
     .groups-timestamp__absolute {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
     }
 
     .groups-key {
@@ -435,13 +385,11 @@
         align-items: center;
         gap: 6px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         padding: 2px 8px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .groups-state span {
@@ -483,30 +431,17 @@
         color: var(--sd-on-surface-variant);
     }
 
+    /* Where a limit comes from, shown under its value. */
     .groups-source {
-        display: inline-flex;
-        align-items: center;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        padding: 2px 8px;
+        display: block;
         color: var(--sd-on-surface-variant);
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 11.5px;
+        line-height: 15px;
     }
 
     .groups-source--override {
-        border-color: var(--sd-primary);
-        background: color-mix(in srgb, var(--sd-primary) 12%, var(--sd-surface-lowest));
         color: var(--sd-primary);
-    }
-
-    .groups-source--default {
-        border-color: var(--sd-outline);
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface);
+        font-weight: 500;
     }
 
     .groups-actions {
@@ -523,7 +458,7 @@
         align-items: center;
         justify-content: center;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface-variant);
         cursor: pointer;
@@ -535,7 +470,7 @@
         color: var(--sd-on-primary);
     }
 
-    .groups-icon-button .material-symbols-outlined {
+    .groups-icon-button .sd-icon {
         font-size: 18px;
         line-height: 18px;
     }
@@ -549,10 +484,10 @@
         width: 92px;
         min-height: 30px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: var(--radius-md);
         background: var(--sd-surface-lowest);
         color: var(--sd-on-surface);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
         padding: 4px 6px;
         text-align: right;
     }
@@ -567,6 +502,12 @@
         display: flex;
         flex-direction: column;
         gap: 1px;
+    }
+
+    .groups-timestamp--inline {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 4px;
     }
 
     .groups-timestamp__relative {
@@ -624,7 +565,7 @@
       => this._manager is not null;
 
     private int GroupTableColumnCount
-      => this.CanEditLimits ? 11 : 10;
+      => this.CanEditLimits ? 9 : 8;
 
     private string ActionAlertClass
       => this._isActionError
@@ -660,9 +601,14 @@
         }
     }
 
+    [Inject]
+    private NavigationManager Navigation { get; set; } = null!;
+
     protected override async Task OnInitializedAsync()
     {
         this._manager = Services.GetService<IConcurrencyGroupManager>();
+        _ = this._filters.CopyFrom(DashboardConcurrencyGroupFilterQuery.ParseUri(this.Navigation.Uri));
+        this.TrackLocation(this.Navigation, DashboardConcurrencyGroupFilterQuery.Path, this.ApplyLocationAsync);
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: false,
@@ -677,6 +623,7 @@
         this._filters.SaturatedOnly = value;
         this.ClearActionAlert();
         this.CancelEdit();
+        this.WriteFiltersToLocation(replace: false);
 
         await this.LoadAsync();
     }
@@ -686,6 +633,7 @@
         this._filters.HasBlockedJobsOnly = value;
         this.ClearActionAlert();
         this.CancelEdit();
+        this.WriteFiltersToLocation(replace: false);
 
         await this.LoadAsync();
     }
@@ -695,6 +643,7 @@
         this._filters.RateLimitedOnly = value;
         this.ClearActionAlert();
         this.CancelEdit();
+        this.WriteFiltersToLocation(replace: false);
 
         await this.LoadAsync();
     }
@@ -703,6 +652,29 @@
     {
         this._filters.GroupKey = value;
         this.ClearActionAlert();
+        this.WriteFiltersToLocation(replace: true);
+    }
+
+    private void WriteFiltersToLocation(bool replace)
+      => this.NavigateToLocation(DashboardConcurrencyGroupFilterQuery.ToHref(this._filters), replace);
+
+    private async Task ApplyLocationAsync(string location)
+    {
+        var next = DashboardConcurrencyGroupFilterQuery.ParseUri(location);
+        var queryChanged = next.SaturatedOnly != this._filters.SaturatedOnly
+          || next.HasBlockedJobsOnly != this._filters.HasBlockedJobsOnly
+          || next.RateLimitedOnly != this._filters.RateLimitedOnly;
+        if (!this._filters.CopyFrom(next))
+        {
+            return;
+        }
+
+        this.ClearActionAlert();
+        if (queryChanged)
+        {
+            this.CancelEdit();
+            await this.LoadAsync();
+        }
     }
 
     private async Task LoadAsync()
@@ -1067,8 +1039,6 @@
     private static string LimitInputLabel(ConcurrencyGroupInspectionSummary group)
       => string.Create(CultureInfo.InvariantCulture, $"Limit for concurrency group {group.GroupKey}");
 
-    private static string EditLimitLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Edit limit for concurrency group {group.GroupKey}");
 
     private static string SaveLimitLabel(ConcurrencyGroupInspectionSummary group)
       => string.Create(CultureInfo.InvariantCulture, $"Save limit for concurrency group {group.GroupKey}");
@@ -1076,8 +1046,6 @@
     private static string CancelEditLabel(ConcurrencyGroupInspectionSummary group)
       => string.Create(CultureInfo.InvariantCulture, $"Cancel limit edit for concurrency group {group.GroupKey}");
 
-    private static string ResetLimitLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Reset limit override for concurrency group {group.GroupKey}");
 
     private static string FormatRateLimit(ConcurrencyGroupRateLimit? rateLimit)
       => rateLimit is null
@@ -1185,8 +1153,6 @@
     private static string RatePeriodUnitInputLabel(ConcurrencyGroupInspectionSummary group)
       => string.Create(CultureInfo.InvariantCulture, $"Rate period unit for concurrency group {group.GroupKey}");
 
-    private static string EditRateLimitLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Edit rate limit for concurrency group {group.GroupKey}");
 
     private static string SaveRateLimitLabel(ConcurrencyGroupInspectionSummary group)
       => string.Create(CultureInfo.InvariantCulture, $"Save rate limit for concurrency group {group.GroupKey}");
@@ -1194,9 +1160,5 @@
     private static string CancelRateEditLabel(ConcurrencyGroupInspectionSummary group)
       => string.Create(CultureInfo.InvariantCulture, $"Cancel rate-limit edit for concurrency group {group.GroupKey}");
 
-    private static string SetUnlimitedRateLimitLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Set unlimited rate override for concurrency group {group.GroupKey}");
 
-    private static string ResetRateLimitLabel(ConcurrencyGroupInspectionSummary group)
-      => string.Create(CultureInfo.InvariantCulture, $"Reset rate-limit override for concurrency group {group.GroupKey}");
 }

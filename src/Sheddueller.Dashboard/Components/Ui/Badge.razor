@@ -1,0 +1,27 @@
+<span class="@CssClass" @attributes="AdditionalAttributes">@ChildContent</span>
+
+@code {
+    [Parameter]
+    public BadgeVariant Variant { get; set; } = BadgeVariant.Outline;
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+      => UiClasses.Join(
+        "sd-badge",
+        this.Variant switch
+        {
+            BadgeVariant.Primary => "sd-badge--primary",
+            BadgeVariant.Secondary => "sd-badge--secondary",
+            BadgeVariant.Destructive => "sd-badge--destructive",
+            _ => null,
+        },
+        this.Class);
+}

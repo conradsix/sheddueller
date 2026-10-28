@@ -1,0 +1,85 @@
+<div class="@CssClass" role="@Role" @attributes="AdditionalAttributes">
+    <Icon Name="@IconName" />
+    <div class="sd-alert__body">
+        @if (Title is not null)
+        {
+            <div class="sd-alert__title">@Title</div>
+        }
+        @if (ChildContent is not null)
+        {
+            <div class="sd-alert__description">@ChildContent</div>
+        }
+        @Meta
+    </div>
+    @if (OnDismiss.HasDelegate)
+    {
+        <IconButton Icon="x" Label="Dismiss" Size="ButtonSize.Small" ShowTooltip="false" Class="sd-alert__dismiss" OnClick="OnDismiss" />
+    }
+    else
+    {
+        @Actions
+    }
+</div>
+
+@code {
+    [Parameter]
+    public AlertTone Tone { get; set; } = AlertTone.Neutral;
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    /// <summary>
+    /// Overrides the tone's default icon.
+    /// </summary>
+    [Parameter]
+    public string? Icon { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Secondary detail under the description, such as a timestamp.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? Meta { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    /// <summary>
+    /// Shows a dismiss button when set.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnDismiss { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string Role
+      => this.Tone is AlertTone.Destructive or AlertTone.Warning ? "alert" : "status";
+
+    private string IconName
+      => this.Icon ?? this.Tone switch
+      {
+          AlertTone.Success => "circle-check",
+          AlertTone.Warning => "triangle-alert",
+          AlertTone.Destructive => "circle-alert",
+          _ => "info",
+      };
+
+    private string CssClass
+      => UiClasses.Join(
+        "sd-alert",
+        this.Tone switch
+        {
+            AlertTone.Info => "sd-alert--info",
+            AlertTone.Success => "sd-alert--success",
+            AlertTone.Warning => "sd-alert--warning",
+            AlertTone.Destructive => "sd-alert--destructive",
+            _ => null,
+        },
+        this.Class);
+}

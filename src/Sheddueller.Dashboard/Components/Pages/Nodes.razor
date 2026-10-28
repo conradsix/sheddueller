@@ -13,7 +13,7 @@
     @if (_loadError is not null)
     {
         <section class="nodes-message nodes-message--error" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <Icon Name="error" />
             <div>
                 <h2>Nodes failed to load</h2>
                 <p>@_loadError</p>
@@ -23,7 +23,7 @@
     else if (_isLoading && _nodePage is null)
     {
         <section class="nodes-message" aria-live="polite">
-            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <Icon Name="progress_activity" />
             <div>
                 <h2>Loading nodes</h2>
                 <p>Reading worker heartbeat records.</p>
@@ -193,11 +193,9 @@
 
     .nodes-summary-card__label {
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .nodes-message,
@@ -206,13 +204,14 @@
         align-items: flex-start;
         gap: 12px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
         padding: 16px;
     }
 
-    .nodes-message .material-symbols-outlined,
-    .nodes-inline-alert .material-symbols-outlined {
+    .nodes-message .sd-icon,
+    .nodes-inline-alert .sd-icon {
         color: var(--sd-primary);
     }
 
@@ -223,8 +222,8 @@
         color: var(--sd-on-error-container);
     }
 
-    .nodes-message--error .material-symbols-outlined,
-    .nodes-inline-alert--error .material-symbols-outlined {
+    .nodes-message--error .sd-icon,
+    .nodes-inline-alert--error .sd-icon {
         color: var(--sd-error);
     }
 
@@ -250,7 +249,8 @@
         justify-content: space-between;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow: var(--shadow-sm);
         background: var(--sd-surface-lowest);
         padding: 16px;
     }
@@ -295,7 +295,7 @@
 
     .nodes-summary-card strong {
         color: var(--sd-on-surface);
-        font-family: "Space Grotesk", Inter, Arial, sans-serif;
+        font-family: var(--font-sans);
         font-size: 24px;
         font-weight: 600;
         line-height: 32px;
@@ -354,11 +354,9 @@
 
     .nodes-table th {
         color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .nodes-table td {
@@ -388,7 +386,7 @@
     .nodes-count,
     .nodes-concurrency span:last-child,
     .nodes-timestamp__absolute {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-mono);
     }
 
     .nodes-id {
@@ -405,13 +403,11 @@
         align-items: center;
         gap: 6px;
         border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
+        border-radius: 6px;
         padding: 2px 8px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
     }
 
     .nodes-state span {
@@ -569,8 +565,13 @@
         }
     }
 
+    [Inject]
+    private NavigationManager Navigation { get; set; } = null!;
+
     protected override async Task OnInitializedAsync()
     {
+        _ = this._filters.CopyFrom(DashboardNodeFilterQuery.ParseUri(this.Navigation.Uri));
+        this.TrackLocation(this.Navigation, DashboardNodeFilterQuery.Path, this.ApplyLocationAsync);
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: false,
@@ -582,14 +583,33 @@
 
     private async Task SetStateFilterAsync(ChangeEventArgs eventArgs)
     {
-        this._filters.State = eventArgs.Value?.ToString() ?? string.Empty;
-        this._filters.NodeId = string.Empty;
+        var state = eventArgs.Value?.ToString() ?? string.Empty;
+        if (string.Equals(this._filters.State, state, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        this._filters.State = state;
+        this.NavigateToLocation(DashboardNodeFilterQuery.ToHref(this._filters), replace: false);
 
         await this.LoadAsync();
     }
 
     private void SetNodeIdFilter(string value)
-      => this._filters.NodeId = value;
+    {
+        this._filters.NodeId = value;
+        this.NavigateToLocation(DashboardNodeFilterQuery.ToHref(this._filters), replace: true);
+    }
+
+    private async Task ApplyLocationAsync(string location)
+    {
+        var next = DashboardNodeFilterQuery.ParseUri(location);
+        var stateChanged = !string.Equals(next.State, this._filters.State, StringComparison.Ordinal);
+        if (this._filters.CopyFrom(next) && stateChanged)
+        {
+            await this.LoadAsync();
+        }
+    }
 
     private async Task LoadAsync()
     {

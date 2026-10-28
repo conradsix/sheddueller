@@ -14,13 +14,12 @@
 </div>
 
 @code {
-    private static readonly TimeSpan DefaultUpdateInterval = TimeSpan.FromSeconds(15);
-
-    private readonly CancellationTokenSource _timerCancellation = new();
-    private PeriodicTimer? _timer;
-    private Task? _timerTask;
-    private DateTimeOffset _nowUtc = DateTimeOffset.UtcNow;
+    private DateTimeOffset _nowUtc;
+    private bool _subscribed;
     private bool _disposed;
+
+    [Inject]
+    private DashboardClock Clock { get; set; } = null!;
 
     [Parameter]
     public DateTimeOffset? Value { get; set; }
@@ -45,9 +44,6 @@
 
     [Parameter]
     public string BaseClass { get; set; } = "sd-timestamp";
-
-    [Parameter]
-    public TimeSpan UpdateInterval { get; set; } = DefaultUpdateInterval;
 
     private DateTimeOffset CurrentNowUtc
       => this.NowUtc ?? this._nowUtc;
@@ -78,51 +74,38 @@
     private string SeparatorClass
       => string.Concat(this.BaseClass, "__separator");
 
-    protected override Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender && this.NowUtc is null)
-        {
-            this._timer = new PeriodicTimer(this.UpdateInterval);
-            this._timerTask = this.RunTimerAsync(this._timer, this._timerCancellation.Token);
-        }
+    protected override void OnParametersSet()
+      => this._nowUtc = this.Clock.UtcNow;
 
-        return Task.CompletedTask;
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Relative text only needs the shared circuit clock; one timer serves every timestamp on the page.
+        if (firstRender && this.NowUtc is null && !this._disposed)
+        {
+            this.Clock.Ticked += this.OnClockTicked;
+            this._subscribed = true;
+        }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         this._disposed = true;
-        await this._timerCancellation.CancelAsync();
-        this._timer?.Dispose();
-
-        if (this._timerTask is not null)
+        if (this._subscribed)
         {
-            await this._timerTask;
+            this.Clock.Ticked -= this.OnClockTicked;
+            this._subscribed = false;
         }
 
-        this._timerCancellation.Dispose();
+        return ValueTask.CompletedTask;
     }
 
-    private async Task RunTimerAsync(
-        PeriodicTimer timer,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken))
-            {
-                await this.InvokeAsync(() =>
-                {
-                    if (!this._disposed)
-                    {
-                        this._nowUtc = DateTimeOffset.UtcNow;
-                        this.StateHasChanged();
-                    }
-                });
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
+    private void OnClockTicked()
+      => _ = this.InvokeAsync(() =>
+      {
+          if (!this._disposed)
+          {
+              this._nowUtc = this.Clock.UtcNow;
+              this.StateHasChanged();
+          }
+      });
 }
