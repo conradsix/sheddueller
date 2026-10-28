@@ -54,6 +54,20 @@
     }
   }
 
+  const interactiveSelector = "a, button, input, select, textarea, label, summary, [role='menuitem'], [popover], .sd-menu";
+
+  function openHref(href, newTab) {
+    if (!href) {
+      return;
+    }
+
+    if (newTab) {
+      window.open(new URL(href, document.baseURI).href, "_blank", "noopener");
+    } else {
+      navigate(href);
+    }
+  }
+
   function isTyping(target) {
     return target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']") !== null;
   }
@@ -406,6 +420,16 @@
     }
 
     const target = event.target;
+
+    // Close a popover menu after one of its items runs (unless the item keeps it open, e.g. a checklist).
+    const item = target.closest(".sd-menu .sd-menu__item");
+    if (item && !item.hasAttribute("data-sd-keep-open") && hasPopover) {
+      const menu = item.closest("[popover]");
+      if (menu && menu.matches(":popover-open")) {
+        menu.hidePopover();
+      }
+    }
+
     const themeButton = target.closest("[data-sd-theme]");
     if (themeButton) {
       setTheme(themeButton.getAttribute("data-sd-theme"));
@@ -447,13 +471,11 @@
       return;
     }
 
-    // Close a popover menu after one of its items runs.
-    const item = target.closest(".sd-menu .sd-menu__item");
-    if (item && !item.hasAttribute("data-sd-keep-open") && hasPopover) {
-      const menu = item.closest("[popover]");
-      if (menu && menu.matches(":popover-open")) {
-        menu.hidePopover();
-      }
+    // Whole-row links: a click anywhere on a row with data-href opens it, except on controls inside the row.
+    const row = target.closest("tr[data-href]");
+    if (row && !target.closest(interactiveSelector)) {
+      openHref(row.getAttribute("data-href"), event.ctrlKey || event.metaKey || event.shiftKey);
+      return;
     }
 
     // Close the narrow-screen navigation drawer after navigating.
@@ -461,6 +483,50 @@
       root.removeAttribute("data-nav");
     }
   });
+
+  document.addEventListener("auxclick", (event) => {
+    const row = event.button === 1 && event.target instanceof Element ? event.target.closest("tr[data-href]") : null;
+    if (row && !event.target.closest(interactiveSelector)) {
+      event.preventDefault();
+      openHref(row.getAttribute("data-href"), true);
+    }
+  });
+
+  // A form inside a menu (e.g. a filter value) closes the menu once submitted.
+  document.addEventListener("submit", (event) => {
+    const menu = event.target instanceof Element ? event.target.closest(".sd-menu[popover]") : null;
+    if (menu && hasPopover) {
+      window.setTimeout(() => {
+        if (menu.matches(":popover-open")) {
+          menu.hidePopover();
+        }
+      }, 0);
+    }
+  });
+
+  // ------------------------------------------------------------ keyboard rows
+  // Tables marked data-sd-keyboard: j/k move a highlight, Enter opens the row, x toggles its checkbox.
+  function keyboardRows() {
+    const table = document.querySelector("table[data-sd-keyboard]");
+    return table ? Array.from(table.querySelectorAll("tbody tr[data-href]")) : [];
+  }
+
+  function moveActiveRow(delta) {
+    const rows = keyboardRows();
+    if (rows.length === 0) {
+      return false;
+    }
+
+    const current = rows.findIndex(row => row.classList.contains("sd-row--active"));
+    const next = current < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, current + delta));
+    rows.forEach((row, index) => row.classList.toggle("sd-row--active", index === next));
+    rows[next].scrollIntoView({ block: "nearest" });
+    return true;
+  }
+
+  function activeRow() {
+    return keyboardRows().find(row => row.classList.contains("sd-row--active")) || null;
+  }
 
   // ----------------------------------------------------------- command menu
   let commandItems = [];
@@ -696,6 +762,28 @@
       }
       case "p":
         document.querySelector("[data-sd-action-live]")?.click();
+        break;
+      case "j":
+      case "k":
+        if (moveActiveRow(key === "j" ? 1 : -1)) {
+          event.preventDefault();
+        }
+
+        break;
+      case "Enter": {
+        const row = activeRow();
+        if (row && !(event.target instanceof Element && event.target.closest(interactiveSelector))) {
+          event.preventDefault();
+          openHref(row.getAttribute("data-href"), false);
+        }
+
+        break;
+      }
+      case "x":
+        activeRow()?.querySelector("input[type='checkbox']")?.click();
+        break;
+      case "Escape":
+        document.querySelector("[data-sd-bulk-clear]")?.click();
         break;
       case "[":
         toggleSidebar();

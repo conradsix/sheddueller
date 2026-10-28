@@ -7,12 +7,13 @@
  *   legacy     styles shared by pages that still carry their own <style> blocks; removed once
  *              every page is rebuilt on the components below
  *   components buttons, badges, cards, menus, dialogs, tables, ...
+ *   pages      page-specific layout, one file per page in css/pages/
  *   shell      sidebar, top bar, command menu
  *   utilities  single-purpose helpers
  *
  * Component <style> blocks are unlayered, so they still win over everything here while pages move over.
  */
-@layer tokens, base, legacy, components, shell, utilities;
+@layer tokens, base, legacy, components, pages, shell, utilities;
 
 /* ------------------------------------------------------------------ tokens */
 @layer tokens {
@@ -1485,6 +1486,7 @@
     top: 0;
     z-index: 1;
     height: 40px;
+    vertical-align: middle;
     border-bottom: 1px solid var(--border);
     background: var(--card);
     color: var(--muted-foreground);
@@ -1935,6 +1937,279 @@
   .token.punctuation,
   .token.operator {
     color: var(--muted-foreground);
+  }
+}
+
+/* ------------------------------------------------------ components (lists) */
+@layer components {
+  /* timestamps (TimestampBlock BaseClass="sd-timestamp") */
+  .sd-timestamp {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .sd-timestamp--inline {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .sd-timestamp--end {
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  .sd-timestamp__absolute,
+  .sd-timestamp__separator {
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+  }
+
+  .sd-timestamp__absolute {
+    font-family: var(--font-mono);
+  }
+
+  /* checklist items in menus (faceted filters) */
+  .sd-menu__check {
+    display: inline-grid;
+    width: 16px;
+    height: 16px;
+    flex: none;
+    place-items: center;
+    border: 1px solid var(--input);
+    border-radius: 4px;
+    color: transparent;
+  }
+
+  .sd-menu__check .sd-icon {
+    font-size: 12px;
+    stroke-width: 3;
+  }
+
+  .sd-menu__item[aria-checked="true"] .sd-menu__check {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  .sd-state-dot {
+    --tone: var(--state-queued);
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--tone);
+  }
+
+  .sd-state-dot--claimed {
+    --tone: var(--state-claimed);
+  }
+
+  .sd-state-dot--completed {
+    --tone: var(--state-completed);
+  }
+
+  .sd-state-dot--failed {
+    --tone: var(--state-failed);
+  }
+
+  .sd-state-dot--canceled {
+    --tone: var(--state-canceled);
+  }
+
+  .sd-facet__badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 2px;
+    border-left: 1px solid var(--border);
+    padding-left: 8px;
+  }
+
+  .sd-facet__badge {
+    display: inline-flex;
+    height: 20px;
+    align-items: center;
+    border-radius: 4px;
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+    padding: 0 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+  }
+
+  /* applied filter chip: label · value · remove */
+  .sd-filter-chip {
+    display: inline-flex;
+    height: 32px;
+    align-items: center;
+    overflow: hidden;
+    border: 1px dashed var(--input);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+  }
+
+  .sd-filter-chip__label {
+    color: var(--muted-foreground);
+    padding: 0 6px 0 10px;
+    font-weight: 500;
+  }
+
+  .sd-filter-chip__value {
+    display: inline-flex;
+    max-width: 240px;
+    height: 22px;
+    align-items: center;
+    overflow: hidden;
+    border-radius: 4px;
+    background: var(--muted);
+    padding: 0 6px;
+    font-family: var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sd-filter-chip__remove {
+    display: grid;
+    width: 28px;
+    height: 100%;
+    place-items: center;
+    border: 0;
+    background: none;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .sd-filter-chip__remove:hover {
+    color: var(--foreground);
+  }
+
+  .sd-filter-chip__remove .sd-icon {
+    font-size: 14px;
+  }
+
+  /* small form inside a menu popover */
+  .sd-menu__form {
+    display: grid;
+    min-width: 260px;
+    gap: 10px;
+    margin: 0;
+    padding: 6px;
+  }
+
+  /* forms inside popovers and dialogs stack their fields (the legacy page rule lays forms out in columns) */
+  .sd-menu__form,
+  .sd-dialog > form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sd-dialog > form {
+    display: block;
+    margin: 0;
+  }
+
+  .sd-menu__form-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  /* tag lists in table cells */
+  .sd-tags--nowrap {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .sd-tags--nowrap .sd-tag {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .sd-tags__more {
+    flex: none;
+    font-family: var(--font-sans);
+    font-weight: 500;
+  }
+
+  /* new rows held back by live refresh */
+  .sd-new-rows {
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    z-index: 4;
+    display: inline-flex;
+    height: 30px;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    padding: 0 12px 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    translate: -50% 0;
+    box-shadow: var(--shadow-lg);
+    animation: sd-fade-up 200ms ease-out;
+  }
+
+  .sd-new-rows:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring), var(--shadow-lg);
+  }
+
+  /* keyboard-highlighted row (j/k) */
+  .sd-table tbody tr.sd-row--active td {
+    background: color-mix(in oklch, var(--muted) 55%, transparent);
+  }
+
+  .sd-table tbody tr.sd-row--active td:first-child {
+    box-shadow: inset 2px 0 0 var(--primary);
+  }
+
+  /* selection actions */
+  .sd-bulkbar {
+    position: fixed;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    z-index: 30;
+    display: flex;
+    max-width: calc(100vw - 32px);
+    align-items: center;
+    gap: 4px;
+    border-radius: 12px;
+    background: var(--foreground);
+    color: var(--background);
+    padding: 6px 6px 6px 14px;
+    font-size: 13px;
+    translate: -50% 0;
+    box-shadow: var(--shadow-lg);
+    animation: sd-fade-up 200ms ease-out;
+  }
+
+  .sd-bulkbar__count {
+    margin-right: 6px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .sd-bulkbar__divider {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background: color-mix(in oklch, var(--background) 25%, transparent);
+  }
+
+  .sd-bulkbar .sd-btn--ghost {
+    color: inherit;
+  }
+
+  .sd-bulkbar .sd-btn--ghost:hover {
+    background: color-mix(in oklch, var(--background) 16%, transparent);
+    color: inherit;
   }
 }
 

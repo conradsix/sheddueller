@@ -1,0 +1,76 @@
+@typeparam TValue
+
+<DropdownMenu Label="@Title" Variant="ButtonVariant.Outline" Class="sd-btn--dashed" AlignStart="true" ShowChevron="false">
+    <TriggerContent>
+        <Icon Name="circle-plus" />
+        <span>@Title</span>
+        @if (SelectedOptions.Count > 0)
+        {
+            <span class="sd-facet__badges">
+                @if (SelectedOptions.Count > MaxBadges)
+                {
+                    <span class="sd-facet__badge">@SelectedOptions.Count selected</span>
+                }
+                else
+                {
+                    @foreach (var option in SelectedOptions)
+                    {
+                        <span class="sd-facet__badge">@option.Label</span>
+                    }
+                }
+            </span>
+        }
+    </TriggerContent>
+    <ChildContent>
+        <MenuLabel>@Title</MenuLabel>
+        @foreach (var option in Options)
+        {
+            var selected = IsSelected(option.Value);
+            <button type="button" role="menuitemcheckbox" class="sd-menu__item" aria-checked="@(selected ? "true" : "false")"
+                    data-sd-keep-open="true" @onclick="() => ToggleAsync(option.Value, !selected)">
+                <span class="sd-menu__check" aria-hidden="true"><Icon Name="check" /></span>
+                @if (option.DotClass is not null)
+                {
+                    <span class="@option.DotClass" aria-hidden="true"></span>
+                }
+                <span>@option.Label</span>
+            </button>
+        }
+        @if (SelectedOptions.Count > 0)
+        {
+            <MenuSeparator />
+            <MenuItem Icon="x" OnClick="OnClear">Clear filter</MenuItem>
+        }
+    </ChildContent>
+</DropdownMenu>
+
+@code {
+    private const int MaxBadges = 2;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<FacetOption<TValue>> Options { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public IReadOnlyCollection<TValue> Selected { get; set; } = [];
+
+    /// <summary>
+    /// Raised with the option and whether it is now selected.
+    /// </summary>
+    [Parameter]
+    public EventCallback<(TValue Value, bool Selected)> OnToggle { get; set; }
+
+    [Parameter]
+    public EventCallback OnClear { get; set; }
+
+    private IReadOnlyList<FacetOption<TValue>> SelectedOptions
+      => [.. this.Options.Where(option => this.IsSelected(option.Value))];
+
+    private bool IsSelected(TValue value)
+      => this.Selected.Contains(value);
+
+    private Task ToggleAsync(TValue value, bool selected)
+      => this.OnToggle.InvokeAsync((value, selected));
+}

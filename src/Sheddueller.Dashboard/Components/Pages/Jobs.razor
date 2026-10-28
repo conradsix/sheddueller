@@ -7,187 +7,164 @@
 @inject IJSRuntime JsRuntime
 @inject Microsoft.Extensions.Options.IOptions<ShedduellerDashboardOptions> DashboardOptions
 
-<div class="jobs-page">
-    <header class="jobs-header">
-        <div>
-            <h1>Jobs</h1>
-            <p>@HeaderText</p>
-        </div>
-
-        <button class="jobs-clear-queued-button" type="button" title="@ClearQueuedButtonTitle"
-                aria-label="@ClearQueuedButtonTitle" @onclick="ClearQueuedJobsAsync" disabled="@IsClearQueuedDisabled">
-            <Icon Name="@ClearQueuedButtonIcon" />
-            <span>@ClearQueuedButtonText</span>
-        </button>
-    </header>
-
-    <section class="jobs-view-bar" aria-label="Job view">
-        <label class="jobs-view-select">
-            <span class="jobs-filter-label">View</span>
-            <select class="sd-table-select" value="@_selectedViewKey" @onchange="SetViewAsync" aria-label="Select job view">
-                <optgroup label="Built-in">
-                    <option value="@DashboardJobViews.BuiltInKey">@DashboardJobViews.BuiltInName</option>
-                </optgroup>
-                @if (SharedViews.Count > 0)
-                {
-                    <optgroup label="Shared Presets">
-                        @foreach (var view in SharedViews)
+<div class="sd-page sd-page--fill jobs-page">
+    <PageHeader Title="Jobs" Description="@HeaderDescription">
+        <TitleAddon>
+            <DropdownMenu Label="Job views" Variant="ButtonVariant.Ghost" AlignStart="true" Class="jobs-view-trigger">
+                <TriggerContent>
+                    <span class="sd-muted">View:</span>
+                    <strong>@(CurrentView?.Name ?? "Custom")</strong>
+                    @if (_isViewDirty)
+                    {
+                        <Badge Variant="BadgeVariant.Secondary">Edited</Badge>
+                    }
+                </TriggerContent>
+                <ChildContent>
+                    @foreach (var group in ViewGroups)
+                    {
+                        <MenuLabel>@group.Label</MenuLabel>
+                        @foreach (var view in group.Views)
                         {
-                            <option value="@view.Key" @key="view.Key">@view.Name</option>
+                            var selected = view.Key == _selectedViewKey;
+                            <button type="button" role="menuitemradio" class="sd-menu__item" aria-checked="@(selected ? "true" : "false")"
+                                    @key="view.Key" @onclick="() => SelectViewAsync(view)">
+                                <span class="jobs-view-option__check" aria-hidden="true">
+                                    @if (selected)
+                                    {
+                                        <Icon Name="check" />
+                                    }
+                                </span>
+                                <span>@view.Name</span>
+                                @if (view.Key == _preferredViewKey)
+                                {
+                                    <span class="sd-menu__hint">default</span>
+                                }
+                            </button>
                         }
-                    </optgroup>
-                }
-                @if (PersonalViews.Count > 0)
+                    }
+                    <MenuSeparator />
+                    @if (IsPersonalView)
+                    {
+                        <MenuItem Icon="save" Disabled="@(!CanSaveCurrentView)" OnClick="SaveCurrentViewAsync">Save changes</MenuItem>
+                    }
+                    <MenuItem Icon="save-all" OnClick="OpenSaveAsDialog">Save as new view…</MenuItem>
+                    @if (IsPersonalView)
+                    {
+                        <MenuItem Icon="pencil" OnClick="OpenRenameDialog">Rename…</MenuItem>
+                    }
+                    <MenuItem Icon="house" Disabled="@(!CanSetPreferredView)" OnClick="SetPreferredViewAsync">Open this view by default</MenuItem>
+                    @if (IsPersonalView)
+                    {
+                        <MenuSeparator />
+                        <MenuItem Icon="trash-2" Destructive="true" OnClick="OpenDeleteDialog">Delete view…</MenuItem>
+                    }
+                </ChildContent>
+            </DropdownMenu>
+        </TitleAddon>
+        <Actions>
+            <Button Icon="columns-3" OnClick="OpenColumnEditor">Columns</Button>
+            <Button Variant="ButtonVariant.DestructiveOutline" Icon="ban" Disabled="_isClearQueuedRunning"
+                    OnClick="OpenClearQueuedDialog">Cancel queued…</Button>
+        </Actions>
+    </PageHeader>
+
+    <div class="sd-toolbar jobs-toolbar">
+        <SearchInput Class="jobs-search" Value="@_filters.HandlerContains" ValueChanged="SetHandlerContainsAsync"
+                     Placeholder="Filter by handler, or paste a job ID" Label="Filter jobs by handler, or open a job by ID"
+                     Shortcut="true" @onkeydown="HandleSearchKeyDown" />
+        @if (SearchJobId is { } searchJobId)
+        {
+            <Button Variant="ButtonVariant.Link" Href="@DashboardFormat.JobHref(searchJobId)" IconEnd="chevron-right">
+                Open job @DashboardFormat.JobId(searchJobId)
+            </Button>
+        }
+        <FacetedFilter TValue="JobState" Title="Status" Options="StatusOptions" Selected="_filters.SelectedStates"
+                       OnToggle="ToggleStateAsync" OnClear="ClearStatesAsync" />
+        <TextFilterMenu Fields="TextFilterFields" OnApply="ApplyTextFilterAsync" />
+        @if (!string.IsNullOrWhiteSpace(_filters.TagContains))
+        {
+            <FilterChip Label="Tag" Value="@_filters.TagContains" OnRemove="@(() => ApplyTextFilterAsync((TagFilterKey, string.Empty)))" />
+        }
+        @if (!string.IsNullOrWhiteSpace(_filters.ConcurrencyGroupContains))
+        {
+            <FilterChip Label="Group" Value="@_filters.ConcurrencyGroupContains"
+                        OnRemove="@(() => ApplyTextFilterAsync((GroupFilterKey, string.Empty)))" />
+        }
+        @if (_filters.HasAppliedFilters)
+        {
+            <Button Variant="ButtonVariant.Ghost" Icon="x" OnClick="ClearAllAsync">Reset</Button>
+        }
+        <span class="sd-toolbar__spacer"></span>
+        <DropdownMenu Label="Sort jobs" Variant="ButtonVariant.Ghost" ShowChevron="false">
+            <TriggerContent>
+                <Icon Name="arrow-up-down" />
+                <span>@SortLabel(_filters.Sort)</span>
+            </TriggerContent>
+            <ChildContent>
+                <MenuLabel>Sort by</MenuLabel>
+                @foreach (var sort in SortOptions)
                 {
-                    <optgroup label="My Views">
-                        @foreach (var view in PersonalViews)
-                        {
-                            <option value="@view.Key" @key="view.Key">@view.Name</option>
-                        }
-                    </optgroup>
+                    var selected = sort == _filters.Sort;
+                    <button type="button" role="menuitemradio" class="sd-menu__item" aria-checked="@(selected ? "true" : "false")"
+                            @onclick="() => SetSortAsync(sort)">
+                        <span class="jobs-view-option__check" aria-hidden="true">
+                            @if (selected)
+                            {
+                                <Icon Name="check" />
+                            }
+                        </span>
+                        <span>@SortLabel(sort)</span>
+                    </button>
                 }
-            </select>
-        </label>
-        <span class="jobs-view-status">@CurrentViewStatus</span>
-        <div class="jobs-view-actions">
-            <button @ref="_columnsButton" type="button" @onclick="OpenColumnEditor" aria-expanded="@_isColumnEditorOpen">
-                <Icon Name="view_column" />
-                <span>Columns</span>
-            </button>
-            @if (CurrentView?.Source == DashboardJobViewSource.Personal)
-            {
-                <button type="button" @onclick="SaveCurrentViewAsync" disabled="@(!CanSaveCurrentView)">
-                    <Icon Name="save" />
-                    <span>Save</span>
-                </button>
-                <button type="button" @onclick="SaveViewAsAsync">
-                    <Icon Name="save_as" />
-                    <span>Save As</span>
-                </button>
-            }
-            else
-            {
-                <button type="button" @onclick="SaveViewAsAsync">
-                    <Icon Name="save_as" />
-                    <span>Save As</span>
-                </button>
-            }
-            <button type="button" @onclick="SetPreferredViewAsync" disabled="@(!CanSetPreferredView)">
-                <Icon Name="home" />
-                <span>Set Default</span>
-            </button>
-            @if (CurrentView?.Source == DashboardJobViewSource.Personal)
-            {
-                <button type="button" @onclick="RenameCurrentViewAsync">
-                    <Icon Name="edit" />
-                    <span>Rename</span>
-                </button>
-                <button class="jobs-view-delete" type="button" @onclick="DeleteCurrentViewAsync">
-                    <Icon Name="delete" />
-                    <span>Delete</span>
-                </button>
-            }
-        </div>
-    </section>
-
-    <JobColumnConfigurator IsOpen="_isColumnEditorOpen" Columns="_columns"
-                           HiddenBuiltInColumns="HiddenBuiltInColumns" ObservedTagNames="ObservedTagNames"
-                           IsPersonalView="@(CurrentView?.Source == DashboardJobViewSource.Personal)" IsDirty="_isViewDirty"
-                           CloseRequested="CloseColumnEditorAsync" SaveRequested="SaveCurrentViewAsync"
-                           SaveAsRequested="SaveViewAsAsync" ResetRequested="ResetColumns"
-                           AutoFitRequested="AutoFitAllColumnsAsync" ResetWidthsRequested="ResetColumnWidths"
-                           ColumnMoved="MoveColumn" VisibilityChanged="SetBuiltInColumnVisible"
-                           TagColumnEdited="EditTagColumn" TagColumnRemoved="RemoveColumn"
-                           TagColumnAdded="AddTagColumn" ColumnWidthResetRequested="ResetColumnWidth" />
-
-    <section class="jobs-filter-bar" aria-label="Job filters">
-        <div class="jobs-status-filter" role="group" aria-label="Filter by status">
-            <span class="jobs-filter-label">Status</span>
-            @foreach (var state in Enum.GetValues<JobState>())
-            {
-                <label class="@StatusFilterClass(state)">
-                    <input type="checkbox" checked="@_filters.IsStateSelected(state)" @onchange="eventArgs => SetStateFilterAsync(state, eventArgs)" />
-                    <span>@state</span>
-                </label>
-            }
-        </div>
-
-        <div class="jobs-text-filters">
-            <select class="sd-table-select jobs-sort-filter" aria-label="Sort jobs"
-                    value="@_filters.Sort" @onchange="SetSortAsync">
-                <option value="@JobInspectionSort.Operational">Operational Order</option>
-                <option value="@JobInspectionSort.NewestFirst">Newest First</option>
-            </select>
-            <DashboardSearchBox Value="@_filters.HandlerContains" ValueChanged="SetHandlerContainsAsync"
-                                Placeholder="Handler contains..." AriaLabel="Filter by handler substring" />
-            <DashboardSearchBox Value="@_filters.TagContains" ValueChanged="SetTagContainsAsync"
-                                Placeholder="Tag contains..." AriaLabel="Filter by tag substring" />
-            <DashboardSearchBox Value="@_filters.ConcurrencyGroupContains" ValueChanged="SetConcurrencyGroupContainsAsync"
-                                Placeholder="Group contains..." AriaLabel="Filter by concurrency group substring" />
-            <button class="jobs-clear-button" type="button" @onclick="ClearAllAsync" disabled="@(!_filters.HasAppliedFilters)">
-                Clear Filters
-            </button>
-        </div>
-    </section>
-
-    @if (_actionMessage is not null)
-    {
-        <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
-            <span>@_actionMessage</span>
-        </DashboardInlineAlert>
-    }
+            </ChildContent>
+        </DropdownMenu>
+    </div>
 
     @if (_error is not null)
     {
-        <section class="jobs-message jobs-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h2>Jobs failed to load</h2>
-                <p>@_error</p>
-            </div>
-        </section>
+        <Alert Tone="AlertTone.Destructive" Title="Jobs couldn't be loaded">
+            <ChildContent>@_error</ChildContent>
+            <Actions>
+                <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryAsync">Try again</Button>
+            </Actions>
+        </Alert>
     }
-    else if (_page is null)
-    {
-        <section class="jobs-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h2>Loading jobs</h2>
-                <p>Reading scheduler job records.</p>
-            </div>
-        </section>
-    }
-    else
-    {
-        @if (LiveRefresh.RefreshError is not null)
-        {
-            <DashboardInlineAlert CssClass="jobs-inline-alert jobs-inline-alert--error" Icon="warning">
-                <span>Refresh failed: @LiveRefresh.RefreshError</span>
-            </DashboardInlineAlert>
-        }
 
-        @if (_pendingNewJobCount > 0)
-        {
-            <button class="jobs-load-more-button" type="button" @onclick="ShowPendingJobsAsync">@PendingJobsButtonText</button>
-        }
-
-        <div class="jobs-table-shell">
+    @if (_page is not null || _error is null)
+    {
+        <Card Flush="true" Class="@TableCardClass">
+            @if (_pendingNewJobCount > 0)
+            {
+                <button type="button" class="sd-new-rows" @onclick="ShowPendingJobsAsync">
+                    <Icon Name="arrow-up" />
+                    @PendingJobsButtonText
+                </button>
+            }
             <div class="jobs-table-wrap">
-                <table class="jobs-table" style="@TableStyle">
+                <table class="sd-table jobs-table" style="@TableStyle" data-sd-keyboard="true" aria-busy="@(_isLoading ? "true" : "false")">
                     <colgroup>
-                        @foreach (var column in _columns)
+                        <col class="jobs-table__select-col" />
+                        @for (var index = 0; index < _columns.Count; index++)
                         {
-                            <col style="@ColumnWidthStyle(column)" @key="ColumnKey(column)" />
+                            var column = _columns[index];
+                            <col style="@ColumnWidthStyle(column)" data-sd-col="@index" @key="ColumnKey(column)" />
                         }
                         <col class="jobs-table__filler" />
+                        <col class="jobs-table__actions-col" />
                     </colgroup>
                     <thead>
                         <tr>
+                            <th class="jobs-table__select">
+                                <label class="jobs-table__select-label">
+                                    <input type="checkbox" class="sd-checkbox" checked="@AllLoadedSelected" disabled="@(_jobs.Count == 0)"
+                                           aria-label="Select all loaded jobs" @onchange="ToggleAllSelected" />
+                                </label>
+                            </th>
                             @for (var index = 0; index < _columns.Count; index++)
                             {
                                 var columnIndex = index;
                                 var column = _columns[columnIndex];
-                                <th class="@ColumnHeaderClass(column)" @key="ColumnKey(column)">
+                                <th class="@ColumnHeaderClass(column)" data-sd-col="@columnIndex" @key="ColumnKey(column)">
                                     <span>@DashboardJobViews.Heading(column)</span>
                                     <span class="jobs-table__resize-handle" role="separator" tabindex="0"
                                           title="Drag to resize. Double-click to fit loaded values."
@@ -202,20 +179,58 @@
                                 </th>
                             }
                             <th class="jobs-table__filler" aria-hidden="true"></th>
+                            <th class="jobs-table__actions"><span class="sd-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
-                        @if (_jobs.Count == 0)
+                        @if (_page is null)
                         {
-                            <tr>
-                                <td class="jobs-empty-row" colspan="@(_columns.Count + 1)">@EmptyText</td>
+                            @for (var row = 0; row < SkeletonRowCount; row++)
+                            {
+                                <tr class="jobs-table__skeleton" aria-hidden="true">
+                                    <td class="jobs-table__select"></td>
+                                    @for (var index = 0; index < _columns.Count; index++)
+                                    {
+                                        <td><Skeleton Width="@SkeletonWidth(row, index)" /></td>
+                                    }
+                                    <td class="jobs-table__filler"></td>
+                                    <td class="jobs-table__actions"></td>
+                                </tr>
+                            }
+                        }
+                        else if (_jobs.Count == 0)
+                        {
+                            <tr class="jobs-table__empty">
+                                <td colspan="@(_columns.Count + 3)">
+                                    <EmptyState Flat="true" Icon="search" Title="@EmptyTitle">
+                                        <ChildContent>@EmptyText</ChildContent>
+                                        <Actions>
+                                            @if (SearchJobId is { } emptyJobId)
+                                            {
+                                                <Button Variant="ButtonVariant.Primary" Href="@DashboardFormat.JobHref(emptyJobId)">Open job @DashboardFormat.JobId(emptyJobId)</Button>
+                                            }
+                                            @if (_filters.HasAppliedFilters)
+                                            {
+                                                <Button OnClick="ClearAllAsync">Reset filters</Button>
+                                            }
+                                        </Actions>
+                                    </EmptyState>
+                                </td>
                             </tr>
                         }
                         else
                         {
                             @foreach (var job in _jobs)
                             {
-                                <tr @key="job.JobId">
+                                var selected = _selected.Contains(job.JobId);
+                                <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)" aria-selected="@(selected ? "true" : "false")">
+                                    <td class="jobs-table__select">
+                                        <label class="jobs-table__select-label">
+                                            <input type="checkbox" class="sd-checkbox" checked="@selected"
+                                                   aria-label="@($"Select job {DashboardFormat.JobId(job.JobId)}")"
+                                                   @onchange="eventArgs => SetSelected(job.JobId, eventArgs)" />
+                                        </label>
+                                    </td>
                                     @foreach (var column in _columns)
                                     {
                                         @switch (column.Kind)
@@ -224,39 +239,45 @@
                                                 <td><JobLink CssClass="jobs-id-link" JobId="job.JobId" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Enqueued:
-                                                <td><TimestampBlock BaseClass="jobs-timestamp" Value="job.EnqueuedAtUtc" AllowFutureRelative="false" Inline /></td>
+                                                <td><TimestampBlock BaseClass="sd-timestamp" Value="job.EnqueuedAtUtc" AllowFutureRelative="false" Inline /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.TerminalTime:
-                                                <td><TimestampBlock BaseClass="jobs-timestamp" Value="DashboardFormat.TerminalTimestamp(job)" AllowFutureRelative="false" Inline /></td>
+                                                <td><TimestampBlock BaseClass="sd-timestamp" Value="DashboardFormat.TerminalTimestamp(job)" AllowFutureRelative="false" Inline /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.State:
-                                                <td><StateBadge BaseClass="jobs-state" State="job.State" Href="@StateFilterHref(job.State)"
-                                                                Title="@StateFilterTitle(job.State)" AriaLabel="@StateFilterTitle(job.State)" /></td>
+                                                <td><StatusBadge State="job.State" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Queue:
                                                 <td><span class="@QueuePositionClass(job)" title="@QueuePositionTitle(job)">@QueuePositionText(job)</span></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Handler:
-                                                <td><a class="jobs-handler jobs-filter-link" href="@HandlerFilterHref(job)"
-                                                       title="@DashboardFormat.FullHandler(job)"
-                                                       aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a></td>
+                                                <td><span class="jobs-handler" title="@DashboardFormat.FullHandler(job)">@DashboardFormat.ShortHandler(job)</span></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Tags:
-                                                <td><TagChipList ClassPrefix="jobs-chip" Tags="@ResidualTags(job)" HrefFactory="TagFilterHref"
-                                                                 LinkAriaLabelPrefix="Filter jobs by tag" MaxVisible="2" /></td>
+                                                <td><TagList Values="@ResidualTagValues(job)" Title="@ResidualTagsTitle(job)" HrefFactory="TagFilterHref" TooltipPrefix="Show only tag" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Progress:
-                                                <td><ProgressIndicator BaseClass="jobs-progress" Progress="job.LatestProgress" /></td>
+                                                <td>
+                                                    @if (job.LatestProgress?.Percent is { } percent)
+                                                    {
+                                                        <span class="jobs-progress" title="@job.LatestProgress.Message">
+                                                            <Progress Value="percent" Label="@($"Progress {percent:0}%")" />
+                                                            <span class="sd-num">@DashboardFormat.ProgressText(job.LatestProgress, string.Empty)</span>
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="sd-muted" title="@job.LatestProgress?.Message">@(job.LatestProgress?.Message ?? "—")</span>
+                                                    }
+                                                </td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Disposition:
                                                 <td><span class="jobs-disposition @GetDispositionClass(job)"
                                                           title="@DashboardFormat.Disposition(job)">@DashboardFormat.Disposition(job)</span></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Groups:
-                                                <td><ChipList ClassPrefix="jobs-chip" Values="job.ConcurrencyGroupKeys"
-                                                              Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
-                                                              HrefFactory="GroupFilterHref" LinkAriaLabelPrefix="Filter jobs by group"
-                                                              MaxVisible="2" /></td>
+                                                <td><TagList Values="job.ConcurrencyGroupKeys" Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
+                                                             HrefFactory="GroupFilterHref" TooltipPrefix="Show only group" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Priority:
                                                 <td class="jobs-table__number">@job.Priority</td>
@@ -266,843 +287,150 @@
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Tag:
                                                 var values = TagValues(job, column);
-                                                <td><ChipList ClassPrefix="jobs-derived-tag" Values="values"
-                                                              Title="@TagValuesTitle(values)" MaxVisible="2"
-                                                              HrefFactory="value => TagValueFilterHref(column, value)"
-                                                              LinkAriaLabelPrefix="Filter jobs by tag value" /></td>
+                                                <td><TagList Values="values" Title="@TagValuesTitle(values)" HrefFactory="value => TagValueFilterHref(column, value)"
+                                                             TooltipPrefix="@($"Show only {DashboardJobViews.Heading(column)}")" /></td>
                                                 break;
                                         }
                                     }
                                     <td class="jobs-table__filler" aria-hidden="true"></td>
+                                    <td class="jobs-table__actions">
+                                        <DropdownMenu Label="@($"Actions for job {DashboardFormat.JobId(job.JobId)}")" Icon="ellipsis" Size="ButtonSize.Small">
+                                            <MenuItem Icon="chevron-right" Href="@DashboardFormat.JobHref(job.JobId)">Open job</MenuItem>
+                                            <MenuItem Icon="copy" data-sd-copy="@job.JobId.ToString("D")" data-sd-copy-label="job ID">Copy job ID</MenuItem>
+                                            <MenuSeparator />
+                                            <MenuItem Icon="list-filter" Href="@HandlerFilterHref(job)">Only @DashboardFormat.ShortHandler(job)</MenuItem>
+                                            @if (job.ConcurrencyGroupKeys.Count > 0)
+                                            {
+                                                <MenuItem Icon="layers" Href="@GroupFilterHref(job.ConcurrencyGroupKeys[0])">Only group @job.ConcurrencyGroupKeys[0]</MenuItem>
+                                            }
+                                            @if (DashboardJobActions.IsCancellable(job))
+                                            {
+                                                <MenuSeparator />
+                                                <MenuItem Icon="ban" Destructive="true" OnClick="() => OpenCancelDialog([job.JobId])">Cancel job…</MenuItem>
+                                            }
+                                        </DropdownMenu>
+                                    </td>
                                 </tr>
                             }
                         }
                     </tbody>
                 </table>
             </div>
-
-            <footer class="jobs-pagination">
-                <span>@ResultRangeText</span>
-                @if (_page.ContinuationToken is not null)
-                {
-                    <button class="jobs-load-more-button" type="button" @onclick="LoadMoreAsync" disabled="@(_isLoading || _isLoadingMore)">
-                        @(_isLoadingMore ? "Loading Records" : "Load More Records")
-                    </button>
-                }
+            <footer class="sd-table__footer">
+                <span class="sd-num">@FooterText</span>
+                <span class="jobs-footer-actions">
+                    @if (_loadMoreError is not null)
+                    {
+                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
+                    }
+                    @if (_page?.ContinuationToken is not null)
+                    {
+                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
+                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
+                    }
+                </span>
             </footer>
-            @if (_loadMoreError is not null)
-            {
-                <DashboardInlineAlert CssClass="jobs-inline-alert jobs-inline-alert--error" Icon="warning">
-                    <span>Load more failed: @_loadMoreError</span>
-                </DashboardInlineAlert>
-            }
-        </div>
+        </Card>
     }
 </div>
 
-<style>
-    /* Fills the shell's content area so only the table scrolls. */
-    .jobs-page {
-        display: flex;
-        flex: 1 1 auto;
-        min-height: 0;
-        flex-direction: column;
-        gap: var(--sd-gutter);
-    }
-
-    .jobs-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .jobs-header p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .jobs-view-bar {
-        display: flex;
-        min-width: 0;
-        align-items: center;
-        gap: 8px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface-lowest);
-        padding: 8px;
-    }
-
-    .jobs-view-select {
-        display: flex;
-        min-width: 220px;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .jobs-view-select .sd-table-select {
-        min-width: 160px;
-    }
-
-    .jobs-view-status {
-        flex: 1 1 auto;
-        overflow: hidden;
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .jobs-view-actions {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    .jobs-view-actions button {
-        display: inline-flex;
-        min-height: 32px;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 8px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .jobs-view-actions button:hover:not(:disabled) {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .jobs-view-actions button:disabled {
-        cursor: default;
-        opacity: 0.5;
-    }
-
-    .jobs-view-actions .sd-icon {
-        font-size: 16px;
-    }
-
-    .jobs-view-actions .jobs-view-delete {
-        color: var(--sd-error);
-    }
-
-    .jobs-filter-bar {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface-lowest);
-        padding: 8px;
-    }
-
-    .jobs-status-filter,
-    .jobs-text-filters {
-        display: flex;
-        min-width: 0;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .jobs-text-filters {
-        flex: 1 1 560px;
-    }
-
-    .jobs-filter-label {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .jobs-status-option {
-        position: relative;
-        display: inline-flex;
-        cursor: pointer;
-    }
-
-    .jobs-status-option input {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip: rect(0 0 0 0);
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
-
-    .jobs-status-option span {
-        display: inline-flex;
-        min-height: 32px;
-        align-items: center;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface-variant);
-        padding: 6px 10px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
-    }
-
-    .jobs-status-option input:checked+span {
-        border-color: var(--sd-primary);
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .jobs-status-option input:focus-visible+span {
-        outline: 2px solid var(--sd-primary);
-        outline-offset: 2px;
-    }
-
-    .jobs-filter-bar .sd-table-search {
-        flex: 1 1 190px;
-        width: auto;
-        min-width: 180px;
-    }
-
-    .jobs-filter-bar .sd-table-select {
-        flex: 0 0 166px;
-        min-width: 150px;
-    }
-
-    button.jobs-clear-button,
-    button.jobs-clear-queued-button,
-    button.jobs-load-more-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        min-height: 32px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 10px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    button.jobs-clear-queued-button {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    button.jobs-clear-queued-button .sd-icon {
-        font-size: 17px;
-    }
-
-    button.jobs-load-more-button {
-        min-width: 160px;
-    }
-
-    button.jobs-clear-button:hover,
-    button.jobs-clear-queued-button:hover,
-    button.jobs-load-more-button:hover {
-        color: var(--sd-primary);
-    }
-
-    button.jobs-clear-queued-button:hover:not(:disabled) {
-        border-color: var(--sd-error);
-        color: var(--sd-error);
-    }
-
-    .jobs-page button:disabled,
-    .jobs-page input:disabled {
-        cursor: progress;
-        opacity: 0.65;
-    }
-
-    .jobs-message,
-    .jobs-inline-alert {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .jobs-message .sd-icon,
-    .jobs-inline-alert .sd-icon {
-        color: var(--sd-primary);
-    }
-
-    .jobs-message--error,
-    .jobs-inline-alert--error {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .jobs-message--error .sd-icon,
-    .jobs-inline-alert--error .sd-icon {
-        color: var(--sd-error);
-    }
-
-    .jobs-inline-alert--success {
-        border-color: var(--sd-success);
-        background: var(--sd-success-container);
-        color: var(--sd-success);
-    }
-
-    .jobs-inline-alert--success .sd-icon {
-        color: var(--sd-success);
-    }
-
-    .jobs-inline-alert--warning {
-        border-color: var(--sd-warning);
-        background: var(--sd-warning-container);
-        color: var(--sd-warning);
-    }
-
-    .jobs-inline-alert--warning .sd-icon {
-        color: var(--sd-warning);
-    }
-
-    .jobs-message p,
-    .jobs-inline-alert {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-inline-alert--error {
-        color: var(--sd-on-error-container);
-    }
-
-    .jobs-inline-alert--success {
-        color: var(--sd-success);
-    }
-
-    .jobs-inline-alert--warning {
-        color: var(--sd-warning);
-    }
-
-    .jobs-table-shell {
-        display: flex;
-        flex: 1 1 auto;
-        min-height: 0;
-        min-width: 0;
-        flex-direction: column;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-    }
-
-    .jobs-table-wrap {
-        flex: 1 1 auto;
-        min-height: 0;
-        overflow: auto;
-    }
-
-    .jobs-table {
-        width: 100%;
-        min-width: 0;
-        border-collapse: collapse;
-        table-layout: fixed;
-        white-space: nowrap;
-    }
-
-    .jobs-table thead {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background: var(--sd-surface-low);
-    }
-
-    .jobs-table th,
-    .jobs-table td {
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 6px 8px;
-        text-align: left;
-        vertical-align: middle;
-    }
-
-    /* Empty trailing column that absorbs spare width so the table spans the card. */
-    .jobs-table .jobs-table__filler {
-        padding: 0;
-    }
-
-    .jobs-table th {
-        position: relative;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .jobs-table__resize-handle {
-        position: absolute;
-        inset: 0 -4px 0 auto;
-        z-index: 3;
-        display: block;
-        width: 9px;
-        cursor: col-resize;
-        outline: none;
-        touch-action: none;
-    }
-
-    .jobs-table__resize-handle::after {
-        position: absolute;
-        top: 20%;
-        right: 4px;
-        width: 1px;
-        height: 60%;
-        background: transparent;
-        content: "";
-    }
-
-    .jobs-table__resize-handle:hover::after,
-    .jobs-table__resize-handle:focus-visible::after,
-    .jobs-table--resizing .jobs-table__resize-handle::after {
-        width: 2px;
-        background: var(--sd-primary);
-    }
-
-    .jobs-table--resizing {
-        user-select: none;
-    }
-
-    .jobs-table td {
-        height: 40px;
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .jobs-table tbody tr:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .jobs-table__number {
-        text-align: right;
-    }
-
-    .jobs-id-link,
-    .jobs-handler,
-    .jobs-disposition,
-    .jobs-chip,
-    .jobs-progress-text,
-    .jobs-timestamp__absolute {
-        font-family: var(--font-mono);
-    }
-
-    .jobs-id-link {
-        display: block;
-        overflow: hidden;
-        color: var(--sd-primary);
-        font-size: 13px;
-        line-height: 18px;
-        text-overflow: ellipsis;
-        text-decoration-color: var(--sd-outline-variant);
-        text-underline-offset: 2px;
-        white-space: nowrap;
-    }
-
-    .jobs-id-link:hover {
-        text-decoration-color: var(--sd-primary);
-    }
-
-    .jobs-handler {
-        display: block;
-        width: 100%;
-        overflow: hidden;
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        text-decoration: none;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    a.jobs-handler:hover {
-        color: var(--sd-primary);
-        text-decoration: underline;
-        text-decoration-color: var(--sd-primary);
-        text-underline-offset: 2px;
-    }
-
-    .jobs-chip-list {
-        display: flex;
-        width: 100%;
-        min-width: 0;
-        align-items: center;
-        gap: 4px;
-        overflow: visible;
-    }
-
-    .jobs-table .sd-chip-list {
-        width: 100%;
-        min-width: 0;
-        max-width: 100%;
-        align-content: center;
-        flex-wrap: wrap;
-    }
-
-    .jobs-table .sd-chip-list>.sd-chip {
-        display: -webkit-box;
-        min-width: 0;
-        max-width: 100%;
-        flex: 0 1 auto;
-        overflow: hidden;
-        overflow-wrap: anywhere;
-        text-overflow: clip;
-        white-space: normal;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 3;
-    }
-
-    .jobs-table .sd-chip-overflow {
-        min-width: 0;
-        max-width: 100%;
-    }
-
-    .jobs-chip {
-        display: inline-block;
-        max-width: 180px;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        background: var(--sd-surface-low);
-        color: var(--sd-on-surface-variant);
-        font-size: 10px;
-        line-height: 14px;
-        padding: 1px 6px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    a.jobs-chip {
-        text-decoration: none;
-    }
-
-    a.jobs-chip:hover,
-    a.jobs-state:hover {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .jobs-chip-empty {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .jobs-derived-tag-list {
-        display: flex;
-        width: 100%;
-        min-width: 0;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 4px;
-        white-space: normal;
-    }
-
-    .jobs-derived-tag {
-        display: inline-block;
-        max-width: 100%;
-        overflow-wrap: anywhere;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        background: var(--sd-surface-low);
-        color: var(--sd-on-surface-variant);
-        font-family: var(--font-mono);
-        font-size: 10px;
-        line-height: 14px;
-        padding: 1px 6px;
-        text-decoration: none;
-        white-space: normal;
-    }
-
-    a.jobs-derived-tag:hover {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .jobs-derived-tag-empty {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-    }
-
-    .jobs-state {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        padding: 2px 8px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-        text-decoration: none;
-    }
-
-    .jobs-state>span {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    .jobs-state--queued {
-        background: var(--sd-surface);
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-state--claimed {
-        border-color: var(--sd-secondary-container);
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .jobs-state--claimed>span {
-        background: var(--sd-primary);
-    }
-
-    .jobs-state--completed {
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface);
-    }
-
-    .jobs-state--failed {
-        border-color: var(--sd-error-container);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .jobs-state--failed>span {
-        background: var(--sd-error);
-    }
-
-    .jobs-state--canceled {
-        background: var(--sd-surface-high);
-        color: var(--sd-outline);
-    }
-
-    .jobs-disposition {
-        display: block;
-        max-width: 180px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .jobs-queue {
-        display: inline-flex;
-        min-width: 56px;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        padding: 2px 6px;
-        font-family: var(--font-mono);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .jobs-queue--claimable {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .jobs-queue--claimed {
-        border-color: var(--sd-secondary-container);
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .jobs-queue--blocked,
-    .jobs-queue--waiting,
-    .jobs-queue--delayed {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-queue--empty {
-        min-width: 0;
-        border-color: transparent;
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-disposition--error {
-        color: var(--sd-error);
-    }
-
-    .jobs-disposition--muted {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-timestamp {
-        display: flex;
-        min-width: 0;
-        align-items: baseline;
-        gap: 4px;
-        overflow: hidden;
-        white-space: nowrap;
-    }
-
-    .jobs-timestamp__relative {
-        flex: 0 0 auto;
-        color: var(--sd-on-surface);
-    }
-
-    .jobs-timestamp__separator {
-        flex: 0 0 auto;
-        color: var(--sd-outline);
-    }
-
-    .jobs-timestamp__absolute {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .jobs-timestamp__absolute,
-    .jobs-progress-text,
-    .jobs-empty-row,
-    .jobs-pagination {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .jobs-progress {
-        display: flex;
-        width: 100%;
-        min-width: 0;
-        flex-direction: column;
-        gap: 3px;
-    }
-
-    .jobs-progress-text {
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .jobs-progress__track {
-        width: 100%;
-        height: 6px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-    }
-
-    .jobs-progress__bar {
-        height: 100%;
-        border-radius: inherit;
-        background: var(--sd-primary);
-    }
-
-    .jobs-empty-row {
-        height: 96px;
-        text-align: center;
-    }
-
-    .jobs-pagination {
-        display: flex;
-        min-height: 56px;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        border-top: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-        padding: 12px 16px;
-    }
-
-    @@media (max-width: 1100px) {
-        .jobs-page {
-            height: auto;
-            min-height: 0;
-        }
-    }
-
-    @@media (max-width: 720px) {
-        .jobs-view-bar,
-        .jobs-view-actions,
-        .jobs-view-select,
-        .jobs-filter-bar,
-        .jobs-status-filter,
-        .jobs-text-filters,
-        .jobs-filter-bar .sd-table-search,
-        .jobs-filter-bar .sd-table-select,
-        button.jobs-clear-button,
-        button.jobs-clear-queued-button,
-        .jobs-pagination {
-            width: 100%;
-        }
-
-        .jobs-filter-bar,
-        .jobs-view-bar,
-        .jobs-view-actions,
-        .jobs-view-select,
-        .jobs-status-filter,
-        .jobs-text-filters,
-        .jobs-pagination {
-            align-items: stretch;
-            flex-direction: column;
-        }
-
-        .jobs-view-bar,
-        .jobs-view-actions,
-        .jobs-view-select {
-            align-items: stretch;
-        }
-
-        .jobs-status-option span {
-            justify-content: center;
-        }
-    }
-</style>
+<BulkActionBar Count="_selected.Count" OnClear="ClearSelection">
+    <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Icon="copy" data-sd-copy="@SelectedJobIdsText"
+            data-sd-copy-label="@($"{_selected.Count} job IDs")">Copy IDs</Button>
+    <Button Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Icon="ban" Disabled="@(CancellableSelectedIds.Count == 0)"
+            OnClick="() => OpenCancelDialog(CancellableSelectedIds)">@BulkCancelLabel</Button>
+</BulkActionBar>
+
+<JobColumnConfigurator IsOpen="_isColumnEditorOpen" Columns="_columns"
+                       HiddenBuiltInColumns="HiddenBuiltInColumns" ObservedTagNames="ObservedTagNames"
+                       IsPersonalView="IsPersonalView" IsDirty="_isViewDirty"
+                       CloseRequested="CloseColumnEditor" SaveRequested="SaveCurrentViewAsync"
+                       SaveAsRequested="OpenSaveAsDialog" ResetRequested="ResetColumns"
+                       AutoFitRequested="AutoFitAllColumnsAsync" ResetWidthsRequested="ResetColumnWidths"
+                       ColumnMoved="MoveColumn" VisibilityChanged="SetBuiltInColumnVisible"
+                       TagColumnEdited="EditTagColumn" TagColumnRemoved="RemoveColumn"
+                       TagColumnAdded="AddTagColumn" ColumnWidthResetRequested="ResetColumnWidth" />
+
+<ConfirmDialog @bind-Open="_clearQueuedDialogOpen" Title="Cancel all queued jobs?" ConfirmLabel="Cancel queued jobs"
+               CancelLabel="Keep them" Destructive="true" RequireText="@ClearQueuedConfirmationText" Busy="_isClearQueuedRunning"
+               OnConfirm="ClearQueuedJobsAsync">
+    <p>Every queued job ends as canceled, including delayed jobs and jobs waiting to retry. Running jobs keep running, and job history is kept. You can't undo this.</p>
+</ConfirmDialog>
+
+<ConfirmDialog @bind-Open="_cancelDialogOpen" Title="@CancelDialogTitle" ConfirmLabel="@CancelDialogConfirmLabel" CancelLabel="Keep running"
+               Destructive="true" Busy="_isCancelling" OnConfirm="CancelJobsAsync">
+    <p>@CancelDialogDescription</p>
+</ConfirmDialog>
+
+<ConfirmDialog @bind-Open="_discardDialogOpen" Title="@($"Discard changes to “{CurrentView?.Name}”?")" ConfirmLabel="Discard changes"
+               CancelLabel="Keep editing" Destructive="true" OnConfirm="ConfirmSwitchViewAsync">
+    <p>Your filter and column changes to this view haven't been saved.</p>
+</ConfirmDialog>
+
+<InputDialog @bind-Open="_saveAsDialogOpen" Title="Save as new view" Label="Name" InitialValue="@SuggestedViewName"
+             ConfirmLabel="Save view" Validate="name => ValidateViewName(name, exceptKey: null)" OnConfirm="SaveViewAsAsync">
+    <p>Saves the current filters, sort, and columns as a view in this browser.</p>
+</InputDialog>
+
+<InputDialog @bind-Open="_renameDialogOpen" Title="Rename view" Label="Name" InitialValue="@(CurrentView?.Name ?? string.Empty)"
+             ConfirmLabel="Rename" Validate="name => ValidateViewName(name, _selectedViewKey)" OnConfirm="RenameCurrentViewAsync" />
+
+<ConfirmDialog @bind-Open="_deleteDialogOpen" Title="@($"Delete “{CurrentView?.Name}”?")" ConfirmLabel="Delete view"
+               Destructive="true" OnConfirm="DeleteCurrentViewAsync">
+    <p>The view is removed from this browser. Jobs aren't affected.</p>
+</ConfirmDialog>
 
 @code {
     private static readonly TimeSpan FilterDebounce = TimeSpan.FromMilliseconds(300);
     private const int DefaultPageSize = 25;
-    private const string ClearQueuedConfirmationWord = "delete";
-    private const string ClearQueuedPrompt = "This will cancel all queued, delayed, and retry-waiting jobs while preserving historical records.\n\nType delete to continue.";
+    private const string ClearQueuedConfirmationText = "cancel queued";
+    private const string TagFilterKey = "tag";
+    private const string GroupFilterKey = "group";
+    private const int SkeletonRowCount = 8;
+    private const int SelectColumnWidth = 40;
+    private const int ActionsColumnWidth = 48;
+
+    private static readonly IReadOnlyList<FacetOption<JobState>> StatusOptions =
+    [
+        .. Enum.GetValues<JobState>().Select(state => new FacetOption<JobState>(
+          state,
+          StatusBadge.StateLabel(state),
+          string.Concat("sd-state-dot sd-state-dot--", DashboardFormat.StateCssModifier(state)))),
+    ];
+
+    private static readonly JobInspectionSort[] SortOptions = [JobInspectionSort.Operational, JobInspectionSort.NewestFirst];
 
     private readonly DashboardJobFilters _filters = new();
     private readonly List<JobInspectionSummary> _jobs = [];
     private readonly List<ShedduellerDashboardJobColumn> _columns = [];
     private readonly List<DashboardResolvedJobView> _views = [];
     private readonly List<DashboardStoredJobView> _storedViews = [];
+    private readonly HashSet<Guid> _selected = [];
+    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private DotNetObjectReference<Jobs>? _columnResizeReceiver;
-    private ElementReference _columnsButton;
     private JobInspectionPage? _page;
     private JobInspectionQuery _lastQuery = new(PageSize: DefaultPageSize);
     private CancellationTokenSource? _filterDebounceCts;
     private DashboardJobListLocation? _initialLocation;
     private string? _error;
     private string? _loadMoreError;
-    private string? _actionMessage;
+    private IReadOnlyList<Guid> _cancelTargets = [];
+    private DashboardResolvedJobView? _pendingView;
     private string _selectedViewKey = DashboardJobViews.BuiltInKey;
     private string _preferredViewKey = DashboardJobViews.BuiltInKey;
     private int _queryVersion;
     private int _take = DefaultPageSize;
     private int _pendingNewJobCount;
-    private JobsActionSeverity _actionSeverity = JobsActionSeverity.Success;
     private bool _isLoading;
     private bool _isLoadingMore;
     private bool _isClearQueuedRunning;
+    private bool _isCancelling;
+    private bool _clearQueuedDialogOpen;
+    private bool _cancelDialogOpen;
+    private bool _discardDialogOpen;
+    private bool _saveAsDialogOpen;
+    private bool _renameDialogOpen;
+    private bool _deleteDialogOpen;
     private bool _isColumnEditorOpen;
     private bool _isViewDirty;
     private bool _initialLoadDeferred;
@@ -1121,7 +449,73 @@
     private string PendingJobsButtonText
       => string.Create(
         CultureInfo.InvariantCulture,
-        $"{DashboardFormat.Count(this._pendingNewJobCount)} new {(this._pendingNewJobCount == 1 ? "job" : "jobs")} — show");
+        $"{DashboardFormat.Count(this._pendingNewJobCount)} new {(this._pendingNewJobCount == 1 ? "job" : "jobs")}");
+
+    private IReadOnlyList<(string Label, IReadOnlyList<DashboardResolvedJobView> Views)> ViewGroups
+      =>
+      [
+          .. new (string Label, DashboardJobViewSource Source)[]
+          {
+              ("Built-in", DashboardJobViewSource.BuiltIn),
+              ("Shared", DashboardJobViewSource.Shared),
+              ("My views", DashboardJobViewSource.Personal),
+          }
+          .Select(group => (group.Label, (IReadOnlyList<DashboardResolvedJobView>)[.. this._views.Where(view => view.Source == group.Source)]))
+          .Where(group => group.Item2.Count > 0),
+      ];
+
+    private bool IsPersonalView
+      => this.CurrentView?.Source == DashboardJobViewSource.Personal;
+
+    private string SuggestedViewName
+      => this.CurrentView?.Source == DashboardJobViewSource.BuiltIn
+        ? "My view"
+        : string.Concat(this.CurrentView?.Name ?? "Job view", " copy");
+
+    private IReadOnlyList<TextFilterField> TextFilterFields
+      =>
+      [
+          new(TagFilterKey, "Tag contains", "tenant:acme", this._filters.TagContains),
+          new(GroupFilterKey, "Concurrency group contains", "billing", this._filters.ConcurrencyGroupContains),
+      ];
+
+    private Guid? SearchJobId
+      => DashboardJobActions.TryParseJobId(this._filters.HandlerContains, out var jobId) ? jobId : null;
+
+    private string TableCardClass
+      => this._isLoading && this._page is not null
+        ? "sd-table-card jobs-table-card sd-table-card--loading"
+        : "sd-table-card jobs-table-card";
+
+    private bool AllLoadedSelected
+      => this._jobs.Count > 0 && this._jobs.All(job => this._selected.Contains(job.JobId));
+
+    private IReadOnlyList<Guid> CancellableSelectedIds
+      => [.. this._jobs.Where(job => this._selected.Contains(job.JobId) && DashboardJobActions.IsCancellable(job)).Select(job => job.JobId)];
+
+    private string SelectedJobIdsText
+      => string.Join('\n', this._jobs.Where(job => this._selected.Contains(job.JobId)).Select(job => job.JobId.ToString("D")));
+
+    private string BulkCancelLabel
+      => CancellableSelectedIds.Count switch
+      {
+          0 => "Nothing to cancel",
+          1 => "Cancel 1 job…",
+          var count => string.Create(CultureInfo.InvariantCulture, $"Cancel {DashboardFormat.Count(count)} jobs…"),
+      };
+
+    private string CancelDialogTitle
+      => this._cancelTargets.Count == 1
+        ? "Cancel this job?"
+        : string.Create(CultureInfo.InvariantCulture, $"Cancel {DashboardFormat.Count(this._cancelTargets.Count)} jobs?");
+
+    private string CancelDialogConfirmLabel
+      => this._cancelTargets.Count == 1 ? "Cancel job" : "Cancel jobs";
+
+    private string CancelDialogDescription
+      => this._cancelTargets.Count == 1
+        ? "A queued job ends as canceled straight away. A running job stops at its next cancellation check. You can't undo this."
+        : "Queued jobs end as canceled straight away; running jobs stop at their next cancellation check. You can't undo this.";
 
     private IReadOnlyList<DashboardResolvedJobView> SharedViews
       => [.. this._views.Where(view => view.Source == DashboardJobViewSource.Shared)];
@@ -1140,22 +534,6 @@
 
     private bool CanSetPreferredView
       => !this._isViewDirty && !this.IsCurrentViewPreferred;
-
-    private string CurrentViewStatus
-    {
-        get
-        {
-            var name = this.CurrentView?.Name ?? "Custom";
-            if (this._isViewDirty)
-            {
-                return string.Concat(name, " · Unsaved changes");
-            }
-
-            return this.IsCurrentViewPreferred && this.CurrentView?.Source != DashboardJobViewSource.BuiltIn
-              ? string.Concat(name, " · Default view")
-              : name;
-        }
-    }
 
     private IReadOnlyList<ShedduellerDashboardJobColumnKind> HiddenBuiltInColumns
       =>
@@ -1179,61 +557,44 @@
         get
         {
             // At least the configured column widths; the trailing filler column takes any extra space.
-            var width = DashboardJobColumnWidths.Total(this._columns);
+            var width = DashboardJobColumnWidths.Total(this._columns) + SelectColumnWidth + ActionsColumnWidth;
             return string.Create(CultureInfo.InvariantCulture, $"width: max(100%, {width}px); min-width: {width}px");
         }
     }
 
-    private string HeaderText
-      => this._page is null ? "Reading scheduler job records." : this.ResultRangeText;
-
-    private string EmptyText
-      => this._filters.HasAppliedFilters
-        ? "No jobs matched the current filters."
-        : "No jobs are available.";
-
-    private string ActionAlertClass
-      => this._actionSeverity switch
-      {
-          JobsActionSeverity.Success => "jobs-inline-alert jobs-inline-alert--success",
-          JobsActionSeverity.Warning => "jobs-inline-alert jobs-inline-alert--warning",
-          _ => "jobs-inline-alert jobs-inline-alert--error",
-      };
-
-    private string ActionAlertIcon
-      => this._actionSeverity switch
-      {
-          JobsActionSeverity.Success => "check_circle",
-          JobsActionSeverity.Warning => "info",
-          _ => "warning",
-      };
-
-    private bool IsClearQueuedDisabled
-      => this._isClearQueuedRunning || this._isLoading || this._isLoadingMore;
-
-    private string ClearQueuedButtonIcon
-      => this._isClearQueuedRunning ? "progress_activity" : "cancel";
-
-    private string ClearQueuedButtonText
-      => this._isClearQueuedRunning ? "Clearing Queued" : "Clear Queued";
-
-    private string ClearQueuedButtonTitle
-      => "Cancel all queued, delayed, and retry-waiting jobs. Type delete to confirm.";
-
-    private string ResultRangeText
+    private string HeaderDescription
     {
         get
         {
-            var loadedCount = this._jobs.Count;
-            var totalCount = this._page?.TotalCount ?? loadedCount;
-            var filterText = this._filters.HasAppliedFilters ? " matching filters" : string.Empty;
-            var moreText = this._page?.ContinuationToken is null ? string.Empty : " with more available";
+            if (this._page is null)
+            {
+                return this._error is null ? "Loading jobs…" : "Jobs couldn't be loaded.";
+            }
 
-            return loadedCount == 0
-              ? string.Create(CultureInfo.InvariantCulture, $"Showing 0 of {DashboardFormat.Count(totalCount)} jobs{filterText}")
-              : string.Create(CultureInfo.InvariantCulture, $"Showing 1-{DashboardFormat.Count(loadedCount)} of {DashboardFormat.Count(totalCount)} jobs{filterText}{moreText}");
+            var total = this._page.TotalCount;
+            var jobs = string.Create(CultureInfo.InvariantCulture, $"{DashboardFormat.Count(total)} {(total == 1 ? "job" : "jobs")}");
+            return this._filters.HasAppliedFilters
+              ? string.Concat(jobs, total == 1 ? " matches the filters" : " match the filters")
+              : jobs;
         }
     }
+
+    private string FooterText
+      => string.Create(
+        CultureInfo.InvariantCulture,
+        $"Showing {DashboardFormat.Count(this._jobs.Count)} of {DashboardFormat.Count(this._page?.TotalCount ?? this._jobs.Count)}");
+
+    private string EmptyTitle
+      => this.SearchJobId is not null
+        ? "No handler matches that ID"
+        : this._filters.HasAppliedFilters ? "No jobs match" : "No jobs yet";
+
+    private string EmptyText
+      => this.SearchJobId is not null
+        ? "That looks like a job ID. Open the job directly, or clear the search."
+        : this._filters.HasAppliedFilters
+          ? "Nothing matches the current status and filters. Try removing a filter."
+          : "Jobs appear here as soon as they're enqueued.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -1287,6 +648,36 @@
             this._viewStorageLoaded = true;
             await this.LoadStoredViewsAsync();
             await this.ResolveInitialViewAsync();
+        }
+
+        await this.FlushToastsAsync();
+    }
+
+    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
+    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
+      => this._pendingToasts.Add((title, description, tone));
+
+    private void ShowToastWarning(string message)
+      => this.ShowToast(message, tone: AlertTone.Warning);
+
+    private async Task FlushToastsAsync()
+    {
+        if (this._pendingToasts.Count == 0)
+        {
+            return;
+        }
+
+        var toasts = this._pendingToasts.ToArray();
+        this._pendingToasts.Clear();
+        foreach (var (title, description, tone) in toasts)
+        {
+            try
+            {
+                await JsRuntime.ToastAsync(title, description, tone);
+            }
+            catch (JSException)
+            {
+            }
         }
     }
 
@@ -1354,7 +745,7 @@
 
             if (payload.Version != DashboardJobViewStoragePayload.CurrentVersion)
             {
-                this.SetActionWarning("Saved job views use an unsupported format and were ignored.");
+                this.ShowToastWarning("Saved job views use an unsupported format and were ignored.");
                 return;
             }
 
@@ -1389,16 +780,16 @@
 
             if (invalidViewFound)
             {
-                this.SetActionWarning("One or more invalid saved job views were ignored.");
+                this.ShowToastWarning("One or more invalid saved job views were ignored.");
             }
         }
         catch (JSException)
         {
-            this.SetActionWarning("Personal job views are unavailable because browser storage could not be read.");
+            this.ShowToastWarning("Personal job views are unavailable because browser storage could not be read.");
         }
         catch (InvalidOperationException)
         {
-            this.SetActionWarning("Personal job views are unavailable in this rendering mode.");
+            this.ShowToastWarning("Personal job views are unavailable in this rendering mode.");
         }
     }
 
@@ -1412,7 +803,7 @@
             var view = location.ViewKey is { } viewKey ? this.FindView(viewKey) : null;
             if (location.ViewKey is not null && view is null)
             {
-                this.SetActionWarning("The job view in this link is not available, so the default view is shown.");
+                this.ShowToastWarning("The job view in this link is not available, so the default view is shown.");
             }
 
             view ??= this.FindView(this._preferredViewKey) ?? this.ConfiguredDefaultView();
@@ -1437,21 +828,30 @@
         this.StateHasChanged();
     }
 
-    private async Task SetViewAsync(ChangeEventArgs eventArgs)
+    private async Task SelectViewAsync(DashboardResolvedJobView view)
     {
-        if (eventArgs.Value is not string key || this.FindView(key) is not { } nextView)
+        if (view.Key == this._selectedViewKey)
         {
             return;
         }
 
-        if (this._isViewDirty
-            && !await JsRuntime.InvokeAsync<bool>("confirm", "Discard unsaved changes to the current job view?"))
+        if (this._isViewDirty)
         {
-            this.StateHasChanged();
+            this._pendingView = view;
+            this._discardDialogOpen = true;
             return;
         }
 
-        await this.ActivateViewAsync(nextView, applyQuery: true);
+        await this.ActivateViewAsync(view, applyQuery: true);
+    }
+
+    private async Task ConfirmSwitchViewAsync()
+    {
+        if (this._pendingView is { } view)
+        {
+            this._pendingView = null;
+            await this.ActivateViewAsync(view, applyQuery: true);
+        }
     }
 
     private async Task ActivateViewAsync(
@@ -1461,7 +861,6 @@
         this._initialLocation = null;
         this.CancelPendingFilterLoad();
         this.SelectView(view);
-        this.ClearActionAlert();
 
         if (applyQuery)
         {
@@ -1495,28 +894,24 @@
         storedView.View = DashboardJobViews.CreateView(storedView.View.Name, this._filters, this._columns);
         this.RebuildPersonalViews();
         this.UpdateViewDirty();
-        await this.PersistStoredViewsAsync("Saved job view.");
+        await this.PersistStoredViewsAsync(string.Concat("Saved changes to “", storedView.View.Name, "”"));
         this.NavigateToCurrentState(replace: true);
     }
 
-    private async Task SaveViewAsAsync()
+    private void OpenSaveAsDialog()
+      => this._saveAsDialogOpen = true;
+
+    private void OpenRenameDialog()
+      => this._renameDialogOpen = true;
+
+    private void OpenDeleteDialog()
+      => this._deleteDialogOpen = true;
+
+    private string? ValidateViewName(string name, string? exceptKey)
+      => this.IsViewNameAvailable(name, exceptKey) ? null : string.Concat("A view named “", name, "” already exists.");
+
+    private async Task SaveViewAsAsync(string normalizedName)
     {
-        var suggestedName = this.CurrentView?.Source == DashboardJobViewSource.BuiltIn
-          ? "My View"
-          : string.Concat(this.CurrentView?.Name ?? "Job View", " Copy");
-        var name = await JsRuntime.InvokeAsync<string?>("prompt", "Save job view as:", suggestedName);
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return;
-        }
-
-        var normalizedName = name.Trim();
-        if (!this.IsViewNameAvailable(normalizedName, exceptKey: null))
-        {
-            this.SetActionError("A job view with that name already exists.");
-            return;
-        }
-
         var id = Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture);
         var storedView = new DashboardStoredJobView
         {
@@ -1527,27 +922,14 @@
         this.RebuildPersonalViews();
         this._selectedViewKey = DashboardJobViews.PersonalKey(id);
         this.UpdateViewDirty();
-        await this.PersistStoredViewsAsync("Saved personal job view.");
+        await this.PersistStoredViewsAsync(string.Concat("Saved view “", normalizedName, "”"));
         this.NavigateToCurrentState(replace: true);
     }
 
-    private async Task RenameCurrentViewAsync()
+    private async Task RenameCurrentViewAsync(string normalizedName)
     {
         if (this.FindStoredView(this._selectedViewKey) is not { } storedView)
         {
-            return;
-        }
-
-        var name = await JsRuntime.InvokeAsync<string?>("prompt", "Rename job view:", storedView.View.Name);
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return;
-        }
-
-        var normalizedName = name.Trim();
-        if (!this.IsViewNameAvailable(normalizedName, this._selectedViewKey))
-        {
-            this.SetActionError("A job view with that name already exists.");
             return;
         }
 
@@ -1556,13 +938,12 @@
             Name = normalizedName,
         };
         this.RebuildPersonalViews();
-        await this.PersistStoredViewsAsync("Renamed personal job view.");
+        await this.PersistStoredViewsAsync(string.Concat("Renamed view to “", normalizedName, "”"));
     }
 
     private async Task DeleteCurrentViewAsync()
     {
-        if (this.FindStoredView(this._selectedViewKey) is not { } storedView
-            || !await JsRuntime.InvokeAsync<bool>("confirm", string.Concat("Delete job view ‘", storedView.View.Name, "’?")))
+        if (this.FindStoredView(this._selectedViewKey) is not { } storedView)
         {
             return;
         }
@@ -1576,7 +957,7 @@
         }
 
         await this.ActivateViewAsync(this.FindView(this._preferredViewKey) ?? this.ConfiguredDefaultView(), applyQuery: true);
-        await this.PersistStoredViewsAsync("Deleted personal job view.");
+        await this.PersistStoredViewsAsync(string.Concat("Deleted view “", storedView.View.Name, "”"));
     }
 
     private async Task SetPreferredViewAsync()
@@ -1587,7 +968,7 @@
         }
 
         this._preferredViewKey = this._selectedViewKey;
-        await this.PersistStoredViewsAsync("Set the default job view.");
+        await this.PersistStoredViewsAsync(string.Concat("“", this.CurrentView.Name, "” now opens by default"));
         this.NavigateToCurrentState(replace: true);
     }
 
@@ -1603,22 +984,19 @@
                   PreferredViewKey = this._preferredViewKey,
                   Views = [.. this._storedViews],
               });
-            this.SetActionSuccess(successMessage);
+            this.ShowToast(successMessage, tone: AlertTone.Success);
         }
         catch (JSException)
         {
-            this.SetActionWarning("The view is available for this session, but browser storage could not be updated.");
+            this.ShowToast("Couldn't save to browser storage", "The view works for this session but won't be remembered.", AlertTone.Warning);
         }
     }
 
     private void OpenColumnEditor()
       => this._isColumnEditorOpen = true;
 
-    private async Task CloseColumnEditorAsync()
-    {
-        this._isColumnEditorOpen = false;
-        await this._columnsButton.FocusAsync();
-    }
+    private void CloseColumnEditor()
+      => this._isColumnEditorOpen = false;
 
     private void SetBuiltInColumnVisible((ShedduellerDashboardJobColumnKind Kind, bool Visible) change)
     {
@@ -1654,11 +1032,10 @@
             column.Heading,
             out var error))
         {
-            this.SetActionError(error!);
+            this.ShowToast("Couldn't add the tag column", error, AlertTone.Destructive);
             return;
         }
 
-        this.ClearActionAlert();
         this.UpdateViewDirty();
     }
 
@@ -1671,11 +1048,10 @@
             change.Column.Heading,
             out var error))
         {
-            this.SetActionError(error!);
+            this.ShowToast("Couldn't update the tag column", error, AlertTone.Destructive);
             return;
         }
 
-        this.ClearActionAlert();
         this.UpdateViewDirty();
     }
 
@@ -1746,6 +1122,7 @@
         }
     }
 
+    // Measuring runs in the browser; a failure there must not escape the event handler and end the circuit.
     private async Task<IReadOnlyList<int>> MeasureAutoFitWidthsAsync()
     {
         var minimums = this._columns
@@ -1754,10 +1131,27 @@
         var maximums = this._columns
           .Select(column => DashboardJobColumnWidths.AutoFitMaximum(column.Kind))
           .ToArray();
-        return await JsRuntime.InvokeAsync<int[]>(
-          "shedduellerJobViews.measureJobColumnWidths",
-          minimums,
-          maximums);
+
+        try
+        {
+            var widths = await JsRuntime.InvokeAsync<int[]?>(
+              "shedduellerJobViews.measureJobColumnWidths",
+              minimums,
+              maximums);
+            return widths is { Length: > 0 } && widths.Length == this._columns.Count && widths.All(width => DashboardJobColumnWidths.IsValid(width))
+              ? widths
+              : this.ColumnsNotMeasured();
+        }
+        catch (Exception exception) when (exception is JSException or System.Text.Json.JsonException)
+        {
+            return this.ColumnsNotMeasured();
+        }
+    }
+
+    private IReadOnlyList<int> ColumnsNotMeasured()
+    {
+        this.ShowToast("Couldn't fit the columns", "Column widths are unchanged.", AlertTone.Destructive);
+        return [];
     }
 
     private void ResetColumnWidth(int columnIndex)
@@ -1876,8 +1270,14 @@
         ? "jobs-table__number"
         : null;
 
-    private IReadOnlyList<JobTag> ResidualTags(JobInspectionSummary job)
-      => DashboardJobViews.GetResidualTags(job.Tags, this._columns);
+    private IReadOnlyList<JobTag> OrderedResidualTags(JobInspectionSummary job)
+      => DashboardTagOrder.Apply(DashboardJobViews.GetResidualTags(job.Tags, this._columns), DashboardOptions.Value.TagDisplayOrder);
+
+    private IReadOnlyList<string> ResidualTagValues(JobInspectionSummary job)
+      => DashboardFormat.Tags(this.OrderedResidualTags(job));
+
+    private string ResidualTagsTitle(JobInspectionSummary job)
+      => DashboardFormat.TagsTitle(this.OrderedResidualTags(job));
 
     private static IReadOnlyList<string> TagValues(
         JobInspectionSummary job,
@@ -1892,16 +1292,36 @@
         string value)
       => DashboardJobFilterQuery.WithTagHref(this._filters, string.Concat(column.TagName, ":", value), this.ViewParameter);
 
-    private async Task SetStateFilterAsync(
-        JobState state,
-        ChangeEventArgs eventArgs)
+    private async Task ToggleStateAsync((JobState Value, bool Selected) change)
     {
-        if (!this._filters.SetStateSelected(state, eventArgs.Value is bool selected && selected))
+        if (this._filters.SetStateSelected(change.Value, change.Selected))
         {
-            return;
+            await this.ApplyDiscreteFilterChangeAsync();
         }
+    }
 
-        await this.ApplyDiscreteFilterChangeAsync();
+    private async Task ClearStatesAsync()
+    {
+        if (this._filters.ReplaceStates([]))
+        {
+            await this.ApplyDiscreteFilterChangeAsync();
+        }
+    }
+
+    // Tag and group filters are applied from the "Add filter" menu or removed from their chip: discrete changes.
+    private async Task ApplyTextFilterAsync((string Key, string Value) filter)
+    {
+        var changed = filter.Key switch
+        {
+            TagFilterKey => this._filters.SetTagContains(filter.Value),
+            GroupFilterKey => this._filters.SetConcurrencyGroupContains(filter.Value),
+            _ => false,
+        };
+
+        if (changed)
+        {
+            await this.ApplyDiscreteFilterChangeAsync();
+        }
     }
 
     // Discrete changes (state toggles, sort, clear) push a history entry so Back steps through them.
@@ -1918,23 +1338,25 @@
     private Task SetHandlerContainsAsync(string value)
       => this.SetTextFilterAsync(value, this._filters.SetHandlerContains);
 
-    private Task SetTagContainsAsync(string value)
-      => this.SetTextFilterAsync(value, this._filters.SetTagContains);
-
-    private Task SetConcurrencyGroupContainsAsync(string value)
-      => this.SetTextFilterAsync(value, this._filters.SetConcurrencyGroupContains);
-
-    private async Task SetSortAsync(ChangeEventArgs eventArgs)
+    private async Task SetSortAsync(JobInspectionSort sort)
     {
-        if (eventArgs.Value is not string value
-            || !Enum.TryParse<JobInspectionSort>(value, ignoreCase: true, out var sort)
-            || !Enum.IsDefined(sort)
-            || !this._filters.SetSort(sort))
+        if (this._filters.SetSort(sort))
         {
-            return;
+            await this.ApplyDiscreteFilterChangeAsync();
         }
+    }
 
-        await this.ApplyDiscreteFilterChangeAsync();
+    private static string SortLabel(JobInspectionSort sort)
+      => sort == JobInspectionSort.NewestFirst ? "Newest first" : "Operational order";
+
+    // Enter on a pasted job ID opens the job instead of filtering by it.
+    private void HandleSearchKeyDown(KeyboardEventArgs eventArgs)
+    {
+        if (eventArgs.Key == "Enter" && this.SearchJobId is { } jobId)
+        {
+            this.CancelPendingFilterLoad();
+            Navigation.NavigateTo(DashboardFormat.JobHref(jobId));
+        }
     }
 
     private Task SetTextFilterAsync(
@@ -1969,32 +1391,25 @@
             return;
         }
 
-        var confirmation = await JsRuntime.InvokeAsync<string?>("prompt", ClearQueuedPrompt);
-        if (!string.Equals(confirmation?.Trim(), ClearQueuedConfirmationWord, StringComparison.Ordinal))
-        {
-            return;
-        }
-
         this._isClearQueuedRunning = true;
-        this.ClearActionAlert();
 
         try
         {
             var canceledCount = await JobManager.CancelQueuedJobsAsync();
             if (canceledCount == 0)
             {
-                this.SetActionWarning("No queued jobs were available to cancel.");
+                this.ShowToast("There were no queued jobs to cancel");
             }
             else
             {
-                this.SetActionSuccess(CreateClearQueuedSuccessMessage(canceledCount));
+                this.ShowToast(CreateClearQueuedSuccessMessage(canceledCount), tone: AlertTone.Success);
             }
 
             await this.LiveRefresh.RefreshNowAsync();
         }
         catch (Exception exception)
         {
-            this.SetActionError(string.Create(CultureInfo.InvariantCulture, $"Clear queued jobs failed: {exception.Message}"));
+            this.ShowToast("Couldn't cancel queued jobs", exception.Message, AlertTone.Destructive);
         }
         finally
         {
@@ -2164,6 +1579,7 @@
         var merge = DashboardJobListMerge.Merge(this._jobs, page.Jobs);
         this._jobs.Clear();
         this._jobs.AddRange(merge.Rows);
+        this.PruneSelection();
         this._pendingNewJobCount = merge.NewJobCount;
         this._page = this._page with { TotalCount = page.TotalCount };
     }
@@ -2258,38 +1674,108 @@
     {
         this._jobs.Clear();
         this._jobs.AddRange(page.Jobs);
+        this.PruneSelection();
         this._page = page;
         this._pendingNewJobCount = 0;
         this._loadMoreError = null;
         this._error = null;
     }
 
-    private void SetActionSuccess(string message)
+    private void PruneSelection()
     {
-        this._actionSeverity = JobsActionSeverity.Success;
-        this._actionMessage = message;
+        if (this._selected.Count > 0)
+        {
+            this._selected.IntersectWith(this._jobs.Select(job => job.JobId));
+        }
     }
 
-    private void SetActionWarning(string message)
+    private void SetSelected(Guid jobId, ChangeEventArgs eventArgs)
     {
-        this._actionSeverity = JobsActionSeverity.Warning;
-        this._actionMessage = message;
+        if (eventArgs.Value is true)
+        {
+            _ = this._selected.Add(jobId);
+        }
+        else
+        {
+            _ = this._selected.Remove(jobId);
+        }
     }
 
-    private void SetActionError(string message)
+    private void ToggleAllSelected(ChangeEventArgs eventArgs)
     {
-        this._actionSeverity = JobsActionSeverity.Error;
-        this._actionMessage = message;
+        if (eventArgs.Value is true)
+        {
+            this._selected.UnionWith(this._jobs.Select(job => job.JobId));
+        }
+        else
+        {
+            this._selected.Clear();
+        }
     }
 
-    private void ClearActionAlert()
-      => this._actionMessage = null;
+    private void ClearSelection()
+      => this._selected.Clear();
+
+    private void OpenClearQueuedDialog()
+      => this._clearQueuedDialogOpen = true;
+
+    private void OpenCancelDialog(IReadOnlyList<Guid> jobIds)
+    {
+        if (jobIds.Count == 0)
+        {
+            return;
+        }
+
+        this._cancelTargets = jobIds;
+        this._cancelDialogOpen = true;
+    }
+
+    // There is no batch cancel API, so each job is canceled in turn and the outcomes are summarised in one toast.
+    private async Task CancelJobsAsync()
+    {
+        if (this._isCancelling || this._cancelTargets.Count == 0)
+        {
+            return;
+        }
+
+        this._isCancelling = true;
+        var results = new List<JobCancellationResult>(this._cancelTargets.Count);
+        try
+        {
+            foreach (var jobId in this._cancelTargets)
+            {
+                results.Add(await JobManager.CancelAsync(jobId));
+            }
+
+            var (title, description) = DashboardJobActions.DescribeCancellation(results);
+            var tone = results.Any(result => result is JobCancellationResult.Canceled or JobCancellationResult.CancellationRequested)
+              ? AlertTone.Success
+              : AlertTone.Neutral;
+            this.ShowToast(title, description, tone);
+        }
+        catch (Exception exception)
+        {
+            var (title, _) = DashboardJobActions.DescribeCancellation(results);
+            this.ShowToast("Canceling stopped part way", string.Concat(results.Count > 0 ? string.Concat(title, ". ") : string.Empty, exception.Message), AlertTone.Destructive);
+        }
+        finally
+        {
+            this._selected.ExceptWith(this._cancelTargets);
+            this._cancelTargets = [];
+            this._isCancelling = false;
+        }
+
+        await this.LiveRefresh.RefreshNowAsync();
+    }
+
+    private Task RetryAsync()
+      => this.LoadAsync(this._take);
+
+    private static string SkeletonWidth(int row, int column)
+      => string.Create(CultureInfo.InvariantCulture, $"{45 + ((row * 7 + column * 13) % 45)}%");
 
     internal static string CreateClearQueuedSuccessMessage(int canceledCount)
       => string.Create(CultureInfo.InvariantCulture, $"Canceled {DashboardFormat.Count(canceledCount)} queued job(s).");
-
-    private static string StatusFilterClass(JobState state)
-      => string.Concat("jobs-status-option jobs-status-option--", DashboardFormat.StateCssModifier(state));
 
     private static string QueuePositionText(JobInspectionSummary job)
       => job.QueuePosition switch
@@ -2322,29 +1808,13 @@
     private static string GetDispositionClass(JobInspectionSummary job)
       => job.State == JobState.Failed ? "jobs-disposition--error" : "jobs-disposition--muted";
 
-    // Click-to-filter links are plain hrefs, so they push history; they keep a non-preferred view in the URL.
-    private string StateFilterHref(JobState state)
-      => DashboardJobFilterQuery.WithStateHref(this._filters, state, this.ViewParameter);
-
-    private static string StateFilterTitle(JobState state)
-      => string.Concat("Filter jobs by state ", state);
-
+    // Filter links are plain hrefs, so they push history; they keep a non-preferred view in the URL.
     private string HandlerFilterHref(JobInspectionSummary job)
       => DashboardJobFilterQuery.WithHandlerHref(this._filters, DashboardFormat.ShortHandler(job), this.ViewParameter);
-
-    private static string HandlerFilterTitle(JobInspectionSummary job)
-      => string.Concat("Filter jobs by handler ", DashboardFormat.ShortHandler(job));
 
     private string TagFilterHref(string tag)
       => DashboardJobFilterQuery.WithTagHref(this._filters, tag, this.ViewParameter);
 
     private string GroupFilterHref(string group)
       => DashboardJobFilterQuery.WithGroupHref(this._filters, group, this.ViewParameter);
-
-    private enum JobsActionSeverity
-    {
-        Success,
-        Warning,
-        Error,
-    }
 }

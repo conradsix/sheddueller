@@ -1,0 +1,23 @@
+@if (Count > 0)
+{
+    <div class="sd-bulkbar" role="region" aria-label="Selected items">
+        <span class="sd-bulkbar__count">@Count.ToString("N0", CultureInfo.CurrentCulture) selected</span>
+        <span class="sd-bulkbar__divider" aria-hidden="true"></span>
+        @ChildContent
+        <IconButton Icon="x" Label="Clear selection (Esc)" Size="ButtonSize.Small" OnClick="OnClear" data-sd-bulk-clear="true" />
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int Count { get; set; }
+
+    /// <summary>
+    /// Actions for the selection. Use ghost or destructive buttons; the bar is dark in both themes.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public EventCallback OnClear { get; set; }
+}

@@ -1,0 +1,92 @@
+<DropdownMenu Label="Add filter" Variant="ButtonVariant.Outline" Class="sd-btn--dashed" AlignStart="true" ShowChevron="false"
+              OnTriggerClick="Reset">
+    <TriggerContent>
+        <Icon Name="circle-plus" />
+        <span>Add filter</span>
+    </TriggerContent>
+    <ChildContent>
+        @if (ActiveField is not { } activeField)
+        {
+            <MenuLabel>Filter by</MenuLabel>
+            @foreach (var option in Fields)
+            {
+                <button type="button" role="menuitem" class="sd-menu__item" data-sd-keep-open="true" @onclick="() => Choose(option)">
+                    <Icon Name="list-filter" />
+                    <span>@option.Label</span>
+                    @if (!string.IsNullOrEmpty(option.Value))
+                    {
+                        <span class="sd-menu__hint">@option.Value</span>
+                    }
+                </button>
+            }
+        }
+        else
+        {
+            <form class="sd-menu__form" @onsubmit="ApplyAsync" @onsubmit:preventDefault="true">
+                <label class="sd-field">
+                    <span>@activeField.Label</span>
+                    <input @ref="_input" class="sd-input" value="@_draft" placeholder="@activeField.Placeholder" autocomplete="off"
+                           spellcheck="false" @oninput="args => _draft = args.Value as string ?? string.Empty" />
+                </label>
+                <div class="sd-menu__form-actions">
+                    <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Icon="arrow-left" OnClick="Reset"
+                            data-sd-keep-open="true">Back</Button>
+                    <Button Type="submit" Variant="ButtonVariant.Primary" Size="ButtonSize.Small">Apply</Button>
+                </div>
+            </form>
+        }
+    </ChildContent>
+</DropdownMenu>
+
+@code {
+    private ElementReference _input;
+    private string? _activeKey;
+    private string _draft = string.Empty;
+    private bool _focusInput;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<TextFilterField> Fields { get; set; } = [];
+
+    /// <summary>
+    /// Raised with the field key and the trimmed value. An empty value clears the filter.
+    /// </summary>
+    [Parameter]
+    public EventCallback<(string Key, string Value)> OnApply { get; set; }
+
+    private TextFilterField? ActiveField
+      => this._activeKey is null ? null : this.Fields.FirstOrDefault(option => option.Key == this._activeKey);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (this._focusInput)
+        {
+            this._focusInput = false;
+            await this._input.FocusAsync();
+        }
+    }
+
+    private void Choose(TextFilterField field)
+    {
+        this._activeKey = field.Key;
+        this._draft = field.Value ?? string.Empty;
+        this._focusInput = true;
+    }
+
+    private void Reset()
+    {
+        this._activeKey = null;
+        this._draft = string.Empty;
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (this.ActiveField is not { } activeField)
+        {
+            return;
+        }
+
+        var value = this._draft.Trim();
+        this.Reset();
+        await this.OnApply.InvokeAsync((activeField.Key, value));
+    }
+}

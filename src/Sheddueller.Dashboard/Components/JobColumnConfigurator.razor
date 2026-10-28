@@ -1,614 +1,192 @@
-@implements IAsyncDisposable
-@inject IJSRuntime JsRuntime
+<Sheet Open="IsOpen" OpenChanged="OnOpenChangedAsync" Title="Columns">
+    <ChildContent>
+        <p id="jobs-column-order-help" class="sd-muted jobs-columns__help">Top to bottom is left to right in the jobs table.</p>
 
-@if (IsOpen)
-{
-    <section class="jobs-column-drawer" role="dialog" aria-modal="false" aria-labelledby="jobs-column-drawer-title">
-        <header class="jobs-column-drawer__header">
-            <div>
-                <h2 id="jobs-column-drawer-title">Columns</h2>
-                <p id="jobs-column-order-help">Top to bottom maps to left to right in the jobs table.</p>
+        <section class="jobs-columns__section" aria-labelledby="visible-columns-title">
+            <div class="jobs-columns__heading">
+                <h3 id="visible-columns-title">Visible columns</h3>
+                <Badge Variant="BadgeVariant.Secondary">@Columns.Count</Badge>
             </div>
-            <button @ref="_closeButton" class="jobs-column-drawer__icon-button" type="button"
-                    @onclick="CloseAsync" aria-label="Close column configurator">
-                <Icon Name="close" />
-            </button>
-        </header>
 
-        <div class="jobs-column-drawer__body">
-            <section class="jobs-column-drawer__section" aria-labelledby="visible-columns-title">
-                <div class="jobs-column-drawer__section-heading">
-                    <h3 id="visible-columns-title">Visible columns</h3>
-                    <span>@Columns.Count</span>
-                </div>
-
-                <ol class="jobs-column-drawer__visible-list" aria-describedby="jobs-column-order-help">
-                    @for (var index = 0; index < Columns.Count; index++)
-                    {
-                        var columnIndex = index;
-                        var column = Columns[columnIndex];
-                        <li class="@ColumnRowClass(columnIndex)" @key="ColumnKey(column)"
-                            @ondragover:preventDefault="true" @ondragenter="() => SetDragTarget(columnIndex)"
-                            @ondrop="() => DropColumnAsync(columnIndex)">
-                            <div class="jobs-column-drawer__row-main">
-                                <button class="jobs-column-drawer__drag-handle" type="button" draggable="true"
-                                        title="Drag to reorder. Use arrow keys, Home, or End while focused."
-                                        aria-label="Reorder @DashboardJobViews.Heading(column). Position @(columnIndex + 1) of @Columns.Count."
-                                        @ondragstart="() => BeginDrag(columnIndex)" @ondragend="EndDrag"
-                                        @onkeydown="eventArgs => HandleReorderKeyAsync(columnIndex, eventArgs)">
-                                    <Icon Name="drag_indicator" />
-                                </button>
-                                <span class="jobs-column-drawer__position" aria-hidden="true">@(columnIndex + 1)</span>
-                                <span class="jobs-column-drawer__column-label">
-                                    <strong>@DashboardJobViews.Heading(column)</strong>
+            <ol class="jobs-columns__list" aria-describedby="jobs-column-order-help">
+                @for (var index = 0; index < Columns.Count; index++)
+                {
+                    var columnIndex = index;
+                    var column = Columns[columnIndex];
+                    var heading = DashboardJobViews.Heading(column);
+                    <li class="@ColumnRowClass(columnIndex)" @key="ColumnKey(column)"
+                        @ondragover:preventDefault="true" @ondragenter="() => SetDragTarget(columnIndex)"
+                        @ondrop="() => DropColumnAsync(columnIndex)">
+                        <div class="jobs-columns__row-main">
+                            <button class="jobs-columns__drag" type="button" draggable="true"
+                                    title="Drag to reorder. Use arrow keys, Home, or End while focused."
+                                    aria-label="Reorder @heading. Position @(columnIndex + 1) of @Columns.Count."
+                                    @ondragstart="() => BeginDrag(columnIndex)" @ondragend="EndDrag"
+                                    @onkeydown="eventArgs => HandleReorderKeyAsync(columnIndex, eventArgs)">
+                                <Icon Name="grip-vertical" />
+                            </button>
+                            <span class="jobs-columns__label">
+                                <strong>@heading</strong>
+                                <small>
                                     @if (column.Kind == ShedduellerDashboardJobColumnKind.Tag)
                                     {
-                                        <small>tag: @column.TagName</small>
+                                        <span class="sd-mono">tag: @column.TagName</span>
+                                        <span aria-hidden="true"> · </span>
                                     }
-                                    <small>@ColumnWidthText(column)</small>
-                                </span>
-                                <span class="jobs-column-drawer__row-actions">
-                                    <button class="jobs-column-drawer__icon-button" type="button" title="Move up"
-                                            aria-label="Move @DashboardJobViews.Heading(column) up"
-                                            disabled="@(columnIndex == 0)" @onclick="() => MoveColumnAsync(columnIndex, columnIndex - 1)">
-                                        <Icon Name="arrow_upward" />
-                                    </button>
-                                    <button class="jobs-column-drawer__icon-button" type="button" title="Move down"
-                                            aria-label="Move @DashboardJobViews.Heading(column) down"
-                                            disabled="@(columnIndex == Columns.Count - 1)" @onclick="() => MoveColumnAsync(columnIndex, columnIndex + 1)">
-                                        <Icon Name="arrow_downward" />
-                                    </button>
-                                    @if (column.Width is not null)
-                                    {
-                                        <button class="jobs-column-drawer__icon-button" type="button" title="Reset column width"
-                                                aria-label="Reset @DashboardJobViews.Heading(column) column width"
-                                                @onclick="() => ColumnWidthResetRequested.InvokeAsync(columnIndex)">
-                                            <Icon Name="width_normal" />
-                                        </button>
-                                    }
-                                    @if (column.Kind == ShedduellerDashboardJobColumnKind.Tag)
-                                    {
-                                        <button class="jobs-column-drawer__icon-button" type="button" title="Edit promoted tag column"
-                                                aria-label="Edit @DashboardJobViews.Heading(column) promoted tag column"
-                                                @onclick="() => BeginTagEdit(columnIndex)">
-                                            <Icon Name="edit" />
-                                        </button>
-                                        <button class="jobs-column-drawer__icon-button jobs-column-drawer__icon-button--danger" type="button"
-                                                title="Remove promoted tag column" aria-label="Remove @DashboardJobViews.Heading(column) promoted tag column"
-                                                @onclick="() => RemoveTagColumnAsync(columnIndex)">
-                                            <Icon Name="remove_circle" />
-                                        </button>
-                                    }
-                                    else if (column.Kind == ShedduellerDashboardJobColumnKind.JobId)
-                                    {
-                                        <span class="jobs-column-drawer__locked" title="Job ID is required">
-                                            <Icon Name="lock" />
-                                            <span>Required</span>
-                                        </span>
-                                    }
-                                    else
-                                    {
-                                        <button class="jobs-column-drawer__icon-button" type="button" title="Hide column"
-                                                aria-label="Hide @DashboardJobViews.Heading(column) column"
-                                                @onclick="() => SetColumnVisibleAsync(column.Kind, visible: false)">
-                                            <Icon Name="visibility_off" />
-                                        </button>
-                                    }
-                                </span>
-                            </div>
-
-                            @if (_editingIndex == columnIndex)
-                            {
-                                <div class="jobs-column-drawer__tag-editor">
-                                    <label>
-                                        <span>Tag name</span>
-                                        <input @bind="_editTagName" aria-label="Promoted tag name" />
-                                    </label>
-                                    <label>
-                                        <span>Heading <small>optional</small></span>
-                                        <input @bind="_editHeading" aria-label="Promoted tag heading" />
-                                    </label>
-                                    @if (_editError is not null)
-                                    {
-                                        <p class="jobs-column-drawer__error" role="alert">@_editError</p>
-                                    }
-                                    <div class="jobs-column-drawer__inline-actions">
-                                        <button type="button" @onclick="ApplyTagEditAsync">Apply</button>
-                                        <button type="button" @onclick="CancelTagEdit">Cancel</button>
-                                    </div>
-                                </div>
-                            }
-                        </li>
-                    }
-                </ol>
-            </section>
-
-            <section class="jobs-column-drawer__section" aria-labelledby="available-columns-title">
-                <div class="jobs-column-drawer__section-heading">
-                    <h3 id="available-columns-title">Available columns</h3>
-                    <span>@HiddenBuiltInColumns.Count</span>
-                </div>
-                @if (HiddenBuiltInColumns.Count == 0)
-                {
-                    <p class="jobs-column-drawer__empty">All built-in columns are visible.</p>
-                }
-                else
-                {
-                    <ul class="jobs-column-drawer__available-list">
-                        @foreach (var kind in HiddenBuiltInColumns)
-                        {
-                            <li @key="kind">
-                                <button type="button" @onclick="() => SetColumnVisibleAsync(kind, visible: true)">
-                                    <Icon Name="add" />
-                                    <span>@DashboardJobViews.Heading(new(kind))</span>
-                                </button>
-                            </li>
-                        }
-                    </ul>
-                }
-            </section>
-
-            <section class="jobs-column-drawer__section" aria-labelledby="column-widths-title">
-                <div class="jobs-column-drawer__section-heading">
-                    <h3 id="column-widths-title">Column widths</h3>
-                </div>
-                <div class="jobs-column-drawer__width-actions">
-                    <button type="button" @onclick="AutoFitRequested">
-                        <Icon Name="fit_width" />
-                        <span>Auto-fit loaded values</span>
-                    </button>
-                    <button type="button" disabled="@Columns.All(column => column.Width is null)"
-                            @onclick="ResetWidthsRequested">
-                        <Icon Name="width_normal" />
-                        <span>Reset widths</span>
-                    </button>
-                </div>
-                <p class="jobs-column-drawer__empty">Drag a table-header divider to set an exact width. Double-click a divider to fit one column.</p>
-            </section>
-
-            <section class="jobs-column-drawer__section" aria-labelledby="tag-columns-title">
-                <div class="jobs-column-drawer__section-heading">
-                    <h3 id="tag-columns-title">Promoted tags</h3>
-                </div>
-                <button class="jobs-column-drawer__add-tag-toggle" type="button" @onclick="ToggleAddTag"
-                        aria-expanded="@_isAddingTag">
-                    <Icon Name="add" />
-                    <span>Add tag column</span>
-                </button>
-                @if (_isAddingTag)
-                {
-                    <div class="jobs-column-drawer__tag-editor jobs-column-drawer__tag-editor--new">
-                        <label>
-                            <span>Tag name</span>
-                            <input list="jobs-column-drawer-tag-names" @bind="_newTagName" placeholder="provider" />
-                        </label>
-                        <datalist id="jobs-column-drawer-tag-names">
-                            @foreach (var tagName in ObservedTagNames)
-                            {
-                                <option value="@tagName"></option>
-                            }
-                        </datalist>
-                        <label>
-                            <span>Heading <small>optional</small></span>
-                            <input @bind="_newTagHeading" placeholder="Provider" />
-                        </label>
-                        @if (_addError is not null)
-                        {
-                            <p class="jobs-column-drawer__error" role="alert">@_addError</p>
-                        }
-                        <div class="jobs-column-drawer__inline-actions">
-                            <button type="button" @onclick="AddTagColumnAsync">Add column</button>
-                            <button type="button" @onclick="CancelAddTag">Cancel</button>
+                                    @ColumnWidthText(column)
+                                </small>
+                            </span>
+                            <span class="jobs-columns__row-actions">
+                                <IconButton Icon="arrow-up" Label="@($"Move {heading} up")" Size="ButtonSize.Small"
+                                            Disabled="@(columnIndex == 0)" OnClick="() => MoveColumnAsync(columnIndex, columnIndex - 1)" />
+                                <IconButton Icon="arrow-down" Label="@($"Move {heading} down")" Size="ButtonSize.Small"
+                                            Disabled="@(columnIndex == Columns.Count - 1)" OnClick="() => MoveColumnAsync(columnIndex, columnIndex + 1)" />
+                                @if (column.Width is not null)
+                                {
+                                    <IconButton Icon="move-horizontal" Label="@($"Reset {heading} width")" Size="ButtonSize.Small"
+                                                OnClick="() => ColumnWidthResetRequested.InvokeAsync(columnIndex)" />
+                                }
+                                @if (column.Kind == ShedduellerDashboardJobColumnKind.Tag)
+                                {
+                                    <IconButton Icon="pencil" Label="@($"Edit {heading} tag column")" Size="ButtonSize.Small"
+                                                OnClick="() => BeginTagEdit(columnIndex)" />
+                                    <IconButton Icon="circle-minus" Label="@($"Remove {heading} tag column")" Size="ButtonSize.Small"
+                                                Class="jobs-columns__remove" OnClick="() => RemoveTagColumnAsync(columnIndex)" />
+                                }
+                                else if (column.Kind == ShedduellerDashboardJobColumnKind.JobId)
+                                {
+                                    <Badge Variant="BadgeVariant.Secondary" title="The job ID column is always shown">
+                                        <Icon Name="lock" /> Required
+                                    </Badge>
+                                }
+                                else
+                                {
+                                    <IconButton Icon="eye-off" Label="@($"Hide {heading} column")" Size="ButtonSize.Small"
+                                                OnClick="() => SetColumnVisibleAsync(column.Kind, visible: false)" />
+                                }
+                            </span>
                         </div>
+
+                        @if (_editingIndex == columnIndex)
+                        {
+                            <form class="jobs-columns__editor" @onsubmit="ApplyTagEditAsync" @onsubmit:preventDefault="true">
+                                <label class="sd-field">
+                                    <span>Tag name</span>
+                                    <input class="sd-input" @bind="_editTagName" aria-label="Promoted tag name" />
+                                </label>
+                                <label class="sd-field">
+                                    <span>Heading <span class="sd-field__hint">optional</span></span>
+                                    <input class="sd-input" @bind="_editHeading" aria-label="Promoted tag heading" />
+                                </label>
+                                @if (_editError is not null)
+                                {
+                                    <p class="sd-field__error" role="alert">@_editError</p>
+                                }
+                                <div class="jobs-columns__editor-actions">
+                                    <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="CancelTagEdit">Cancel</Button>
+                                    <Button Type="submit" Variant="ButtonVariant.Primary" Size="ButtonSize.Small">Apply</Button>
+                                </div>
+                            </form>
+                        }
+                    </li>
+                }
+            </ol>
+        </section>
+
+        <section class="jobs-columns__section" aria-labelledby="available-columns-title">
+            <div class="jobs-columns__heading">
+                <h3 id="available-columns-title">Available columns</h3>
+                <Badge Variant="BadgeVariant.Secondary">@HiddenBuiltInColumns.Count</Badge>
+            </div>
+            @if (HiddenBuiltInColumns.Count == 0)
+            {
+                <p class="sd-muted jobs-columns__note">All built-in columns are visible.</p>
+            }
+            else
+            {
+                <div class="jobs-columns__available">
+                    @foreach (var kind in HiddenBuiltInColumns)
+                    {
+                        <Button Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Icon="plus" @key="kind"
+                                OnClick="() => SetColumnVisibleAsync(kind, visible: true)">@DashboardJobViews.Heading(new(kind))</Button>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="jobs-columns__section" aria-labelledby="column-widths-title">
+            <div class="jobs-columns__heading">
+                <h3 id="column-widths-title">Column widths</h3>
+            </div>
+            <div class="jobs-columns__available">
+                <Button Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Icon="unfold-horizontal" OnClick="AutoFitRequested">
+                    Fit to loaded rows
+                </Button>
+                <Button Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Icon="move-horizontal"
+                        Disabled="@Columns.All(column => column.Width is null)" OnClick="ResetWidthsRequested">
+                    Reset widths
+                </Button>
+            </div>
+            <p class="sd-muted jobs-columns__note">Drag a divider in the table header to set an exact width, or double-click it to fit one column.</p>
+        </section>
+
+        <section class="jobs-columns__section" aria-labelledby="tag-columns-title">
+            <div class="jobs-columns__heading">
+                <h3 id="tag-columns-title">Promoted tags</h3>
+            </div>
+            <p class="sd-muted jobs-columns__note">Show a tag's value in its own column. The tag then leaves the Tags column.</p>
+            @if (!_isAddingTag)
+            {
+                <div>
+                    <Button Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Icon="plus" Class="sd-btn--dashed" OnClick="ToggleAddTag">
+                        Add tag column
+                    </Button>
+                </div>
+            }
+            else
+            {
+                <form class="jobs-columns__editor" @onsubmit="AddTagColumnAsync" @onsubmit:preventDefault="true">
+                    <label class="sd-field">
+                        <span>Tag name</span>
+                        <input class="sd-input" list="jobs-column-drawer-tag-names" @bind="_newTagName" placeholder="provider" />
+                    </label>
+                    <datalist id="jobs-column-drawer-tag-names">
+                        @foreach (var tagName in ObservedTagNames)
+                        {
+                            <option value="@tagName"></option>
+                        }
+                    </datalist>
+                    <label class="sd-field">
+                        <span>Heading <span class="sd-field__hint">optional</span></span>
+                        <input class="sd-input" @bind="_newTagHeading" placeholder="Provider" />
+                    </label>
+                    @if (_addError is not null)
+                    {
+                        <p class="sd-field__error" role="alert">@_addError</p>
+                    }
+                    <div class="jobs-columns__editor-actions">
+                        <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="CancelAddTag">Cancel</Button>
+                        <Button Type="submit" Variant="ButtonVariant.Primary" Size="ButtonSize.Small">Add column</Button>
                     </div>
-                }
-            </section>
-        </div>
+                </form>
+            }
+        </section>
 
-        <footer class="jobs-column-drawer__footer">
-            <button type="button" @onclick="ResetRequested">
-                <Icon Name="restart_alt" />
-                <span>Reset columns</span>
-            </button>
-            <span class="jobs-column-drawer__footer-actions">
-                <button type="button" @onclick="CloseAsync">Close</button>
-                @if (IsPersonalView)
-                {
-                    <button class="jobs-column-drawer__primary-button" type="button" disabled="@(!IsDirty)"
-                            @onclick="SaveRequested">Save changes</button>
-                }
-                else
-                {
-                    <button class="jobs-column-drawer__primary-button" type="button"
-                            @onclick="SaveAsRequested">Save as new view</button>
-                }
-            </span>
-        </footer>
-        <p class="jobs-column-drawer__announcement" aria-live="polite">@_announcement</p>
-    </section>
-}
-
-<style>
-    .jobs-column-drawer {
-        position: fixed;
-        inset: 0 0 0 auto;
-        z-index: 90;
-        display: flex;
-        width: min(460px, 100vw);
-        height: 100dvh;
-        flex-direction: column;
-        border-left: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-        box-shadow: -16px 0 36px rgb(0 0 0 / 28%);
-        color: var(--sd-on-surface);
-    }
-
-    .jobs-column-drawer__header,
-    .jobs-column-drawer__footer {
-        display: flex;
-        flex: 0 0 auto;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .jobs-column-drawer__header {
-        align-items: flex-start;
-        border-bottom: 1px solid var(--sd-outline-variant);
-    }
-
-    .jobs-column-drawer__header h2 {
-        margin: 0;
-        font-size: 18px;
-        line-height: 24px;
-    }
-
-    .jobs-column-drawer__header p {
-        margin: 2px 0 0;
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .jobs-column-drawer__body {
-        display: flex;
-        min-height: 0;
-        flex: 1 1 auto;
-        flex-direction: column;
-        gap: 20px;
-        overflow-y: auto;
-        padding: 16px;
-    }
-
-    .jobs-column-drawer__section {
-        display: grid;
-        gap: 8px;
-    }
-
-    .jobs-column-drawer__section-heading {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-    }
-
-    .jobs-column-drawer__section-heading h3 {
-        margin: 0;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .jobs-column-drawer__section-heading>span {
-        display: inline-flex;
-        min-width: 24px;
-        justify-content: center;
-        border-radius: 999px;
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface-variant);
-        font-size: 10px;
-        padding: 1px 6px;
-    }
-
-    .jobs-column-drawer__visible-list,
-    .jobs-column-drawer__available-list {
-        display: grid;
-        gap: 4px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-    }
-
-    .jobs-column-drawer__row {
-        display: grid;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-low);
-    }
-
-    .jobs-column-drawer__row--dragging {
-        opacity: 0.55;
-    }
-
-    .jobs-column-drawer__row--drop-target {
-        border-color: var(--sd-primary);
-        box-shadow: inset 0 2px 0 var(--sd-primary);
-    }
-
-    .jobs-column-drawer__row-main {
-        display: grid;
-        min-height: 46px;
-        align-items: center;
-        gap: 6px;
-        grid-template-columns: 30px 24px minmax(0, 1fr) auto;
-        padding: 5px 6px;
-    }
-
-    .jobs-column-drawer button {
-        font: inherit;
-    }
-
-    .jobs-column-drawer__icon-button,
-    .jobs-column-drawer__drag-handle {
-        display: inline-flex;
-        width: 30px;
-        min-height: 30px;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid transparent;
-        border-radius: var(--radius-md);
-        box-shadow: var(--shadow-xs);
-        background: transparent;
-        color: var(--sd-on-surface-variant);
-        padding: 3px;
-    }
-
-    .jobs-column-drawer__drag-handle {
-        cursor: grab;
-        touch-action: none;
-    }
-
-    .jobs-column-drawer__drag-handle:active {
-        cursor: grabbing;
-    }
-
-    .jobs-column-drawer__icon-button:hover:not(:disabled),
-    .jobs-column-drawer__drag-handle:hover,
-    .jobs-column-drawer__icon-button:focus-visible,
-    .jobs-column-drawer__drag-handle:focus-visible {
-        border-color: var(--sd-outline-variant);
-        background: var(--sd-surface-container);
-        color: var(--sd-primary);
-    }
-
-    .jobs-column-drawer__icon-button:disabled {
-        opacity: 0.35;
-    }
-
-    .jobs-column-drawer__icon-button--danger {
-        color: var(--sd-error);
-    }
-
-    .jobs-column-drawer__icon-button .sd-icon,
-    .jobs-column-drawer__drag-handle .sd-icon {
-        font-size: 18px;
-    }
-
-    .jobs-column-drawer__position {
-        color: var(--sd-outline);
-        font-family: var(--font-mono);
-        font-size: 10px;
-        text-align: center;
-    }
-
-    .jobs-column-drawer__column-label {
-        display: grid;
-        min-width: 0;
-        gap: 1px;
-    }
-
-    .jobs-column-drawer__column-label strong {
-        overflow: hidden;
-        font-size: 12px;
-        line-height: 16px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .jobs-column-drawer__column-label small,
-    .jobs-column-drawer__tag-editor small {
-        color: var(--sd-on-surface-variant);
-        font-family: var(--font-mono);
-        font-size: 10px;
-        line-height: 14px;
-        overflow-wrap: anywhere;
-    }
-
-    .jobs-column-drawer__row-actions {
-        display: flex;
-        align-items: center;
-        gap: 1px;
-    }
-
-    .jobs-column-drawer__locked {
-        display: inline-flex;
-        align-items: center;
-        gap: 3px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-    }
-
-    .jobs-column-drawer__locked .sd-icon {
-        font-size: 14px;
-    }
-
-    .jobs-column-drawer__tag-editor {
-        display: grid;
-        gap: 8px;
-        grid-template-columns: 1fr 1fr;
-        border-top: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-        padding: 10px;
-    }
-
-    .jobs-column-drawer__tag-editor--new {
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-    }
-
-    .jobs-column-drawer__tag-editor label {
-        display: grid;
-        gap: 3px;
-        color: var(--sd-on-surface-variant);
-        font-size: 10px;
-        font-weight: 600;
-    }
-
-    .jobs-column-drawer__tag-editor input {
-        width: 100%;
-        min-height: 34px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 8px;
-    }
-
-    .jobs-column-drawer__inline-actions,
-    .jobs-column-drawer__error {
-        grid-column: 1 / -1;
-    }
-
-    .jobs-column-drawer__inline-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 6px;
-    }
-
-    .jobs-column-drawer__inline-actions button,
-    .jobs-column-drawer__add-tag-toggle,
-    .jobs-column-drawer__available-list button,
-    .jobs-column-drawer__width-actions button,
-    .jobs-column-drawer__footer button {
-        display: inline-flex;
-        min-height: 32px;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        box-shadow: var(--shadow-xs);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 9px;
-        font-size: 12px;
-        font-weight: 500;
-    }
-
-    .jobs-column-drawer__available-list {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .jobs-column-drawer__width-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-
-    .jobs-column-drawer__available-list button {
-        width: 100%;
-        justify-content: flex-start;
-        text-transform: none;
-    }
-
-    .jobs-column-drawer__add-tag-toggle {
-        justify-self: start;
-    }
-
-    .jobs-column-drawer__inline-actions button:hover,
-    .jobs-column-drawer__add-tag-toggle:hover,
-    .jobs-column-drawer__available-list button:hover,
-    .jobs-column-drawer__width-actions button:hover:not(:disabled),
-    .jobs-column-drawer__footer button:hover:not(:disabled) {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .jobs-column-drawer__error {
-        margin: 0;
-        color: var(--sd-error);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .jobs-column-drawer__empty {
-        margin: 0;
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .jobs-column-drawer__footer {
-        border-top: 1px solid var(--sd-outline-variant);
-    }
-
-    .jobs-column-drawer__footer-actions {
-        display: flex;
-        gap: 6px;
-    }
-
-    .jobs-column-drawer__footer .jobs-column-drawer__primary-button {
-        border-color: var(--sd-primary);
-        background: var(--sd-primary);
-        color: var(--sd-on-primary);
-    }
-
-    .jobs-column-drawer__footer .jobs-column-drawer__primary-button:hover:not(:disabled) {
-        color: var(--sd-on-primary);
-        filter: brightness(1.08);
-    }
-
-    .jobs-column-drawer__footer button:disabled {
-        cursor: default;
-        opacity: 0.45;
-    }
-
-    .jobs-column-drawer__announcement {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip: rect(0 0 0 0);
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
-
-    @@media (max-width: 720px) {
-        .jobs-column-drawer {
-            width: 100vw;
+        <p class="sd-sr-only" aria-live="polite">@_announcement</p>
+    </ChildContent>
+    <Footer>
+        <Button Variant="ButtonVariant.Ghost" Icon="rotate-ccw" Class="jobs-columns__reset" OnClick="ResetRequested">Reset columns</Button>
+        <Button Variant="ButtonVariant.Outline" OnClick="CloseAsync">Close</Button>
+        @if (IsPersonalView)
+        {
+            <Button Variant="ButtonVariant.Primary" Disabled="@(!IsDirty)" OnClick="SaveRequested">Save changes</Button>
         }
-
-        .jobs-column-drawer__tag-editor,
-        .jobs-column-drawer__available-list {
-            grid-template-columns: 1fr;
+        else
+        {
+            <Button Variant="ButtonVariant.Primary" OnClick="SaveAsRequested">Save as new view…</Button>
         }
-
-        .jobs-column-drawer__footer {
-            align-items: stretch;
-            flex-direction: column;
-        }
-
-        .jobs-column-drawer__footer-actions,
-        .jobs-column-drawer__footer button {
-            width: 100%;
-        }
-    }
-</style>
+    </Footer>
+</Sheet>
 
 @code {
     [Parameter]
@@ -665,8 +243,6 @@
     [Parameter]
     public EventCallback<int> ColumnWidthResetRequested { get; set; }
 
-    private ElementReference _closeButton;
-    private DotNetObjectReference<JobColumnConfigurator>? _selfReference;
     private int? _dragSourceIndex;
     private int? _dragTargetIndex;
     private int? _editingIndex;
@@ -678,8 +254,6 @@
     private string? _addError;
     private string? _announcement;
     private bool _isAddingTag;
-    private bool _wasOpen;
-    private bool _escapeRegistered;
 
     protected override void OnParametersSet()
     {
@@ -690,52 +264,13 @@
         }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private async Task OnOpenChangedAsync(bool open)
     {
-        _ = firstRender;
-
-        if (this.IsOpen && !this._wasOpen)
+        if (!open)
         {
-            this._wasOpen = true;
-            await this._closeButton.FocusAsync();
-        }
-        else if (!this.IsOpen)
-        {
-            this._wasOpen = false;
-        }
-
-        if (this.IsOpen && !this._escapeRegistered)
-        {
-            this._selfReference ??= DotNetObjectReference.Create(this);
-            await JsRuntime.InvokeVoidAsync("shedduellerJobViews.registerDrawerEscape", this._selfReference);
-            this._escapeRegistered = true;
-        }
-        else if (!this.IsOpen && this._escapeRegistered)
-        {
-            await JsRuntime.InvokeVoidAsync("shedduellerJobViews.unregisterDrawerEscape");
-            this._escapeRegistered = false;
+            await this.CloseRequested.InvokeAsync();
         }
     }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (this._escapeRegistered)
-        {
-            try
-            {
-                await JsRuntime.InvokeVoidAsync("shedduellerJobViews.unregisterDrawerEscape");
-            }
-            catch (JSDisconnectedException)
-            {
-            }
-        }
-
-        this._selfReference?.Dispose();
-    }
-
-    [JSInvokable]
-    public Task CloseFromEscapeAsync()
-      => this.CloseAsync();
 
     private Task CloseAsync()
       => this.CloseRequested.InvokeAsync();
@@ -886,10 +421,10 @@
 
     private string ColumnRowClass(int index)
       => string.Concat(
-        "jobs-column-drawer__row",
-        this._dragSourceIndex == index ? " jobs-column-drawer__row--dragging" : string.Empty,
+        "jobs-columns__row",
+        this._dragSourceIndex == index ? " jobs-columns__row--dragging" : string.Empty,
         this._dragTargetIndex == index && this._dragSourceIndex != index
-          ? " jobs-column-drawer__row--drop-target"
+          ? " jobs-columns__row--drop-target"
           : string.Empty);
 
     private static string ColumnKey(ShedduellerDashboardJobColumn column)
