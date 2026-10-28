@@ -1,16 +1,1 @@
 #nullable enable
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.CanLoadMore.get -> bool
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.CanLoadMore.set -> void
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Error.get -> string?
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Error.set -> void
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoading.get -> bool
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoading.set -> void
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoadingMore.get -> bool
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoadingMore.set -> void
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.LoadMoreFooter() -> void
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.OnLoadMore.get -> Microsoft.AspNetCore.Components.EventCallback
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.OnLoadMore.set -> void
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Text.get -> string?
-Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Text.set -> void
-~override Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void

@@ -420,6 +420,20 @@ Sheddueller.Dashboard.Components.Ui.Kbd.AdditionalAttributes.set -> void
 Sheddueller.Dashboard.Components.Ui.Kbd.ChildContent.get -> Microsoft.AspNetCore.Components.RenderFragment?
 Sheddueller.Dashboard.Components.Ui.Kbd.ChildContent.set -> void
 Sheddueller.Dashboard.Components.Ui.Kbd.Kbd() -> void
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.CanLoadMore.get -> bool
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.CanLoadMore.set -> void
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Error.get -> string?
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Error.set -> void
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoading.get -> bool
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoading.set -> void
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoadingMore.get -> bool
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.IsLoadingMore.set -> void
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.LoadMoreFooter() -> void
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.OnLoadMore.get -> Microsoft.AspNetCore.Components.EventCallback
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.OnLoadMore.set -> void
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Text.get -> string?
+Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.Text.set -> void
 Sheddueller.Dashboard.Components.Ui.MenuItem
 Sheddueller.Dashboard.Components.Ui.MenuItem.AdditionalAttributes.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object!>?
 Sheddueller.Dashboard.Components.Ui.MenuItem.AdditionalAttributes.set -> void
@@ -757,6 +771,7 @@ static Sheddueller.Dashboard.ShedduellerDashboardJobView.operator ==(Sheddueller
 ~override Sheddueller.Dashboard.Components.Ui.IconButton.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void
 ~override Sheddueller.Dashboard.Components.Ui.InputDialog.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void
 ~override Sheddueller.Dashboard.Components.Ui.Kbd.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void
+~override Sheddueller.Dashboard.Components.Ui.LoadMoreFooter.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void
 ~override Sheddueller.Dashboard.Components.Ui.MenuItem.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void
 ~override Sheddueller.Dashboard.Components.Ui.MenuLabel.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void
 ~override Sheddueller.Dashboard.Components.Ui.MenuSeparator.BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder __builder) -> void
