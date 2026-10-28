@@ -1,1557 +1,689 @@
 @page "/jobs/{JobId:guid}"
 @inherits DashboardPageComponent
-@using Microsoft.JSInterop
 @inject IJobInspectionReader Reader
 @inject IJobManager JobManager
 @inject DashboardLiveUpdateStream LiveUpdates
+@inject NavigationManager Navigation
 @inject IJSRuntime JsRuntime
 
-<div class="job-detail-page">
-    <header class="job-detail-toolbar">
-        <div class="job-detail-toolbar__primary">
-            <a class="job-detail-back-link" href="@JobsListHref">
-                <Icon Name="arrow_back" />
-                <span>Jobs</span>
-            </a>
-            <span class="job-detail-toolbar__title">Job Detail</span>
-        </div>
+<div class="sd-page job-detail-page">
+    <a class="job-detail-back" href="@JobsListHref">
+        <Icon Name="arrow-left" />
+        <span>Jobs</span>
+        @if (JobsListContext is { } listContext)
+        {
+            <span class="job-detail-back__context" title="@listContext">@listContext</span>
+        }
+    </a>
 
-        <div class="job-detail-actions" title="@CancelButtonTitle">
-            <button class="@CancelButtonClass" type="button" title="@CancelButtonTitle"
-                    aria-label="@CancelButtonAriaLabel" @onclick="CancelJobAsync" disabled="@IsCancelButtonDisabled">
-                <Icon Name="@CancelButtonIcon" />
-                <span>@CancelButtonText</span>
-            </button>
-        </div>
-    </header>
-
-    @if (_actionMessage is not null)
+    @if (_detail is null)
     {
-        <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
-            <span>@_actionMessage</span>
-        </DashboardInlineAlert>
-    }
-
-    @if (_error is not null)
-    {
-        <section class="job-detail-message job-detail-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h1>Job detail failed to load</h1>
-                <p>@_error</p>
+        @if (_error is not null)
+        {
+            <Alert Tone="AlertTone.Destructive" Title="Couldn't load the job">
+                <ChildContent>@_error</ChildContent>
+                <Actions>
+                    <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="LoadAsync">Try again</Button>
+                </Actions>
+            </Alert>
+        }
+        else if (_isLoading || _loadedJobId != JobId)
+        {
+            <div class="job-detail-loading" aria-busy="true">
+                <span class="sd-sr-only">Loading the job…</span>
+                <Skeleton Width="min(320px, 70%)" Height="28px" />
+                <Skeleton Width="min(520px, 90%)" />
+                <Skeleton Height="64px" />
+                <Skeleton Height="148px" />
             </div>
-        </section>
-    }
-    else if (_isLoading && _detail is null)
-    {
-        <section class="job-detail-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h1>Loading job detail</h1>
-                <p>Reading scheduler job record and durable events.</p>
-            </div>
-        </section>
-    }
-    else if (_detail is null)
-    {
-        <section class="job-detail-not-found-canvas" aria-live="polite">
-            <div class="job-detail-not-found-card">
-                <div class="job-detail-not-found-card__icon" aria-hidden="true">
-                    <Icon Name="search_off" />
-                </div>
-
-                <h1>Job Not Found</h1>
-                <p>
-                    The requested execution record could not be located. No job found with ID:
-                    <span class="job-detail-not-found-card__id">@DashboardFormat.JobId(JobId)</span>
-                </p>
-
-                <a class="job-detail-not-found-card__action" href="@JobsListHref">
-                    <Icon Name="arrow_back" />
-                    <span>Return to Jobs</span>
-                </a>
-            </div>
-        </section>
+        }
+        else
+        {
+            <EmptyState Icon="search-x" Title="Job not found">
+                <ChildContent>
+                    No job has the ID <span class="sd-mono">@DashboardFormat.JobId(JobId)</span>. Job retention may have removed it,
+                    or the link is wrong.
+                </ChildContent>
+                <Actions>
+                    <Button Href="@JobsListHref" Icon="arrow-left">Back to jobs</Button>
+                </Actions>
+            </EmptyState>
+        }
     }
     else
     {
         var job = _detail.Summary;
-        var lifecycleEvents = GetLifecycleEvents();
-        var logEvents = GetLogEvents();
+        var logLines = AllLogLines;
+        var visibleLogLines = DashboardJobLog.Filter(logLines, _logFilter);
+        var lifecycleEvents = LifecycleEvents;
+        var latestFailure = DashboardJobDetailFormat.LatestFailure(_eventLog.Events);
+
+        <PageHeader Title="@DashboardFormat.ShortHandler(job)" Description="@DashboardFormat.FullHandler(job)">
+            <TitleAddon>
+                <StatusBadge State="job.State" />
+            </TitleAddon>
+            <ChildContent>
+                <div class="job-detail-meta">
+                    <span class="job-detail-meta__id">
+                        <span class="sd-mono">@DashboardFormat.JobId(job.JobId)</span>
+                        <CopyButton Value="@DashboardFormat.JobId(job.JobId)" Label="job ID" />
+                    </span>
+                    <span>@DashboardJobDetailFormat.Attempts(job)</span>
+                    @if (!string.IsNullOrWhiteSpace(_detail.ClaimedByNodeId))
+                    {
+                        <span>Node <a class="sd-link sd-mono" href="@NodeHref(_detail.ClaimedByNodeId)">@_detail.ClaimedByNodeId</a></span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(job.SourceScheduleKey))
+                    {
+                        <span>Schedule <a class="sd-link sd-mono" href="@ScheduleHref(job.SourceScheduleKey)">@job.SourceScheduleKey</a></span>
+                    }
+                </div>
+            </ChildContent>
+            <Actions>
+                @if (DashboardJobActions.IsCancellable(job))
+                {
+                    <Button Variant="ButtonVariant.DestructiveOutline" Icon="@(_isCancelRunning ? "loader-circle" : "ban")"
+                            Disabled="_isCancelRunning" OnClick="OpenCancelDialog">Cancel job…</Button>
+                }
+                <DropdownMenu Label="More job actions" Icon="ellipsis" Variant="ButtonVariant.Outline">
+                    <MenuItem Icon="copy" data-sd-copy="@DashboardFormat.JobId(job.JobId)" data-sd-copy-label="job ID">Copy job ID</MenuItem>
+                    @if (_detail.Invocation is { } menuInvocation)
+                    {
+                        <MenuItem Icon="copy" data-sd-copy="@menuInvocation.ReconstructedCall" data-sd-copy-label="invocation">Copy invocation</MenuItem>
+                    }
+                    <MenuSeparator />
+                    <MenuItem Icon="list-filter" Href="@HandlerJobsHref(job)">Jobs with this handler</MenuItem>
+                    @foreach (var group in job.ConcurrencyGroupKeys.Take(MenuGroupLimit))
+                    {
+                        <MenuItem Icon="layers" Href="@DashboardJobFilterQuery.GroupHref(group)">Jobs in group <span class="sd-mono">@group</span></MenuItem>
+                    }
+                </DropdownMenu>
+            </Actions>
+        </PageHeader>
 
         @if (LiveRefresh.RefreshError is not null)
         {
-            <DashboardInlineAlert CssClass="job-detail-inline-alert job-detail-inline-alert--error" Icon="warning">
-                <span>Refresh failed: @LiveRefresh.RefreshError</span>
-            </DashboardInlineAlert>
+            <Alert Tone="AlertTone.Warning" Title="Couldn't refresh the job">
+                Showing the last loaded state. @LiveRefresh.RefreshError
+            </Alert>
         }
 
-        <section class="job-detail-hero">
-            <div class="job-detail-hero__main">
-                <div class="job-detail-identity">
-                    <div class="job-detail-title-row">
-                        <h1>@DashboardFormat.JobId(job.JobId)</h1>
-                        <StateBadge BaseClass="job-detail-state" DotClass="job-detail-state__dot" State="job.State"
-                                    Href="@StateFilterHref(job.State)" Title="@StateFilterTitle(job.State)"
-                                    AriaLabel="@StateFilterTitle(job.State)" />
-                    </div>
-                    <p>
-                        Handler:
-                            <a class="job-detail-handler job-detail-filter-link"
-                               href="@HandlerFilterHref(job)"
-                               title="@DashboardFormat.FullHandler(job)"
-                               aria-label="@HandlerFilterTitle(job)">@DashboardFormat.FullHandler(job)</a>
-                    </p>
-                </div>
-            </div>
-
-            <div class="job-detail-summary-grid">
-                <div class="job-detail-summary-block">
-                    <span class="job-detail-label">Progress</span>
-                    <div class="job-detail-progress-line">
-                        <div class="job-detail-progress-track" aria-hidden="true">
-                            <span class="job-detail-progress-bar" style="@DashboardFormat.ProgressWidthStyle(job.LatestProgress)"></span>
-                        </div>
-                        <span class="job-detail-progress-percent">@DashboardFormat.ProgressPercent(job.LatestProgress)</span>
-                    </div>
-                    <span class="job-detail-muted">@DashboardFormat.ProgressText(job.LatestProgress)</span>
-                </div>
-
-                <div class="job-detail-summary-block job-detail-summary-block--ruled">
-                    <span class="job-detail-label">Timestamps</span>
-                    <div class="job-detail-timestamp-pair">
-                        <div>
-                            <span>Started:</span>
-                            <TimestampBlock BaseClass="job-detail-inline-timestamp" Value="GetStartedAt(_detail)"
-                                            AllowFutureRelative="false" />
-                        </div>
-                        <span class="job-detail-mono job-detail-muted">@DashboardFormat.Utc(GetStartedAt(_detail))</span>
-                    </div>
-                    <div class="job-detail-timestamp-pair">
-                        <div>
-                            <span>Run Time:</span>
-                            <strong class="job-detail-inline-duration">@DashboardFormat.RunTime(_detail)</strong>
-                        </div>
-                        <span class="job-detail-mono job-detail-muted">@DashboardFormat.Utc(DashboardFormat.TerminalTimestamp(job))</span>
-                    </div>
-                </div>
-
-                <div class="job-detail-summary-block job-detail-summary-block--ruled">
-                    <span class="job-detail-label">Disposition</span>
-                    <span class="job-detail-disposition @GetDispositionClass(job)">@DashboardFormat.Disposition(job)</span>
-                </div>
-            </div>
-        </section>
-
-        <div class="job-detail-content-grid">
-            <section class="job-detail-panel job-detail-metadata-panel">
-                <h2>Metadata</h2>
-
-                <div class="job-detail-metadata-list">
-                    <div class="job-detail-metadata-item">
-                        <span>Priority</span>
-                        <strong>@job.Priority.ToString(CultureInfo.InvariantCulture)</strong>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Attempts</span>
-                        <strong class="@(job.AttemptCount > 1 ? "job-detail-text-warning" : null)">@DashboardFormat.Attempts(job)</strong>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Enqueue Seq</span>
-                        <strong>@job.EnqueueSequence.ToString(CultureInfo.InvariantCulture)</strong>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Queue Position</span>
-                        <strong title="@DashboardFormat.QueuePosition(job.QueuePosition)">@DashboardFormat.QueuePosition(job.QueuePosition)</strong>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Source Schedule Key</span>
-                        <strong title="@DashboardFormat.Nullable(job.SourceScheduleKey)">@DashboardFormat.Nullable(job.SourceScheduleKey)</strong>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Claimed Node ID</span>
-                        <strong title="@DashboardFormat.Nullable(_detail.ClaimedByNodeId)">@DashboardFormat.Nullable(_detail.ClaimedByNodeId)</strong>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Lease Expiration</span>
-                        <div class="job-detail-stacked-value">
-                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="_detail.LeaseExpiresAtUtc" />
-                        </div>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Enqueued</span>
-                        <div class="job-detail-stacked-value">
-                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="job.EnqueuedAtUtc"
-                                            AllowFutureRelative="false" />
-                        </div>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Not Before</span>
-                        <div class="job-detail-stacked-value">
-                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="job.NotBeforeUtc" />
-                        </div>
-                    </div>
-                    <div class="job-detail-metadata-item">
-                        <span>Scheduled Fire</span>
-                        <div class="job-detail-stacked-value">
-                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="_detail.ScheduledFireAtUtc"
-                                            AllowFutureRelative="false" />
-                        </div>
-                    </div>
-                </div>
-
-                <div class="job-detail-chip-section">
-                    <span class="job-detail-label">Tags</span>
-                    <TagChipList ClassPrefix="job-detail-chip" Tags="job.Tags" HrefFactory="TagFilterHref"
-                                 LinkAriaLabelPrefix="Filter jobs by tag" />
-                </div>
-
-                <div class="job-detail-chip-section">
-                    <span class="job-detail-label">Groups</span>
-                    <ChipList ClassPrefix="job-detail-chip" Values="job.ConcurrencyGroupKeys"
-                              Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
-                              HrefFactory="GroupFilterHref"
-                              LinkAriaLabelPrefix="Filter jobs by group" />
-                </div>
-
-                @if (_detail.PrerequisiteJobIds.Count > 0)
-                {
-                    <div class="job-detail-chip-section">
-                        <span class="job-detail-label">Prerequisites</span>
-                        <div class="job-detail-chip-list">
-                            @foreach (var prerequisiteJobId in _detail.PrerequisiteJobIds)
-                            {
-                                <JobLink CssClass="job-detail-chip" JobId="prerequisiteJobId" />
-                            }
-                        </div>
-                    </div>
-                }
-
-                @if (_detail.DependentJobIds.Count > 0)
-                {
-                    <div class="job-detail-chip-section">
-                        <span class="job-detail-label">Dependents</span>
-                        <div class="job-detail-chip-list">
-                            @foreach (var dependentJobId in _detail.DependentJobIds)
-                            {
-                                <JobLink CssClass="job-detail-chip" JobId="dependentJobId" />
-                            }
-                        </div>
-                    </div>
-                }
-            </section>
-
-            <div class="job-detail-operations">
-                @if (_detail.Invocation is { } invocation)
-                {
-                    <section class="job-detail-panel job-detail-invocation-panel">
-                        <h2>Invocation</h2>
-
-                        <pre class="job-detail-invocation-call language-csharp"><code class="language-csharp"
-                                                                                       @ref="_invocationCodeElement">@invocation.ReconstructedCall</code></pre>
-
-                        <div class="job-detail-invocation-summary">
-                            <div class="job-detail-metadata-item">
-                                <span>Handler</span>
-                                <strong title="@DashboardFormat.FullHandler(job)">@DashboardFormat.InvocationHandler(invocation)</strong>
-                            </div>
-                            <div class="job-detail-metadata-item">
-                                <span>Target</span>
-                                <strong>@invocation.TargetKind.ToString()</strong>
-                            </div>
-                            <div class="job-detail-metadata-item">
-                                <span>Payload</span>
-                                <strong title="@invocation.SerializedArgumentsContentType">@DashboardFormat.Count(invocation.SerializedArgumentsByteCount) bytes</strong>
-                            </div>
-                        </div>
-
-                        @if (invocation.SerializedArgumentsStatus != JobSerializedArgumentsInspectionStatus.Displayable)
+        @switch (job.State)
+        {
+            case JobState.Claimed:
+                <Alert Tone="@(job.CancellationRequestedAtUtc is null ? AlertTone.Info : AlertTone.Warning)"
+                       Icon="@(job.CancellationRequestedAtUtc is null ? "loader-circle" : "circle-pause")"
+                       Title="@(job.CancellationRequestedAtUtc is null ? "Running" : "Running · cancellation requested")"
+                       Class="job-detail-callout">
+                    <ChildContent>
+                        @if (job.CancellationRequestedAtUtc is not null)
                         {
-                            <p class="job-detail-empty">@DashboardFormat.InvocationStatus(invocation)</p>
+                            <p>The job stops at its next cancellation check.</p>
                         }
-
-                        <div class="job-detail-parameter-list">
-                            @foreach (var parameter in invocation.Parameters)
+                        <div class="job-detail-progress">
+                            @if (job.LatestProgress?.Percent is { } percent)
                             {
-                                <article class="job-detail-parameter" @key="parameter.ParameterIndex">
-                                    <div class="job-detail-parameter__header">
-                                        <span>@string.Create(CultureInfo.InvariantCulture, $"#{parameter.ParameterIndex + 1}")</span>
-                                        <strong title="@parameter.ParameterType">@DashboardFormat.ShortTypeName(parameter.ParameterType)</strong>
-                                        <em>@DashboardFormat.InvocationBinding(parameter)</em>
-                                    </div>
-
-                                    @if (parameter.SerializedValueJson is not null)
-                                    {
-                                        <pre>@parameter.SerializedValueJson</pre>
-                                    }
-                                </article>
+                                <Progress Value="percent" Label="@($"Progress {DashboardFormat.ProgressPercent(job.LatestProgress)}")" />
+                                <span class="job-detail-progress__percent sd-num">@DashboardFormat.ProgressPercent(job.LatestProgress)</span>
+                            }
+                            <span class="job-detail-progress__message">@(job.LatestProgress?.Message ?? (job.LatestProgress is null ? "No progress reported yet." : null))</span>
+                        </div>
+                        <div class="sd-alert__meta job-detail-callout__meta">
+                            <span>Started</span>
+                            <TimestampBlock BaseClass="sd-timestamp" Value="_detail.ClaimedAtUtc" AllowFutureRelative="false" Inline />
+                            @if (!string.IsNullOrWhiteSpace(_detail.ClaimedByNodeId))
+                            {
+                                <span>on <span class="sd-mono">@_detail.ClaimedByNodeId</span></span>
+                            }
+                            @if (job.LatestProgress is { } progress)
+                            {
+                                <span aria-hidden="true">·</span>
+                                <span>Last update</span>
+                                <TimestampBlock BaseClass="sd-timestamp" Value="progress.ReportedAtUtc" AllowFutureRelative="false" Inline />
                             }
                         </div>
-                    </section>
-                }
+                    </ChildContent>
+                </Alert>
+                break;
 
-                <section class="job-detail-panel">
-                    <h2>Lifecycle Timeline</h2>
-
-                    @if (lifecycleEvents.Count == 0)
-                    {
-                        <p class="job-detail-empty">No lifecycle events have been recorded.</p>
-                    }
-                    else
-                    {
-                        <div class="job-detail-timeline">
-                            @foreach (var jobEvent in lifecycleEvents)
-                            {
-                                <article class="@DashboardFormat.TimelineItemClass(jobEvent)" @key="jobEvent.EventId">
-                                    <span class="job-detail-timeline__dot" aria-hidden="true"></span>
-                                    <div class="job-detail-timeline__content">
-                                        <p>@DashboardFormat.TimelineTitle(jobEvent)</p>
-                                        @if (DashboardFormat.ShouldRenderTimelineMessage(jobEvent))
-                                        {
-                                            <span>@jobEvent.Message</span>
-                                        }
-                                    </div>
-                                    <div class="job-detail-timeline__time">
-                                        <TimestampBlock BaseClass="job-detail-event-timestamp" Value="jobEvent.OccurredAtUtc"
-                                                        AllowFutureRelative="false" />
-                                    </div>
-                                </article>
-                            }
+            case JobState.Failed:
+                var failedAttempt = latestFailure?.AttemptNumber ?? job.AttemptCount;
+                var failureErrorCount = DashboardJobLog.Count(logLines, new DashboardJobLogFilter(DashboardLogLevelFilter.Errors, failedAttempt));
+                <Alert Tone="AlertTone.Destructive" Icon="circle-x" Title="@FailedTitle(job)" Class="job-detail-callout">
+                    <ChildContent>
+                        <p class="job-detail-failure">@(latestFailure?.Message is { Length: > 0 } failureMessage ? failureMessage : "No failure message was recorded.")</p>
+                        <div class="sd-alert__meta job-detail-callout__meta">
+                            <span>Failed</span>
+                            <TimestampBlock BaseClass="sd-timestamp" Value="job.FailedAtUtc" AllowFutureRelative="false" Inline />
+                            <span aria-hidden="true">·</span>
+                            <span>@string.Create(CultureInfo.InvariantCulture, $"Attempt {failedAttempt} of {job.MaxAttempts}")</span>
                         </div>
-                    }
-                </section>
+                    </ChildContent>
+                    <Actions>
+                        <Button Size="ButtonSize.Small" Icon="list-filter" OnClick="() => ShowAttemptLogs(failedAttempt, failureErrorCount > 0)">
+                            @(failureErrorCount > 0 ? $"Show error lines ({DashboardFormat.Count(failureErrorCount)})" : "Show this attempt's logs")
+                        </Button>
+                    </Actions>
+                </Alert>
+                break;
 
-                <section class="job-detail-panel job-detail-log-panel">
-                    <div class="job-detail-log-header">
-                        <div>
-                            <h2>Log Stream</h2>
+            case JobState.Completed:
+                <Alert Tone="AlertTone.Success" Title="@CompletedTitle(_detail)" Class="job-detail-callout">
+                    <ChildContent>
+                        <p>@CompletedText(job)</p>
+                        <div class="sd-alert__meta job-detail-callout__meta">
+                            <span>Finished</span>
+                            <TimestampBlock BaseClass="sd-timestamp" Value="job.CompletedAtUtc" AllowFutureRelative="false" Inline />
                         </div>
+                    </ChildContent>
+                </Alert>
+                break;
 
-                        <div class="job-detail-log-actions">
-                            <label class="job-detail-switch">
-                                <input type="checkbox" checked="@_showProgressLogs" @onchange="ToggleProgressLogs" />
-                                <span aria-hidden="true"></span>
-                                <strong>Show Progress</strong>
-                            </label>
-                            <button class="job-detail-button job-detail-button--secondary job-detail-button--compact" type="button" @onclick="ToggleLogsPaused">
-                                <Icon Name="@(_logsPaused ? "play_arrow" : "pause")" />
-                                <span>@(_logsPaused ? "Resume" : "Pause")</span>
-                            </button>
-                            <div class="job-detail-stream-status @(_logsPaused ? "job-detail-stream-status--paused" : null)">
-                                <span aria-hidden="true"></span>
-                                <strong>@(_logsPaused ? "PAUSED" : "LIVE")</strong>
-                            </div>
-                            <button class="job-detail-icon-button" type="button" disabled aria-label="Download logs" title="Download logs">
-                                <Icon Name="download" />
-                            </button>
+            case JobState.Canceled:
+                <Alert Tone="AlertTone.Neutral" Icon="ban" Title="Canceled" Class="job-detail-callout">
+                    <ChildContent>
+                        <p>@CanceledText(_detail)</p>
+                        <div class="sd-alert__meta job-detail-callout__meta">
+                            <span>Canceled</span>
+                            <TimestampBlock BaseClass="sd-timestamp" Value="job.CanceledAtUtc" AllowFutureRelative="false" Inline />
                         </div>
-                    </div>
+                    </ChildContent>
+                </Alert>
+                break;
 
-                    <div class="job-detail-log-table-wrap">
-                        <table class="job-detail-log-table">
-                            <thead>
-                                <tr>
-                                    <th>Att</th>
-                                    <th>Level</th>
-                                    <th>Time</th>
-                                    <th>Message</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @if (logEvents.Count == 0)
+            default:
+                var queueKind = job.QueuePosition?.Kind;
+                <Alert Tone="@QueuedTone(job)" Icon="@QueuedIcon(job)" Title="@DashboardJobDetailFormat.QueueTitle(job)" Class="job-detail-callout">
+                    <ChildContent>
+                        <p>@QueuedText(job, latestFailure)</p>
+                        @if (queueKind == JobQueuePositionKind.BlockedByConcurrency && job.ConcurrencyGroupKeys.Count > 0)
+                        {
+                            <div class="sd-tags job-detail-callout__tags">
+                                @foreach (var group in job.ConcurrencyGroupKeys)
                                 {
-                                    <tr>
-                                        <td class="job-detail-empty-row" colspan="4">@GetLogEmptyMessage()</td>
-                                    </tr>
+                                    <Tag Value="@group" Href="@ConcurrencyGroupHref(group)" data-sd-tooltip="@($"Open concurrency group {group}")" />
+                                }
+                            </div>
+                        }
+                        @if (job.NotBeforeUtc is not null && queueKind is JobQueuePositionKind.Delayed or JobQueuePositionKind.RetryWaiting)
+                        {
+                            <div class="sd-alert__meta job-detail-callout__meta">
+                                <span>Runs</span>
+                                <TimestampBlock BaseClass="sd-timestamp" Value="job.NotBeforeUtc" Inline />
+                            </div>
+                        }
+                    </ChildContent>
+                    <Actions>
+                        @if (queueKind == JobQueuePositionKind.WaitingForDependencies && _detail.PrerequisiteJobIds.Count > 0)
+                        {
+                            <Button Size="ButtonSize.Small" Href="@TabHref(DashboardJobDetailTab.Related)" IconEnd="chevron-right">Show prerequisites</Button>
+                        }
+                    </Actions>
+                </Alert>
+                break;
+        }
+
+        <Card Flush="true" Class="job-detail-facts-card">
+            <dl class="sd-facts">
+                <div class="sd-facts__item">
+                    <dt>Enqueued</dt>
+                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="job.EnqueuedAtUtc" AllowFutureRelative="false" /></dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Started</dt>
+                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="StartedAtUtc(_detail)" AllowFutureRelative="false" EmptyText="Not started" /></dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Finished</dt>
+                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="DashboardFormat.TerminalTimestamp(job)" AllowFutureRelative="false" EmptyText="—" /></dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Run time</dt>
+                    <dd class="sd-num">@RunTimeText(_detail)</dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Attempts</dt>
+                    <dd class="sd-num">@string.Create(CultureInfo.InvariantCulture, $"{job.AttemptCount} of {job.MaxAttempts}")</dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Priority</dt>
+                    <dd class="sd-num">@job.Priority.ToString(CultureInfo.InvariantCulture)</dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Node</dt>
+                    <dd>
+                        @if (string.IsNullOrWhiteSpace(_detail.ClaimedByNodeId))
+                        {
+                            <span class="sd-muted">@(StartedAtUtc(_detail) is null ? "Not claimed" : "Not recorded")</span>
+                        }
+                        else
+                        {
+                            <a class="sd-link sd-mono job-detail-fact-link" href="@NodeHref(_detail.ClaimedByNodeId)"
+                               title="@_detail.ClaimedByNodeId">@_detail.ClaimedByNodeId</a>
+                        }
+                    </dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Schedule</dt>
+                    <dd>
+                        @if (string.IsNullOrWhiteSpace(job.SourceScheduleKey))
+                        {
+                            <span class="sd-muted">Not from a schedule</span>
+                        }
+                        else
+                        {
+                            <a class="sd-link sd-mono job-detail-fact-link" href="@ScheduleHref(job.SourceScheduleKey)"
+                               title="@job.SourceScheduleKey">@job.SourceScheduleKey</a>
+                            @if (_detail.ScheduledFireAtUtc is not null)
+                            {
+                                <TimestampBlock BaseClass="sd-timestamp" Value="_detail.ScheduledFireAtUtc" AllowFutureRelative="false"
+                                                Prefix="fired" Inline />
+                            }
+                        }
+                    </dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Concurrency groups</dt>
+                    <dd>
+                        <TagList Values="job.ConcurrencyGroupKeys" Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
+                                 HrefFactory="ConcurrencyGroupHref" TooltipPrefix="Open concurrency group" MaxVisible="3" EmptyText="None" />
+                    </dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Tags</dt>
+                    <dd>
+                        <TagList Values="@DashboardFormat.Tags(job.Tags)" Title="@DashboardFormat.TagsTitle(job.Tags)"
+                                 HrefFactory="DashboardJobFilterQuery.TagHref" TooltipPrefix="Show jobs with tag" MaxVisible="3" EmptyText="None" />
+                    </dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Not before</dt>
+                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="job.NotBeforeUtc" EmptyText="—" /></dd>
+                </div>
+                <div class="sd-facts__item">
+                    <dt>Lease expires</dt>
+                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="_detail.LeaseExpiresAtUtc" EmptyText="—" /></dd>
+                </div>
+            </dl>
+        </Card>
+
+        <section class="job-detail-sections">
+            <div class="job-detail-sticky">
+                <div class="job-detail-sticky__bar">
+                    <Tabs TValue="DashboardJobDetailTab" Items="TabItems(DashboardJobLog.Count(logLines, new DashboardJobLogFilter()), lifecycleEvents.Count)" Value="ActiveTab"
+                          Variant="TabsVariant.Line" Label="Job sections" />
+
+                    @if (ActiveTab == DashboardJobDetailTab.Logs && logLines.Count > 0)
+                    {
+                        <div class="sd-toolbar job-detail-log-toolbar">
+                            <Tabs TValue="DashboardLogLevelFilter" Items="LevelTabItems(logLines)" Value="_logFilter.Level" ValueChanged="SetLogLevel"
+                                  Label="Log level" Small="true" />
+                            @if (LogAttempts is { Count: > 1 } attempts)
+                            {
+                                <DropdownMenu Label="Filter by attempt" Variant="ButtonVariant.Outline" AlignStart="true">
+                                    <TriggerContent>
+                                        <span class="sd-muted">Attempt:</span>
+                                        <span>@(_logFilter.Attempt?.ToString(CultureInfo.InvariantCulture) ?? "All")</span>
+                                    </TriggerContent>
+                                    <ChildContent>
+                                        <MenuLabel>Show lines from</MenuLabel>
+                                        @foreach (var attempt in attempts.Cast<int?>().Prepend(null))
+                                        {
+                                            var selected = attempt == _logFilter.Attempt;
+                                            <button type="button" role="menuitemradio" class="sd-menu__item" aria-checked="@(selected ? "true" : "false")"
+                                                    @key="attempt" @onclick="() => SetLogAttempt(attempt)">
+                                                <span class="job-detail-menu-check" aria-hidden="true">
+                                                    @if (selected)
+                                                    {
+                                                        <Icon Name="check" />
+                                                    }
+                                                </span>
+                                                <span>@(attempt is { } number ? $"Attempt {number}" : "All attempts")</span>
+                                            </button>
+                                        }
+                                    </ChildContent>
+                                </DropdownMenu>
+                            }
+                            <SearchInput Class="job-detail-log-search" Value="@_logFilter.Search" ValueChanged="SetLogSearch"
+                                         Placeholder="Search messages and fields" Label="Search log lines" Shortcut="true" />
+                            <span class="sd-toolbar__spacer"></span>
+                            <DropdownMenu Label="Display options" Variant="ButtonVariant.Ghost">
+                                <TriggerContent>
+                                    <span>Display</span>
+                                </TriggerContent>
+                                <ChildContent>
+                                    <MenuLabel>Show</MenuLabel>
+                                    <button type="button" role="menuitemcheckbox" class="sd-menu__item" data-sd-keep-open="true"
+                                            aria-checked="@(_logFilter.IncludeProgress ? "true" : "false")" @onclick="ToggleProgressLines">
+                                        <span class="sd-menu__check" aria-hidden="true"><Icon Name="check" /></span>
+                                        <span>Progress updates</span>
+                                    </button>
+                                    <button type="button" role="menuitemcheckbox" class="sd-menu__item" data-sd-keep-open="true"
+                                            aria-checked="@(_showLogFields ? "true" : "false")" @onclick="ToggleLogFields">
+                                        <span class="sd-menu__check" aria-hidden="true"><Icon Name="check" /></span>
+                                        <span>Structured fields</span>
+                                    </button>
+                                </ChildContent>
+                            </DropdownMenu>
+                            @if (IsLive(job) && !_logsPaused)
+                            {
+                                <Switch Value="_followLogs" ValueChanged="SetFollowLogs">Follow new lines</Switch>
+                            }
+                            @if (IsLive(job) || _logsPaused)
+                            {
+                                <Button Variant="ButtonVariant.Ghost" Icon="@(_logsPaused ? "play" : "pause")" OnClick="ToggleLogsPaused"
+                                        aria-pressed="@(_logsPaused ? "true" : "false")"
+                                        data-sd-tooltip="@(_logsPaused ? "Show new lines again" : "Stop adding new lines while you read")">
+                                    @(_logsPaused ? "Resume" : "Pause")
+                                </Button>
+                            }
+                            <IconButton Icon="download" Label="Download the lines shown" Disabled="@(visibleLogLines.Count == 0)"
+                                        OnClick="() => DownloadLogAsync(visibleLogLines)" />
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="job-detail-panel" role="tabpanel" aria-label="@ActiveTab.ToString()">
+                @switch (ActiveTab)
+                {
+                    case DashboardJobDetailTab.Timeline:
+                        <Card Flush="true" Class="job-detail-panel-card">
+                            @if (lifecycleEvents.Count == 0)
+                            {
+                                <EmptyState Flat="true" Icon="activity" Title="No lifecycle events yet">
+                                    Events appear here as the job is queued, claimed, and finished.
+                                </EmptyState>
+                            }
+                            else
+                            {
+                                <ol class="job-detail-timeline">
+                                    @foreach (var jobEvent in lifecycleEvents)
+                                    {
+                                        var timelineDetail = DashboardJobDetailFormat.TimelineDetail(jobEvent);
+                                        <li class="@($"job-detail-timeline__item job-detail-timeline__item--{DashboardJobDetailFormat.TimelineTone(jobEvent)}")"
+                                            @key="jobEvent.EventId">
+                                            <span class="job-detail-timeline__dot" aria-hidden="true"></span>
+                                            <div class="job-detail-timeline__body">
+                                                <span class="job-detail-timeline__title">@DashboardJobDetailFormat.TimelineTitle(jobEvent)</span>
+                                                @if (timelineDetail is not null)
+                                                {
+                                                    <p class="job-detail-timeline__detail">@timelineDetail</p>
+                                                }
+                                            </div>
+                                            <TimestampBlock BaseClass="sd-timestamp" Value="jobEvent.OccurredAtUtc" AllowFutureRelative="false" AlignEnd />
+                                        </li>
+                                    }
+                                </ol>
+                            }
+                            @if (HasMoreEvents)
+                            {
+                                <footer class="sd-table__footer">
+                                    <span>Older events are loaded first; more may follow.</span>
+                                    <Button Size="ButtonSize.Small" Icon="@(_isLoadingMoreEvents ? "loader-circle" : null)"
+                                            Disabled="_isLoadingMoreEvents" OnClick="LoadMoreEventsAsync">@LoadMoreEventsText</Button>
+                                </footer>
+                            }
+                        </Card>
+                        break;
+
+                    case DashboardJobDetailTab.Invocation:
+                        @if (_detail.Invocation is { } invocation)
+                        {
+                            <Card Title="Method call" Class="job-detail-panel-card">
+                                <HeaderActions>
+                                    <CopyButton Value="@invocation.ReconstructedCall" Label="invocation" Size="ButtonSize.Small" />
+                                </HeaderActions>
+                                <ChildContent>
+                                    <pre class="sd-code job-detail-code language-csharp"><code class="language-csharp" @ref="_invocationCodeElement">@invocation.ReconstructedCall</code></pre>
+                                    <dl class="job-detail-invocation-meta">
+                                        <div>
+                                            <dt>Handler</dt>
+                                            <dd class="sd-mono" title="@DashboardFormat.FullHandler(job)">@DashboardFormat.InvocationHandler(invocation)</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Target</dt>
+                                            <dd>@invocation.TargetKind.ToString()</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Arguments</dt>
+                                            <dd>
+                                                <span class="sd-num">@DashboardFormat.Count(invocation.SerializedArgumentsByteCount) bytes</span>
+                                                <span class="sd-muted sd-mono">@invocation.SerializedArgumentsContentType</span>
+                                            </dd>
+                                        </div>
+                                    </dl>
+                                </ChildContent>
+                            </Card>
+
+                            @if (invocation.SerializedArgumentsStatus != JobSerializedArgumentsInspectionStatus.Displayable)
+                            {
+                                <Alert Tone="AlertTone.Warning" Title="Argument values can't be shown">
+                                    @DashboardFormat.InvocationStatus(invocation)
+                                </Alert>
+                            }
+
+                            @if (invocation.Parameters.Count > 0)
+                            {
+                                <Card Title="Parameters" Flush="true" Class="job-detail-panel-card">
+                                    <ol class="job-detail-params">
+                                        @foreach (var parameter in invocation.Parameters)
+                                        {
+                                            <li class="job-detail-param" @key="parameter.ParameterIndex">
+                                                <div class="job-detail-param__head">
+                                                    <span class="sd-muted sd-num">@string.Create(CultureInfo.InvariantCulture, $"#{parameter.ParameterIndex + 1}")</span>
+                                                    <strong class="sd-mono" title="@parameter.ParameterType">@DashboardFormat.ShortTypeName(parameter.ParameterType)</strong>
+                                                    <Badge Variant="BadgeVariant.Secondary">@DashboardFormat.InvocationBinding(parameter)</Badge>
+                                                </div>
+                                                @if (parameter.SerializedValueJson is not null)
+                                                {
+                                                    <pre class="sd-code job-detail-code">@parameter.SerializedValueJson</pre>
+                                                }
+                                            </li>
+                                        }
+                                    </ol>
+                                </Card>
+                            }
+                        }
+                        else
+                        {
+                            <EmptyState Icon="info" Title="No invocation details">
+                                The store didn't return the method call for this job.
+                            </EmptyState>
+                        }
+                        break;
+
+                    case DashboardJobDetailTab.Related:
+                        var relatedSections = RelatedSections(_detail);
+                        @if (_relatedError is not null)
+                        {
+                            <Alert Tone="AlertTone.Destructive" Title="Couldn't load the related jobs">
+                                <ChildContent>@_relatedError</ChildContent>
+                                <Actions>
+                                    <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryRelatedJobs">Try again</Button>
+                                </Actions>
+                            </Alert>
+                        }
+                        @if (relatedSections.Count == 0)
+                        {
+                            <EmptyState Icon="git-fork" Title="No related jobs">
+                                This job has no prerequisites or continuations, and it wasn't retried.
+                            </EmptyState>
+                        }
+                        @foreach (var section in relatedSections)
+                        {
+                            <Card Title="@section.Title" Description="@section.Description" Flush="true" Class="job-detail-panel-card" @key="section.Title">
+                                <ChildContent>
+                                    <table class="sd-table job-detail-related">
+                                        <tbody>
+                                            @foreach (var relatedJobId in section.JobIds.Take(RelatedJobLimit))
+                                            {
+                                                <tr data-href="@DashboardFormat.JobHref(relatedJobId)" @key="relatedJobId">
+                                                    @if (!_relatedJobs.TryGetValue(relatedJobId, out var relatedJob))
+                                                    {
+                                                        <td class="job-detail-related__state"><Skeleton Width="72px" /></td>
+                                                        <td><Skeleton Width="60%" /></td>
+                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardJobDetailFormat.ShortId(relatedJobId)</a></td>
+                                                        <td class="job-detail-related__time"><Skeleton Width="96px" /></td>
+                                                    }
+                                                    else if (relatedJob is null)
+                                                    {
+                                                        <td class="job-detail-related__state"><span class="sd-muted">Not found</span></td>
+                                                        <td><span class="sd-muted">Retention may have removed this job.</span></td>
+                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardJobDetailFormat.ShortId(relatedJobId)</a></td>
+                                                        <td class="job-detail-related__time"></td>
+                                                    }
+                                                    else
+                                                    {
+                                                        <td class="job-detail-related__state"><StatusBadge State="relatedJob.State" /></td>
+                                                        <td class="job-detail-related__handler" title="@DashboardFormat.FullHandler(relatedJob)">@DashboardFormat.ShortHandler(relatedJob)</td>
+                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardJobDetailFormat.ShortId(relatedJobId)</a></td>
+                                                        <td class="job-detail-related__time">
+                                                            <TimestampBlock BaseClass="sd-timestamp" Value="relatedJob.EnqueuedAtUtc" AllowFutureRelative="false"
+                                                                            Prefix="enqueued" Inline AlignEnd />
+                                                        </td>
+                                                    }
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                    @if (section.JobIds.Count > RelatedJobLimit)
+                                    {
+                                        <footer class="sd-table__footer">
+                                            <span class="sd-num">@string.Create(CultureInfo.InvariantCulture, $"Showing {RelatedJobLimit} of {DashboardFormat.Count(section.JobIds.Count)}")</span>
+                                        </footer>
+                                    }
+                                </ChildContent>
+                            </Card>
+                        }
+                        break;
+
+                    default:
+                        <Card Flush="true" Class="job-detail-panel-card">
+                            @if (visibleLogLines.Count == 0 && !_logFilter.IsNarrowed)
+                            {
+                                @if (logLines.Count == 0)
+                                {
+                                    <EmptyState Flat="true" Icon="list" Title="No log lines yet">
+                                        Lines appear here when the job writes logs with <span class="sd-mono">ILogger</span>.
+                                    </EmptyState>
                                 }
                                 else
                                 {
-                                    @foreach (var jobEvent in logEvents)
-                                    {
-                                        <tr class="@GetLogRowClass(jobEvent, logEvents)" @key="jobEvent.EventId">
-                                            <td>@jobEvent.AttemptNumber.ToString(CultureInfo.InvariantCulture)</td>
-                                            <td>
-                                                <span class="@DashboardFormat.LogLevelClass(jobEvent)">@DashboardFormat.LogLevel(jobEvent)</span>
-                                            </td>
-                                            <td>
-                                                <div class="job-detail-log-time">
-                                                    <TimestampBlock BaseClass="job-detail-log-timestamp" Value="jobEvent.OccurredAtUtc"
-                                                                    AllowFutureRelative="false" />
-                                                    <span>@DashboardFormat.UtcClock(jobEvent.OccurredAtUtc, includeMilliseconds: true)</span>
-                                                </div>
-                                            </td>
-                                            <td>@DashboardFormat.LogMessage(jobEvent)</td>
-                                        </tr>
-                                    }
+                                    <EmptyState Flat="true" Icon="list" Title="No log lines yet">
+                                        <ChildContent>The job has only reported progress so far.</ChildContent>
+                                        <Actions>
+                                            <Button OnClick="ToggleProgressLines">Show progress updates</Button>
+                                        </Actions>
+                                    </EmptyState>
                                 }
-                            </tbody>
-                        </table>
-                    </div>
-                    @if (HasMoreEvents)
-                    {
-                        <button class="job-detail-button job-detail-button--secondary job-detail-button--compact" type="button"
-                                @onclick="LoadMoreEventsAsync" disabled="@_isLoadingMoreEvents">@LoadMoreEventsText</button>
-                    }
-                </section>
+                            }
+                            else if (visibleLogLines.Count == 0)
+                            {
+                                <EmptyState Flat="true" Icon="search-x" Title="No lines match">
+                                    <ChildContent>Try a different level, attempt, or search.</ChildContent>
+                                    <Actions>
+                                        <Button OnClick="ClearLogFilters">Clear filters</Button>
+                                    </Actions>
+                                </EmptyState>
+                            }
+                            else
+                            {
+                                <div class="job-detail-log">
+                                    <div class="job-detail-log__row job-detail-log__head" aria-hidden="true">
+                                        <span>Time (UTC)</span>
+                                        <span>Level</span>
+                                        <span>Attempt</span>
+                                        <span>Message</span>
+                                    </div>
+                                    @foreach (var line in visibleLogLines)
+                                    {
+                                        <div class="@($"job-detail-log__row job-detail-log__row--{DashboardJobLog.LevelModifier(line)}")" @key="line.EventId">
+                                            <time class="job-detail-log__time" datetime="@line.OccurredAtUtc.ToString("O", CultureInfo.InvariantCulture)"
+                                                  title="@DashboardFormat.Utc(line.OccurredAtUtc)">@DashboardJobLog.Time(line)</time>
+                                            <span class="job-detail-log__level">@DashboardJobLog.LevelLabel(line)</span>
+                                            <span class="job-detail-log__attempt" title="@($"Attempt {line.AttemptNumber}")">@line.AttemptNumber</span>
+                                            <div class="job-detail-log__message">
+                                                <span class="job-detail-log__text">@DashboardJobLog.Message(line)</span>
+                                                @if (_showLogFields && line.Fields is { Count: > 0 })
+                                                {
+                                                    <span class="job-detail-log__fields">
+                                                        @foreach (var field in DashboardJobLog.Fields(line))
+                                                        {
+                                                            <span class="job-detail-log__field"><span class="job-detail-log__key">@field.Key</span>=@field.Value</span>
+                                                        }
+                                                    </span>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            <footer class="sd-table__footer">
+                                <span class="sd-num">@LogFooterText(visibleLogLines.Count, logLines.Count)</span>
+                                @if (HasMoreEvents)
+                                {
+                                    <Button Size="ButtonSize.Small" Icon="@(_isLoadingMoreEvents ? "loader-circle" : null)"
+                                            Disabled="_isLoadingMoreEvents" OnClick="LoadMoreEventsAsync">@LoadMoreEventsText</Button>
+                                }
+                            </footer>
+                            <div @ref="_logEnd" aria-hidden="true"></div>
+                        </Card>
+                        break;
+                }
             </div>
-        </div>
+        </section>
     }
 </div>
 
-<style>
-    .job-detail-page {
-        display: flex;
-        max-width: 1400px;
-        margin: 0 auto;
-        flex-direction: column;
-        gap: var(--sd-page-margin);
-    }
-
-    .job-detail-toolbar,
-    .job-detail-toolbar__primary,
-    .job-detail-hero__main,
-    .job-detail-title-row,
-    .job-detail-actions,
-    .job-detail-progress-line,
-    .job-detail-log-header,
-    .job-detail-log-header>div,
-    .job-detail-log-actions,
-    .job-detail-back-link,
-    .job-detail-stream-status {
-        display: flex;
-        align-items: center;
-    }
-
-    .job-detail-toolbar {
-        justify-content: space-between;
-        gap: var(--sd-gutter);
-    }
-
-    .job-detail-toolbar__primary {
-        gap: 16px;
-        min-width: 0;
-    }
-
-    .job-detail-toolbar__title {
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .job-detail-back-link {
-        gap: 6px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-        text-decoration: none;
-    }
-
-    .job-detail-back-link:hover {
-        color: var(--sd-primary);
-    }
-
-    .job-detail-message,
-    .job-detail-inline-alert {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .job-detail-message .sd-icon,
-    .job-detail-inline-alert .sd-icon {
-        color: var(--sd-primary);
-    }
-
-    .job-detail-message p,
-    .job-detail-inline-alert,
-    .job-detail-muted,
-    .job-detail-empty,
-    .job-detail-empty-row {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .job-detail-message--error,
-    .job-detail-inline-alert--error {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .job-detail-message--error .sd-icon,
-    .job-detail-inline-alert--error .sd-icon {
-        color: var(--sd-error);
-    }
-
-    .job-detail-inline-alert--warning {
-        border-color: var(--sd-warning);
-        background: var(--sd-warning-container);
-        color: var(--sd-warning);
-    }
-
-    .job-detail-inline-alert--warning .sd-icon {
-        color: var(--sd-warning);
-    }
-
-    .job-detail-inline-alert--success {
-        border-color: var(--sd-success);
-        background: var(--sd-success-container);
-        color: var(--sd-success);
-    }
-
-    .job-detail-inline-alert--success .sd-icon {
-        color: var(--sd-success);
-    }
-
-    .job-detail-not-found-canvas {
-        display: flex;
-        min-height: min(640px, calc(100vh - 160px));
-        align-items: center;
-        justify-content: center;
-        padding: 48px 16px;
-    }
-
-    .job-detail-not-found-card {
-        display: flex;
-        width: 100%;
-        max-width: 448px;
-        align-items: center;
-        flex-direction: column;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-        padding: 32px;
-        text-align: center;
-    }
-
-    .job-detail-not-found-card__icon {
-        display: inline-flex;
-        width: 64px;
-        height: 64px;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 24px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-        color: var(--sd-primary);
-    }
-
-    .job-detail-not-found-card__icon .sd-icon {
-        font-size: 32px;
-    }
-
-    .job-detail-not-found-card h1 {
-        color: var(--sd-on-surface);
-        font-size: 24px;
-        line-height: 32px;
-    }
-
-    .job-detail-not-found-card p {
-        max-width: 360px;
-        margin-top: 8px;
-        color: var(--sd-on-surface-variant);
-        font-size: 14px;
-        line-height: 20px;
-    }
-
-    .job-detail-not-found-card__id {
-        display: inline-block;
-        max-width: 100%;
-        overflow: hidden;
-        margin-top: 8px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        background: var(--sd-surface-high);
-        color: var(--sd-primary);
-        font-family: var(--font-mono);
-        font-size: 13px;
-        line-height: 18px;
-        padding: 2px 8px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .job-detail-not-found-card__action {
-        display: inline-flex;
-        min-height: 36px;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        margin-top: 32px;
-        border: 1px solid var(--sd-primary);
-        border-radius: var(--radius-md);
-        background: var(--sd-primary);
-        color: var(--sd-on-primary);
-        padding: 8px 14px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-        text-decoration: none;
-    }
-
-    .job-detail-not-found-card__action:hover {
-        background: var(--sd-surface-lowest);
-        color: var(--sd-primary);
-    }
-
-    .job-detail-not-found-card__action .sd-icon {
-        font-size: 16px;
-    }
-
-    .job-detail-hero,
-    .job-detail-panel {
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: calc(var(--radius) + 2px);
-        box-shadow: var(--shadow-sm);
-        background: var(--sd-surface-lowest);
-    }
-
-    .job-detail-hero {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding: 16px;
-    }
-
-    .job-detail-hero__main {
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .job-detail-identity {
-        min-width: 0;
-    }
-
-    .job-detail-title-row {
-        min-width: 0;
-        gap: 12px;
-    }
-
-    .job-detail-title-row h1 {
-        overflow: hidden;
-        color: var(--sd-on-surface);
-        font-size: 24px;
-        line-height: 32px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .job-detail-identity p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .job-detail-handler,
-    .job-detail-mono,
-    .job-detail-metadata-item strong,
-    .job-detail-chip,
-    .job-detail-invocation-call,
-    .job-detail-inline-duration,
-    .job-detail-parameter pre,
-    .job-detail-progress-percent,
-    .job-detail-log-table,
-    .job-detail-timeline__time span {
-        font-family: var(--font-mono);
-    }
-
-    .job-detail-handler {
-        display: inline-block;
-        max-width: min(760px, 80vw);
-        overflow: hidden;
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-container);
-        color: var(--sd-primary);
-        padding: 1px 5px;
-        text-decoration: none;
-        text-overflow: ellipsis;
-        vertical-align: bottom;
-        white-space: nowrap;
-    }
-
-    .job-detail-filter-link:hover {
-        color: var(--sd-primary);
-        text-decoration: underline;
-        text-decoration-color: var(--sd-primary);
-        text-underline-offset: 2px;
-    }
-
-    .job-detail-actions {
-        flex: 0 0 auto;
-        gap: 12px;
-    }
-
-    .job-detail-page button.job-detail-button,
-    .job-detail-page button.job-detail-icon-button {
-        display: inline-flex;
-        min-height: 34px;
-        align-items: center;
-        justify-content: center;
-        gap: 7px;
-        border-radius: var(--radius-md);
-        padding: 7px 12px;
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 16px;
-        transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
-    }
-
-    .job-detail-page button.job-detail-button--secondary,
-    .job-detail-page button.job-detail-icon-button {
-        border: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-    }
-
-    .job-detail-page button.job-detail-button--danger {
-        border: 1px solid var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .job-detail-page button.job-detail-button--compact {
-        min-height: 30px;
-        padding: 5px 9px;
-    }
-
-    .job-detail-page button.job-detail-icon-button {
-        width: 30px;
-        min-height: 30px;
-        padding: 0;
-    }
-
-    .job-detail-page button.job-detail-button:hover:not(:disabled),
-    .job-detail-page button.job-detail-icon-button:hover:not(:disabled) {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .job-detail-page button.job-detail-button--danger:hover:not(:disabled) {
-        border-color: var(--sd-error);
-        color: var(--sd-error);
-    }
-
-    .job-detail-page button:disabled {
-        cursor: default;
-        opacity: 0.6;
-    }
-
-    .job-detail-actions .job-detail-cancel-action:disabled {
-        pointer-events: none;
-    }
-
-    .job-detail-state,
-    .job-detail-disposition {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 999px;
-        padding: 3px 9px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-        text-decoration: none;
-        white-space: nowrap;
-    }
-
-    a.job-detail-state:hover {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .job-detail-state__dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    .job-detail-state--queued {
-        background: var(--sd-surface);
-        color: var(--sd-on-surface-variant);
-    }
-
-    .job-detail-state--claimed {
-        border-color: var(--sd-secondary-container);
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .job-detail-state--claimed .job-detail-state__dot {
-        background: var(--sd-primary);
-    }
-
-    .job-detail-state--completed {
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface);
-    }
-
-    .job-detail-state--failed {
-        border-color: var(--sd-error-container);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .job-detail-state--failed .job-detail-state__dot {
-        background: var(--sd-error);
-    }
-
-    .job-detail-state--canceled {
-        background: var(--sd-surface-high);
-        color: var(--sd-outline);
-    }
-
-    .job-detail-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 16px;
-        border-top: 1px solid var(--sd-outline-variant);
-        padding-top: 16px;
-    }
-
-    .job-detail-summary-block {
-        display: flex;
-        min-width: 0;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    .job-detail-summary-block--ruled {
-        border-left: 1px solid var(--sd-outline-variant);
-        padding-left: 16px;
-    }
-
-    .job-detail-label,
-    .job-detail-metadata-item>span,
-    .job-detail-log-table th {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .job-detail-progress-line {
-        gap: 12px;
-    }
-
-    .job-detail-progress-track {
-        width: 100%;
-        height: 8px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-    }
-
-    .job-detail-progress-bar {
-        display: block;
-        height: 100%;
-        border-radius: inherit;
-        background: var(--sd-primary);
-    }
-
-    .job-detail-progress-percent {
-        min-width: 44px;
-        color: var(--sd-primary);
-        font-size: 13px;
-        font-weight: 700;
-        line-height: 18px;
-        text-align: right;
-    }
-
-    .job-detail-timestamp-pair {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .job-detail-timestamp-pair>div {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-    }
-
-    .job-detail-timestamp-pair strong,
-    .job-detail-disposition {
-        color: var(--sd-primary);
-    }
-
-    .job-detail-inline-timestamp__absolute {
-        display: none;
-    }
-
-    .job-detail-inline-timestamp__relative {
-        color: var(--sd-primary);
-        font-weight: 700;
-    }
-
-    .job-detail-disposition {
-        width: fit-content;
-        border-radius: 6px;
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface);
-        text-transform: none;
-    }
-
-    .job-detail-disposition--error {
-        color: var(--sd-error);
-    }
-
-    .job-detail-content-grid {
-        display: grid;
-        grid-template-columns: minmax(260px, 1fr) minmax(0, 3fr);
-        gap: var(--sd-gutter);
-    }
-
-    .job-detail-panel {
-        min-width: 0;
-        padding: 16px;
-    }
-
-    .job-detail-panel h2 {
-        border-bottom: 1px solid var(--sd-outline-variant);
-        color: var(--sd-on-surface);
-        padding-bottom: 12px;
-    }
-
-    .job-detail-metadata-panel {
-        align-self: start;
-    }
-
-    .job-detail-metadata-list,
-    .job-detail-operations,
-    .job-detail-chip-section {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .job-detail-metadata-list {
-        gap: 12px;
-        margin-top: 16px;
-    }
-
-    .job-detail-metadata-item {
-        display: flex;
-        min-width: 0;
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .job-detail-metadata-item strong {
-        overflow: hidden;
-        color: var(--sd-on-surface);
-        font-size: 13px;
-        line-height: 18px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .job-detail-stacked-value {
-        display: flex;
-        min-width: 0;
-        flex-direction: column;
-        gap: 1px;
-    }
-
-    .job-detail-value-timestamp {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-    }
-
-    .job-detail-value-timestamp__relative {
-        color: var(--sd-on-surface);
-        font-weight: 700;
-    }
-
-    .job-detail-value-timestamp__absolute {
-        color: var(--sd-on-surface-variant);
-        font-family: var(--font-mono);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .job-detail-text-warning {
-        color: var(--sd-warning) !important;
-    }
-
-    .job-detail-chip-section {
-        gap: 8px;
-        margin-top: 18px;
-        border-top: 1px solid var(--sd-outline-variant);
-        padding-top: 14px;
-    }
-
-    .job-detail-chip-list {
-        display: flex;
-        min-width: 0;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-
-    .job-detail-chip {
-        max-width: 100%;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 6px;
-        background: var(--sd-surface-low);
-        color: var(--sd-on-surface-variant);
-        font-size: 10px;
-        line-height: 14px;
-        padding: 2px 7px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    a.job-detail-chip {
-        text-decoration: none;
-    }
-
-    a.job-detail-chip:hover {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    .job-detail-chip-empty {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .job-detail-invocation-panel {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-    }
-
-    .job-detail-invocation-summary {
-        display: grid;
-        grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) minmax(160px, 1fr);
-        gap: 12px;
-        margin-top: 2px;
-    }
-
-    .job-detail-invocation-call {
-        overflow: auto;
-        margin: 0;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface);
-        font-size: 13px;
-        line-height: 20px;
-        padding: 10px;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-    }
-
-    pre.job-detail-invocation-call[class*="language-"] {
-        overflow: auto;
-        margin: 0;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-container);
-        box-shadow: none;
-        color: var(--sd-on-surface);
-        font-family: var(--font-mono);
-        font-size: 13px;
-        line-height: 20px;
-        padding: 10px;
-        text-shadow: none;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-    }
-
-    pre.job-detail-invocation-call[class*="language-"] > code[class*="language-"] {
-        display: block;
-        background: transparent;
-        color: inherit;
-        font: inherit;
-        text-shadow: none;
-        white-space: inherit;
-        overflow-wrap: inherit;
-    }
-
-    .job-detail-parameter-list {
-        display: flex;
-        min-width: 0;
-        flex-direction: column;
-        border-top: 1px solid var(--sd-outline-variant);
-    }
-
-    .job-detail-parameter {
-        min-width: 0;
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 10px 0;
-    }
-
-    .job-detail-parameter:last-child {
-        border-bottom: 0;
-        padding-bottom: 0;
-    }
-
-    .job-detail-parameter__header {
-        display: flex;
-        min-width: 0;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .job-detail-parameter__header span,
-    .job-detail-parameter__header em {
-        flex: 0 0 auto;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        font-style: normal;
-        line-height: 16px;
-    }
-
-    .job-detail-parameter__header strong {
-        overflow: hidden;
-        color: var(--sd-on-surface);
-        font-size: 13px;
-        line-height: 18px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .job-detail-parameter pre {
-        overflow: auto;
-        max-height: 240px;
-        margin-top: 8px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 18px;
-        padding: 10px;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-    }
-
-    .job-detail-operations {
-        gap: var(--sd-page-margin);
-    }
-
-    .job-detail-empty {
-        padding-top: 16px;
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .job-detail-timeline {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        margin: 16px 0 0 8px;
-        border-left: 1px solid var(--sd-outline-variant);
-        padding-left: 16px;
-    }
-
-    .job-detail-timeline-item {
-        position: relative;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 16px;
-    }
-
-    .job-detail-timeline__dot {
-        position: absolute;
-        top: 5px;
-        left: -22px;
-        width: 11px;
-        height: 11px;
-        border: 2px solid var(--sd-surface-lowest);
-        border-radius: 999px;
-        background: var(--sd-outline-variant);
-    }
-
-    .job-detail-timeline-item--active .job-detail-timeline__dot,
-    .job-detail-stream-status span {
-        background: var(--sd-primary);
-    }
-
-    .job-detail-timeline-item--failed .job-detail-timeline__dot {
-        background: var(--sd-error);
-    }
-
-    .job-detail-timeline-item--completed .job-detail-timeline__dot {
-        background: var(--sd-success);
-    }
-
-    .job-detail-timeline__content {
-        min-width: 0;
-    }
-
-    .job-detail-timeline__content p {
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 16px;
-    }
-
-    .job-detail-timeline-item--active .job-detail-timeline__content p {
-        color: var(--sd-primary);
-    }
-
-    .job-detail-timeline-item--failed .job-detail-timeline__content p,
-    .job-detail-timeline-item--failed .job-detail-timeline__content span {
-        color: var(--sd-error);
-    }
-
-    .job-detail-timeline__content span {
-        display: inline-block;
-        margin-top: 3px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .job-detail-timeline-item--failed .job-detail-timeline__content span {
-        border-radius: var(--radius-md);
-        background: var(--sd-error-container);
-        padding: 2px 5px;
-    }
-
-    .job-detail-timeline__time {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        color: var(--sd-on-surface-variant);
-        text-align: right;
-        white-space: nowrap;
-    }
-
-    .job-detail-timeline__time strong {
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 16px;
-    }
-
-    .job-detail-timeline__time span {
-        font-size: 10px;
-        line-height: 14px;
-    }
-
-    .job-detail-event-timestamp {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .job-detail-event-timestamp__relative {
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 16px;
-    }
-
-    .job-detail-event-timestamp__absolute {
-        font-size: 10px;
-        line-height: 14px;
-    }
-
-    .job-detail-log-panel {
-        overflow: hidden;
-        padding: 0;
-    }
-
-    .job-detail-log-header {
-        justify-content: space-between;
-        gap: 16px;
-        border-bottom: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .job-detail-log-header>div:first-child {
-        gap: 14px;
-    }
-
-    .job-detail-log-header h2 {
-        border-bottom: 0;
-        padding-bottom: 0;
-    }
-
-    .job-detail-stream-status {
-        min-height: 30px;
-        gap: 7px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 5px 9px;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-    }
-
-    .job-detail-stream-status span {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-    }
-
-    .job-detail-stream-status--paused span {
-        background: var(--sd-outline);
-    }
-
-    .job-detail-stream-status--paused {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .job-detail-log-actions {
-        gap: 8px;
-    }
-
-    .job-detail-switch {
-        display: inline-flex;
-        min-height: 30px;
-        align-items: center;
-        gap: 8px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--radius-md);
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface-variant);
-        cursor: pointer;
-        padding: 5px 9px;
-        user-select: none;
-    }
-
-    .job-detail-switch input {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip: rect(0 0 0 0);
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
-
-    .job-detail-switch span {
-        position: relative;
-        display: inline-flex;
-        width: 28px;
-        height: 16px;
-        flex: 0 0 auto;
-        align-items: center;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-    }
-
-    .job-detail-switch span::before {
-        width: 10px;
-        height: 10px;
-        margin-left: 2px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-        content: "";
-        transition: margin-left 150ms ease, background-color 150ms ease;
-    }
-
-    .job-detail-switch input:checked+span {
-        border-color: var(--sd-primary);
-        background: var(--sd-secondary-container);
-    }
-
-    .job-detail-switch input:checked+span::before {
-        margin-left: 14px;
-        background: var(--sd-primary);
-    }
-
-    .job-detail-switch input:focus-visible+span {
-        outline: 2px solid var(--sd-primary);
-        outline-offset: 2px;
-    }
-
-    .job-detail-switch strong {
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 16px;
-        white-space: nowrap;
-    }
-
-    .job-detail-log-table-wrap {
-        overflow-x: auto;
-        background: var(--sd-surface-container);
-        padding: 12px 16px 16px;
-    }
-
-    .job-detail-log-table {
-        min-width: 760px;
-        table-layout: fixed;
-    }
-
-    .job-detail-log-table th,
-    .job-detail-log-table td {
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 6px 8px;
-        text-align: left;
-        vertical-align: middle;
-    }
-
-    .job-detail-log-table th:nth-child(1),
-    .job-detail-log-table td:nth-child(1) {
-        width: 56px;
-    }
-
-    .job-detail-log-table th:nth-child(2),
-    .job-detail-log-table td:nth-child(2) {
-        width: 96px;
-    }
-
-    .job-detail-log-table th:nth-child(3),
-    .job-detail-log-table td:nth-child(3) {
-        width: 148px;
-    }
-
-    .job-detail-log-table td {
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .job-detail-log-table tbody tr:hover {
-        background: var(--sd-surface-high);
-    }
-
-    .job-detail-log-row--current td:last-child {
-        border-left: 2px solid var(--sd-primary);
-        color: var(--sd-on-surface);
-        font-weight: 700;
-    }
-
-    .job-detail-log-time {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-        color: var(--sd-on-surface-variant);
-    }
-
-    .job-detail-log-time span:last-child {
-        font-size: 10px;
-        opacity: 0.75;
-    }
-
-    .job-detail-log-timestamp__relative {
-        display: block;
-    }
-
-    .job-detail-log-timestamp__absolute {
-        display: none;
-    }
-
-    .job-detail-log-level--trace,
-    .job-detail-log-level--debug {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .job-detail-log-level--information,
-    .job-detail-log-level--progress {
-        color: var(--sd-primary);
-    }
-
-    .job-detail-log-level--warning {
-        color: var(--sd-warning);
-    }
-
-    .job-detail-log-level--error,
-    .job-detail-log-level--critical {
-        color: var(--sd-error);
-    }
-
-    .job-detail-empty-row {
-        height: 96px;
-        text-align: center;
-    }
-
-    @@media (max-width: 1100px) {
-        .job-detail-hero__main,
-        .job-detail-toolbar,
-        .job-detail-log-header {
-            align-items: stretch;
-            flex-direction: column;
-        }
-
-        .job-detail-actions,
-        .job-detail-log-actions {
-            flex-wrap: wrap;
-        }
-
-        .job-detail-summary-grid,
-        .job-detail-content-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .job-detail-summary-block--ruled {
-            border-left: 0;
-            border-top: 1px solid var(--sd-outline-variant);
-            padding-top: 16px;
-            padding-left: 0;
-        }
-    }
-
-    @@media (max-width: 720px) {
-        .job-detail-title-row {
-            align-items: flex-start;
-            flex-direction: column;
-        }
-
-        .job-detail-title-row h1 {
-            max-width: 100%;
-            white-space: normal;
-            overflow-wrap: anywhere;
-        }
-
-        .job-detail-actions,
-        .job-detail-page button.job-detail-button {
-            width: 100%;
-        }
-
-        .job-detail-timeline-item {
-            grid-template-columns: 1fr;
-            gap: 6px;
-        }
-
-        .job-detail-timeline__time {
-            text-align: left;
-        }
-
-        .job-detail-invocation-summary {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
+<ConfirmDialog @bind-Open="_cancelDialogOpen" Title="Cancel this job?" ConfirmLabel="Cancel job" CancelLabel="Keep job"
+               Destructive="true" Busy="_isCancelRunning" OnConfirm="CancelJobAsync">
+    <p>@CancelDialogDescription</p>
+</ConfirmDialog>
 
 @code {
     private const int EventPageSize = 500;
+    private const int RelatedJobLimit = 50;
+    private const int MenuGroupLimit = 3;
 
     private readonly DashboardJobEventLog _eventLog = new(EventPageSize);
+
+    // A finished job no longer carries its claim, so fall back to the first attempt's start event.
+    private DateTimeOffset? StartedAtUtc(JobInspectionDetail detail)
+      => detail.ClaimedAtUtc
+        ?? this._eventLog.Events
+          .Where(jobEvent => jobEvent.Kind == JobEventKind.AttemptStarted)
+          .Select(jobEvent => (DateTimeOffset?)jobEvent.OccurredAtUtc)
+          .Min();
+    private readonly Dictionary<Guid, JobInspectionSummary?> _relatedJobs = [];
+    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private ElementReference _invocationCodeElement;
     private JobInspectionDetail? _detail;
     private Guid? _loadedJobId;
+    private DashboardJobLogFilter _logFilter = new();
     private string? _error;
-    private string? _actionMessage;
+    private string? _relatedError;
     private string? _highlightedInvocationCall;
-    private JobDetailActionAlertKind _actionAlertKind;
     private bool _isLoading;
     private bool _isLoadingMoreEvents;
+    private bool _isLoadingRelated;
+    private bool _relatedStale;
     private bool _isCancelRunning;
+    private bool _cancelDialogOpen;
     private bool _logsPaused;
-    private bool _showProgressLogs;
+    private bool _followLogs = true;
+    private bool _scrollToLatestLog;
+    private ElementReference _logEnd;
+    private bool _showLogFields = true;
 
     [Parameter]
     public Guid JobId { get; set; }
+
+    /// <summary>
+    /// The open section; the logs when absent.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = DashboardJobDetailFormat.TabParameter)]
+    public string? Tab { get; set; }
 
     [Inject]
     private DashboardNavigationState NavigationState { get; set; } = null!;
@@ -1559,57 +691,33 @@
     private string JobsListHref
       => this.NavigationState.JobsListHref;
 
+    private string? JobsListContext
+      => DashboardJobDetailFormat.JobsListContext(this.JobsListHref);
+
+    private DashboardJobDetailTab ActiveTab
+      => DashboardJobDetailFormat.ParseTab(this.Tab);
+
     private bool HasMoreEvents
       => this._detail is not null && this._eventLog.HasMoreToRead;
 
     private string LoadMoreEventsText
       => this._isLoadingMoreEvents
-        ? "Loading Events"
-        : string.Create(CultureInfo.InvariantCulture, $"Load More Events ({DashboardFormat.Count(this._eventLog.Events.Count)} loaded)");
+        ? "Loading events…"
+        : string.Create(CultureInfo.InvariantCulture, $"Load more events ({DashboardFormat.Count(this._eventLog.Events.Count)} loaded)");
 
-    private string ActionAlertClass
-      => this._actionAlertKind switch
-      {
-          JobDetailActionAlertKind.Success => "job-detail-inline-alert job-detail-inline-alert--success",
-          JobDetailActionAlertKind.Warning => "job-detail-inline-alert job-detail-inline-alert--warning",
-          _ => "job-detail-inline-alert job-detail-inline-alert--error",
-      };
+    private IReadOnlyList<JobEvent> AllLogLines
+      => [.. this._eventLog.Events.Where(DashboardJobLog.IsLogLine)];
 
-    private string ActionAlertIcon
-      => this._actionAlertKind switch
-      {
-          JobDetailActionAlertKind.Success => "check_circle",
-          JobDetailActionAlertKind.Warning => "warning",
-          _ => "error",
-      };
+    private IReadOnlyList<JobEvent> LifecycleEvents
+      => [.. this._eventLog.Events.Where(DashboardFormat.IsLifecycleEvent)];
 
-    private bool IsCancelButtonDisabled
-      => this._isCancelRunning || !this.CanCancelCurrentJob();
+    private IReadOnlyList<int> LogAttempts
+      => DashboardJobLog.Attempts(this._eventLog.Events);
 
-    private string CancelButtonClass
-      => this.CanCancelCurrentJob()
-        ? "job-detail-button job-detail-button--danger job-detail-cancel-action"
-        : "job-detail-button job-detail-button--secondary job-detail-cancel-action";
-
-    private string CancelButtonIcon
-      => this._isCancelRunning
-        ? "progress_activity"
-        : this._detail?.Summary is { State: JobState.Claimed, CancellationRequestedAtUtc: not null }
-          ? "pending"
-          : "cancel";
-
-    private string CancelButtonText
-      => this._isCancelRunning
-        ? "Canceling"
-        : this._detail?.Summary is { State: JobState.Claimed, CancellationRequestedAtUtc: not null }
-          ? "Cancellation Requested"
-          : "Cancel Job";
-
-    private string CancelButtonTitle
-      => this.GetCancelButtonTitle();
-
-    private string CancelButtonAriaLabel
-      => string.Create(CultureInfo.InvariantCulture, $"{this.CancelButtonText}: {this.CancelButtonTitle}");
+    private string CancelDialogDescription
+      => this._detail?.Summary.State == JobState.Claimed
+        ? "The running job is asked to stop and ends at its next cancellation check. You can't undo this."
+        : "The job ends as canceled straight away and won't run. You can't undo this.";
 
     protected override void OnInitialized()
     {
@@ -1631,14 +739,18 @@
         this._loadedJobId = this.JobId;
         this._detail = null;
         this._eventLog.Clear();
+        this._relatedJobs.Clear();
+        this._relatedError = null;
+        this._relatedStale = false;
+        this._isLoadingRelated = false;
         this._isLoadingMoreEvents = false;
         this._highlightedInvocationCall = null;
         this._error = null;
-        this.ClearActionAlert();
         this._isCancelRunning = false;
+        this._cancelDialogOpen = false;
         this.LiveRefresh.ClearError();
         this._logsPaused = false;
-        this._showProgressLogs = false;
+        this._logFilter = new DashboardJobLogFilter();
 
         await this.LoadAsync();
     }
@@ -1646,6 +758,60 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         _ = firstRender;
+
+        await this.HighlightInvocationAsync();
+        await this.FlushToastsAsync();
+        await this.ScrollToLatestLogAsync();
+
+        if (this.NeedsRelatedJobs())
+        {
+            await this.LoadRelatedJobsAsync();
+        }
+    }
+
+    // "Follow new lines" keeps the newest log line in view as live events arrive; the page is the scroll region.
+    private void SetFollowLogs(bool follow)
+    {
+        this._followLogs = follow;
+        this._scrollToLatestLog = follow;
+    }
+
+    private async Task ScrollToLatestLogAsync()
+    {
+        if (!this._scrollToLatestLog)
+        {
+            return;
+        }
+
+        this._scrollToLatestLog = false;
+        if (this.ActiveTab != DashboardJobDetailTab.Logs)
+        {
+            return;
+        }
+
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("sheddueller.scrollIntoView", this._logEnd);
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    private protected override ValueTask DisposePageAsync()
+    {
+        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
+        return ValueTask.CompletedTask;
+    }
+
+    // The method call is highlighted once per render of the Invocation tab; leaving the tab removes the element.
+    private async Task HighlightInvocationAsync()
+    {
+        if (this.ActiveTab != DashboardJobDetailTab.Invocation)
+        {
+            this._highlightedInvocationCall = null;
+            return;
+        }
 
         if (this._detail?.Invocation is not { } invocation ||
             string.Equals(this._highlightedInvocationCall, invocation.ReconstructedCall, StringComparison.Ordinal))
@@ -1668,10 +834,32 @@
         }
     }
 
-    private protected override ValueTask DisposePageAsync()
+    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
+    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
+      => this._pendingToasts.Add((title, description, tone));
+
+    private async Task FlushToastsAsync()
     {
-        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
-        return ValueTask.CompletedTask;
+        if (this._pendingToasts.Count == 0)
+        {
+            return;
+        }
+
+        var toasts = this._pendingToasts.ToArray();
+        this._pendingToasts.Clear();
+        foreach (var (title, description, tone) in toasts)
+        {
+            try
+            {
+                await JsRuntime.ToastAsync(title, description, tone);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (JSException)
+            {
+            }
+        }
     }
 
     // Paused means no live appends and no list replacement. Resuming catches up on anything missed while paused.
@@ -1681,29 +869,84 @@
         return this._logsPaused ? Task.CompletedTask : this.LiveRefresh.RefreshNowAsync();
     }
 
-    private void ToggleProgressLogs(ChangeEventArgs eventArgs)
-      => this._showProgressLogs = eventArgs.Value is true;
+    private void SetLogLevel(DashboardLogLevelFilter level)
+      => this._logFilter = this._logFilter with { Level = level };
+
+    private void SetLogAttempt(int? attempt)
+      => this._logFilter = this._logFilter with { Attempt = attempt };
+
+    private void SetLogSearch(string search)
+      => this._logFilter = this._logFilter with { Search = search };
+
+    private void ToggleProgressLines()
+      => this._logFilter = this._logFilter with { IncludeProgress = !this._logFilter.IncludeProgress };
+
+    private void ToggleLogFields()
+      => this._showLogFields = !this._showLogFields;
+
+    private void ClearLogFilters()
+      => this._logFilter = new DashboardJobLogFilter(IncludeProgress: this._logFilter.IncludeProgress);
+
+    // From the failure callout: the failed attempt's error lines (or all its lines when it logged no errors).
+    private void ShowAttemptLogs(int attempt, bool errorsOnly)
+    {
+        this._logFilter = this._logFilter with
+        {
+            Level = errorsOnly ? DashboardLogLevelFilter.Errors : DashboardLogLevelFilter.All,
+            Attempt = this.LogAttempts.Count > 1 ? attempt : null,
+            Search = null,
+        };
+
+        if (this.ActiveTab != DashboardJobDetailTab.Logs)
+        {
+            Navigation.NavigateTo(this.TabHref(DashboardJobDetailTab.Logs));
+        }
+    }
+
+    private async Task DownloadLogAsync(IReadOnlyList<JobEvent> lines)
+    {
+        try
+        {
+            await JsRuntime.DownloadAsync(DashboardJobLog.FileName(this.JobId), DashboardJobLog.ToText(lines));
+        }
+        catch (JSException exception)
+        {
+            this.ShowToast("Couldn't download the log", exception.Message, AlertTone.Destructive);
+        }
+    }
+
+    private void OpenCancelDialog()
+      => this._cancelDialogOpen = true;
 
     private async Task CancelJobAsync()
     {
-        if (this._isCancelRunning || !this.CanCancelCurrentJob())
+        if (this._isCancelRunning || this._detail?.Summary is not { } job)
         {
             return;
         }
 
+        // The job can move on while the dialog is open.
+        if (!DashboardJobActions.IsCancellable(job))
+        {
+            this.ShowToast("The job can't be canceled now", "It has finished, or a cancellation was already requested.");
+            return;
+        }
+
         this._isCancelRunning = true;
-        this.ClearActionAlert();
 
         try
         {
             var result = await JobManager.CancelAsync(this.JobId);
-
-            this.SetCancelActionResult(result);
+            var (title, description) = DashboardJobActions.DescribeCancellation([result]);
+            this.ShowToast(
+              title,
+              description,
+              result is JobCancellationResult.Canceled or JobCancellationResult.CancellationRequested ? AlertTone.Success : AlertTone.Neutral);
             await this.LiveRefresh.RefreshNowAsync();
         }
         catch (Exception exception)
         {
-            this.SetActionError(string.Create(CultureInfo.InvariantCulture, $"Cancel failed: {exception.Message}"));
+            this.ShowToast("Couldn't cancel the job", exception.Message, AlertTone.Destructive);
         }
         finally
         {
@@ -1733,6 +976,7 @@
             if (!this._logsPaused)
             {
                 _ = this._eventLog.Append(jobEvent);
+                this._scrollToLatestLog |= this._followLogs;
             }
 
             this.ApplyLiveEventToDetail(jobEvent);
@@ -1833,6 +1077,12 @@
             {
                 _ = this._eventLog.AppendPage(events);
             }
+
+            // An explicit refresh also re-reads the related jobs' states the next time they are shown.
+            if (catchUpEvents)
+            {
+                this._relatedStale = true;
+            }
         });
     }
 
@@ -1858,7 +1108,7 @@
         {
             if (jobId == this.JobId)
             {
-                this.SetActionError(string.Create(CultureInfo.InvariantCulture, $"Loading more events failed: {exception.Message}"));
+                this.ShowToast("Couldn't load more events", exception.Message, AlertTone.Destructive);
             }
         }
         finally
@@ -1921,152 +1171,207 @@
         }
     }
 
-    private bool CanCancelCurrentJob()
-      => this._detail?.Summary is { } job
-        && (job.State == JobState.Queued
-          || (job.State == JobState.Claimed && job.CancellationRequestedAtUtc is null));
+    // Related jobs are read one by one when the Related tab is shown (the reader has no lookup by many IDs), at most
+    // RelatedJobLimit per section. An explicit refresh marks them stale so their states are read again.
+    private bool NeedsRelatedJobs()
+      => this.ActiveTab == DashboardJobDetailTab.Related
+        && this._detail is not null
+        && !this._isLoadingRelated
+        && this._relatedError is null
+        && (this._relatedStale || this.RelatedJobIdsToShow().Any(jobId => !this._relatedJobs.ContainsKey(jobId)));
 
-    private string GetCancelButtonTitle()
+    private IEnumerable<Guid> RelatedJobIdsToShow()
+      => this._detail is null
+        ? []
+        : RelatedSections(this._detail).SelectMany(section => section.JobIds.Take(RelatedJobLimit)).Distinct();
+
+    private async Task LoadRelatedJobsAsync()
     {
-        if (this._isCancelRunning)
+        var jobId = this.JobId;
+        IReadOnlyList<Guid> relatedJobIds = this._relatedStale
+          ? [.. this.RelatedJobIdsToShow()]
+          : [.. this.RelatedJobIdsToShow().Where(relatedJobId => !this._relatedJobs.ContainsKey(relatedJobId))];
+        this._relatedStale = false;
+        this._isLoadingRelated = true;
+
+        try
         {
-            return "Cancel request is in progress.";
+            foreach (var relatedJobId in relatedJobIds)
+            {
+                var related = await Reader.GetJobAsync(relatedJobId);
+                if (jobId != this.JobId)
+                {
+                    return;
+                }
+
+                this._relatedJobs[relatedJobId] = related?.Summary;
+            }
+        }
+        catch (Exception exception)
+        {
+            if (jobId == this.JobId)
+            {
+                this._relatedError = exception.Message;
+            }
+        }
+        finally
+        {
+            if (jobId == this.JobId)
+            {
+                this._isLoadingRelated = false;
+            }
         }
 
-        if (this._isLoading && this._detail is null)
+        this.StateHasChanged();
+    }
+
+    private void RetryRelatedJobs()
+      => this._relatedError = null;
+
+    private string TabHref(DashboardJobDetailTab tab)
+      => DashboardJobDetailFormat.TabHref(this.JobId, tab);
+
+    private IReadOnlyList<TabItem<DashboardJobDetailTab>> TabItems(
+        int logLineCount,
+        int lifecycleEventCount)
+    {
+        // Counts are of loaded events, so they are left off while more events remain to be loaded.
+        var exact = !this.HasMoreEvents;
+        var relatedCount = this._detail is null ? 0 : RelatedSections(this._detail).Sum(section => section.JobIds.Count);
+        return
+        [
+            new(DashboardJobDetailTab.Logs, "Logs", exact ? logLineCount : null, Href: this.TabHref(DashboardJobDetailTab.Logs)),
+            new(DashboardJobDetailTab.Timeline, "Timeline", exact ? lifecycleEventCount : null, Href: this.TabHref(DashboardJobDetailTab.Timeline)),
+            new(DashboardJobDetailTab.Invocation, "Invocation", Href: this.TabHref(DashboardJobDetailTab.Invocation)),
+            new(DashboardJobDetailTab.Related, "Related", relatedCount, Href: this.TabHref(DashboardJobDetailTab.Related)),
+        ];
+    }
+
+    private IReadOnlyList<TabItem<DashboardLogLevelFilter>> LevelTabItems(IReadOnlyList<JobEvent> logLines)
+      =>
+      [
+          new(DashboardLogLevelFilter.All, "All", DashboardJobLog.Count(logLines, this._logFilter with { Level = DashboardLogLevelFilter.All })),
+          new(DashboardLogLevelFilter.Warnings, "Warnings", DashboardJobLog.Count(logLines, this._logFilter with { Level = DashboardLogLevelFilter.Warnings })),
+          new(DashboardLogLevelFilter.Errors, "Errors", DashboardJobLog.Count(logLines, this._logFilter with { Level = DashboardLogLevelFilter.Errors }), Attention: true),
+      ];
+
+    private static IReadOnlyList<RelatedSection> RelatedSections(JobInspectionDetail detail)
+    {
+        var sections = new List<RelatedSection>(4);
+        AddRelatedSection(sections, "Prerequisites", "This job waits for these jobs to finish.", detail.PrerequisiteJobIds);
+        AddRelatedSection(sections, "Continuations", "These jobs wait for this one to finish.", detail.DependentJobIds);
+        if (detail.Summary.RetryCloneSourceJobId is { } sourceJobId)
         {
-            return "Job detail is loading before cancellation can be evaluated.";
+            AddRelatedSection(sections, "Retry of", "This job was created to retry a failed job.", [sourceJobId]);
         }
 
-        if (this._error is not null)
-        {
-            return "Job detail failed to load, so cancellation state cannot be evaluated.";
-        }
+        AddRelatedSection(sections, "Retried as", "Copies of this job created to retry it.", detail.RetryCloneJobIds);
+        return sections;
+    }
 
-        if (this._detail is null)
+    private static void AddRelatedSection(
+        List<RelatedSection> sections,
+        string title,
+        string description,
+        IReadOnlyList<Guid> jobIds)
+    {
+        if (jobIds.Count > 0)
         {
-            return "No job was found with this ID.";
+            sections.Add(new RelatedSection(title, description, jobIds));
         }
+    }
 
-        var job = this._detail.Summary;
-        return job.State switch
+    private static bool IsLive(JobInspectionSummary job)
+      => job.State is JobState.Queued or JobState.Claimed;
+
+    private static string LogFooterText(
+        int visibleCount,
+        int totalCount)
+      => visibleCount == totalCount
+        ? string.Create(CultureInfo.InvariantCulture, $"{DashboardFormat.Count(totalCount)} {(totalCount == 1 ? "line" : "lines")}")
+        : string.Create(CultureInfo.InvariantCulture, $"Showing {DashboardFormat.Count(visibleCount)} of {DashboardFormat.Count(totalCount)} lines");
+
+    private static string RunTimeText(JobInspectionDetail detail)
+      => detail.Summary.State switch
+      {
+          JobState.Claimed => "Still running",
+          _ when DashboardFormat.RunTimeDuration(detail) is null => "—",
+          _ => DashboardFormat.RunTime(detail),
+      };
+
+    private static string FailedTitle(JobInspectionSummary job)
+      => job.AttemptCount > 1
+        ? string.Create(CultureInfo.InvariantCulture, $"Failed after {job.AttemptCount} attempts")
+        : "Failed";
+
+    private static string CompletedTitle(JobInspectionDetail detail)
+      => DashboardFormat.RunTimeDuration(detail) is null
+        ? "Completed"
+        : string.Concat("Completed in ", DashboardFormat.RunTime(detail));
+
+    private static string CompletedText(JobInspectionSummary job)
+      => job.AttemptCount <= 1
+        ? "The job finished on its first attempt."
+        : string.Create(CultureInfo.InvariantCulture, $"The job finished on attempt {job.AttemptCount} of {job.MaxAttempts}.");
+
+    private static string CanceledText(JobInspectionDetail detail)
+      => detail.ClaimedAtUtc is null
+        ? "The job was canceled before it started."
+        : detail.Summary.CancellationObservedAtUtc is not null
+          ? "The job was canceled while running and stopped at a cancellation check."
+          : "The job was canceled while running.";
+
+    private static AlertTone QueuedTone(JobInspectionSummary job)
+      => job.QueuePosition?.Kind switch
+      {
+          JobQueuePositionKind.Claimable => AlertTone.Info,
+          JobQueuePositionKind.RetryWaiting or JobQueuePositionKind.BlockedByConcurrency => AlertTone.Warning,
+          _ => AlertTone.Neutral,
+      };
+
+    private static string QueuedIcon(JobInspectionSummary job)
+      => job.QueuePosition?.Kind switch
+      {
+          JobQueuePositionKind.Delayed => "calendar-clock",
+          JobQueuePositionKind.RetryWaiting => "rotate-ccw",
+          JobQueuePositionKind.WaitingForDependencies => "git-fork",
+          JobQueuePositionKind.BlockedByConcurrency => "layers",
+          _ => "hourglass",
+      };
+
+    private static string QueuedText(
+        JobInspectionSummary job,
+        JobEvent? latestFailure)
+    {
+        var reason = job.QueuePosition?.Reason;
+        return job.QueuePosition?.Kind switch
         {
-            JobState.Queued => "Cancel this queued job before it is claimed.",
-            JobState.Claimed when job.CancellationRequestedAtUtc is { } requestedAtUtc
-              => string.Create(
-                CultureInfo.InvariantCulture,
-                $"Cancellation was already requested at {DashboardFormat.Utc(requestedAtUtc)}; the worker will observe it on heartbeat."),
-            JobState.Claimed => "Request cooperative cancellation for this running job.",
-            JobState.Completed => FormatTerminalCancelReason("completed", job.CompletedAtUtc),
-            JobState.Failed => FormatTerminalCancelReason("failed", job.FailedAtUtc),
-            JobState.Canceled => job.CanceledAtUtc is null
-              ? "This job is already canceled."
-              : string.Create(CultureInfo.InvariantCulture, $"This job was canceled at {DashboardFormat.Utc(job.CanceledAtUtc)} and cannot be canceled again."),
-            _ => "This job cannot be canceled in its current state.",
+            JobQueuePositionKind.RetryWaiting when latestFailure?.Message is { Length: > 0 } message
+              => string.Create(CultureInfo.InvariantCulture, $"Attempt {latestFailure.AttemptNumber} failed: {message}"),
+            _ when !string.IsNullOrWhiteSpace(reason) => reason,
+            JobQueuePositionKind.Claimable => "The next free worker picks it up.",
+            JobQueuePositionKind.Delayed => "The job isn't claimable until its not-before time.",
+            JobQueuePositionKind.RetryWaiting => "The last attempt failed; the job runs again after the retry delay.",
+            JobQueuePositionKind.WaitingForDependencies => "The job runs once all of its prerequisites have finished.",
+            JobQueuePositionKind.BlockedByConcurrency => "Another job holds the only slot in one of its concurrency groups.",
+            _ => "The job is waiting to be claimed.",
         };
     }
 
-    private void SetCancelActionResult(JobCancellationResult result)
-    {
-        var jobId = DashboardFormat.JobId(this.JobId);
-        switch (result)
-        {
-            case JobCancellationResult.Canceled:
-                this.SetActionSuccess(string.Create(CultureInfo.InvariantCulture, $"Job {jobId} canceled."));
-                break;
-            case JobCancellationResult.CancellationRequested:
-                this.SetActionSuccess(string.Create(CultureInfo.InvariantCulture, $"Cancellation requested for job {jobId}."));
-                break;
-            case JobCancellationResult.AlreadyFinished:
-                this.SetActionWarning(string.Create(CultureInfo.InvariantCulture, $"Job {jobId} already finished."));
-                break;
-            case JobCancellationResult.NotFound:
-                this.SetActionWarning(string.Create(CultureInfo.InvariantCulture, $"Job {jobId} was not found."));
-                break;
-            default:
-                this.SetActionWarning(string.Create(CultureInfo.InvariantCulture, $"Cancel returned {result} for job {jobId}."));
-                break;
-        }
-    }
-
-    private void SetActionSuccess(string message)
-    {
-        this._actionAlertKind = JobDetailActionAlertKind.Success;
-        this._actionMessage = message;
-    }
-
-    private void SetActionWarning(string message)
-    {
-        this._actionAlertKind = JobDetailActionAlertKind.Warning;
-        this._actionMessage = message;
-    }
-
-    private void SetActionError(string message)
-    {
-        this._actionAlertKind = JobDetailActionAlertKind.Error;
-        this._actionMessage = message;
-    }
-
-    private void ClearActionAlert()
-      => this._actionMessage = null;
-
-    private IReadOnlyList<JobEvent> GetLifecycleEvents()
-      => [.. this._eventLog.Events.Where(DashboardFormat.IsLifecycleEvent)];
-
-    private IReadOnlyList<JobEvent> GetLogEvents()
-      => [.. this._eventLog.Events
-        .Where(DashboardFormat.IsLogEvent)
-        .Where(jobEvent => this._showProgressLogs || jobEvent.Kind != JobEventKind.Progress)];
-
-    private string GetLogEmptyMessage()
-      => this._showProgressLogs
-        ? "No log or progress events have been recorded."
-        : "No log events have been recorded. Progress events are hidden.";
-
-    private static DateTimeOffset GetStartedAt(JobInspectionDetail detail)
-      => detail.ClaimedAtUtc ?? detail.Summary.EnqueuedAtUtc;
-
-    private static string FormatTerminalCancelReason(
-        string terminalState,
-        DateTimeOffset? timestamp)
-      => timestamp is null
-        ? string.Create(CultureInfo.InvariantCulture, $"This job {terminalState} and cannot be canceled.")
-        : string.Create(CultureInfo.InvariantCulture, $"This job {terminalState} at {DashboardFormat.Utc(timestamp)} and cannot be canceled.");
-
-    private static string GetDispositionClass(JobInspectionSummary job)
-      => job.State == JobState.Failed ? "job-detail-disposition--error" : string.Empty;
-
-    private static string GetLogRowClass(
-        JobEvent jobEvent,
-        IReadOnlyList<JobEvent> logEvents)
-      => logEvents.Count > 0
-        && logEvents[^1].EventSequence == jobEvent.EventSequence
-        && jobEvent.Kind == JobEventKind.Progress
-          ? "job-detail-log-row--current"
-          : string.Empty;
-
-    private static string StateFilterHref(JobState state)
-      => DashboardJobFilterQuery.StateHref(state);
-
-    private static string StateFilterTitle(JobState state)
-      => string.Concat("Filter jobs by state ", state);
-
-    private static string HandlerFilterHref(JobInspectionSummary job)
+    private static string HandlerJobsHref(JobInspectionSummary job)
       => DashboardJobFilterQuery.HandlerHref(DashboardFormat.ShortHandler(job));
 
-    private static string HandlerFilterTitle(JobInspectionSummary job)
-      => string.Concat("Filter jobs by handler ", DashboardFormat.ShortHandler(job));
+    private static string NodeHref(string nodeId)
+      => DashboardNodeFilterQuery.ToHref(new DashboardNodeFilters { NodeId = nodeId });
 
-    private static string TagFilterHref(string tag)
-      => DashboardJobFilterQuery.TagHref(tag);
+    private static string ScheduleHref(string scheduleKey)
+      => DashboardScheduleFilterQuery.ToHref(new DashboardScheduleFilters { ScheduleKey = scheduleKey });
 
-    private static string GroupFilterHref(string group)
-      => DashboardJobFilterQuery.GroupHref(group);
+    private static string ConcurrencyGroupHref(string groupKey)
+      => DashboardConcurrencyGroupFilterQuery.ToHref(new DashboardConcurrencyGroupFilters { GroupKey = groupKey });
 
-    private enum JobDetailActionAlertKind
-    {
-        Success,
-        Warning,
-        Error,
-    }
+    private sealed record RelatedSection(
+        string Title,
+        string Description,
+        IReadOnlyList<Guid> JobIds);
 }
