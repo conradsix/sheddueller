@@ -191,4 +191,13 @@ internal static partial class ShedduellerWorkerLoggerMessages
     public static partial void WorkerJobRetentionCleanupFailed(
         this ILogger logger,
         Exception exception);
+
+    [LoggerMessage(
+        EventIdStart + 60,
+        LogLevel.Debug,
+        "Dropped {DroppedCount} job log and progress events because the job event queue was full ({Capacity} events).")]
+    public static partial void JobEventsDropped(
+        this ILogger logger,
+        long droppedCount,
+        int capacity);
 }

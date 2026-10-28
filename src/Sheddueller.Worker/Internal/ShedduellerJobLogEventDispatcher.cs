@@ -97,6 +97,17 @@ internal sealed class ShedduellerJobLogEventDispatcher(
         finally
         {
             batch.Clear();
+            this.ReportDroppedEvents();
+        }
+    }
+
+    // The queue only drops while it is full, so a flush always follows a drop and reports it here, outside any job.
+    private void ReportDroppedEvents()
+    {
+        var droppedCount = this._queue.TakeDroppedCount();
+        if (droppedCount > 0)
+        {
+            this._logger.JobEventsDropped(droppedCount, this._queue.Capacity);
         }
     }
 }
