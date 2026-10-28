@@ -35,6 +35,26 @@ public sealed class RecurringScheduleManagerTests
         wakeSignal.NotifyCount.ShouldBe(1);
     }
 
+    [Theory]
+    [InlineData(RecurringScheduleUpsertResult.Created, 1)]
+    [InlineData(RecurringScheduleUpsertResult.Updated, 1)]
+    [InlineData(RecurringScheduleUpsertResult.Unchanged, 0)]
+    public async Task CreateOrUpdate_Result_WakesOnlyWhenScheduleChanged(
+        RecurringScheduleUpsertResult result,
+        int expectedNotifyCount)
+    {
+        var store = new RecordingJobStore { CreateOrUpdateRecurringScheduleResult = result };
+        var wakeSignal = new RecordingWakeSignal();
+        var manager = CreateManager(store, wakeSignal);
+
+        (await manager.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (service, cancellationToken) => service.ExecuteAsync("feed-1", "job-1", cancellationToken))).ShouldBe(result);
+
+        wakeSignal.NotifyCount.ShouldBe(expectedNotifyCount);
+    }
+
     [Fact]
     public async Task Trigger_InvalidScheduleKey_ThrowsWithoutCallingStore()
     {

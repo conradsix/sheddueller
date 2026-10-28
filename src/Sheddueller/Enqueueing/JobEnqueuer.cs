@@ -21,49 +21,49 @@ internal sealed class JobEnqueuer(
       Expression<Func<CancellationToken, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(serviceType: null, work), submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync(
       Expression<Func<CancellationToken, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(serviceType: null, work), submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync(
       Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(serviceType: null, work), submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync(
       Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(serviceType: null, work), submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(typeof(TService), work), submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(typeof(TService), work), submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(typeof(TService), work), submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(typeof(TService), work), submission, cancellationToken);
 
     public async ValueTask<IReadOnlyList<Guid>> EnqueueManyAsync(
       IReadOnlyList<JobEnqueueItem> jobs,
