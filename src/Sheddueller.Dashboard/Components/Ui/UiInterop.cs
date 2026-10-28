@@ -3,7 +3,7 @@ namespace Sheddueller.Dashboard.Components.Ui;
 using Microsoft.JSInterop;
 
 /// <summary>
-/// Calls into <c>wwwroot/sheddueller-ui.js</c>.
+/// Calls into <c>wwwroot/js/sheddueller-ui.js</c>.
 /// </summary>
 internal static class UiInterop
 {
