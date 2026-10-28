@@ -5,6 +5,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\Sheddueller.Tests\Logging\TestLoggerProvider.cs" Link="Logging\TestLoggerProvider.cs" />
   </ItemGroup>
 </Project>

@@ -30,6 +30,16 @@ internal static partial class ShedduellerWorkerLoggerMessages
         string nodeId);
 
     [LoggerMessage(
+        EventIdStart + 3,
+        LogLevel.Error,
+        "Sheddueller worker node {NodeId} failed to poll for jobs; retrying in {RetryDelayMs:D} ms.")]
+    public static partial void WorkerLoopFailed(
+        this ILogger logger,
+        Exception exception,
+        string nodeId,
+        long retryDelayMs);
+
+    [LoggerMessage(
         EventIdStart + 10,
         LogLevel.Debug,
         "Claimed job {JobId} for attempt {AttemptNumber} on node {NodeId}.")]
@@ -56,6 +66,18 @@ internal static partial class ShedduellerWorkerLoggerMessages
     public static partial void JobFailed(
         this ILogger logger,
         Exception exception,
+        Guid jobId,
+        int attemptNumber,
+        string nodeId);
+
+    [LoggerMessage(
+        EventIdStart + 22,
+        LogLevel.Error,
+        "Could not record outcome {Outcome} for job {JobId} attempt {AttemptNumber} on node {NodeId}; the job is recovered when its lease expires.")]
+    public static partial void JobOutcomeRecordFailed(
+        this ILogger logger,
+        Exception exception,
+        string outcome,
         Guid jobId,
         int attemptNumber,
         string nodeId);
@@ -110,6 +132,30 @@ internal static partial class ShedduellerWorkerLoggerMessages
         Guid jobId,
         int attemptNumber,
         string nodeId);
+
+    [LoggerMessage(
+        EventIdStart + 35,
+        LogLevel.Warning,
+        "Heartbeat for job {JobId} attempt {AttemptNumber} on node {NodeId} failed; retrying until its lease expires at {LeaseExpiresAtUtc:O}.")]
+    public static partial void JobHeartbeatRetrying(
+        this ILogger logger,
+        Exception exception,
+        Guid jobId,
+        int attemptNumber,
+        string nodeId,
+        DateTimeOffset leaseExpiresAtUtc);
+
+    [LoggerMessage(
+        EventIdStart + 36,
+        LogLevel.Warning,
+        "Lease for job {JobId} attempt {AttemptNumber} on node {NodeId} expired at {LeaseExpiresAtUtc:O} without a successful renewal; cancelling the job because another node may now claim it.")]
+    public static partial void JobLeasePresumedLost(
+        this ILogger logger,
+        Exception exception,
+        Guid jobId,
+        int attemptNumber,
+        string nodeId,
+        DateTimeOffset leaseExpiresAtUtc);
 
     [LoggerMessage(
         EventIdStart + 40,

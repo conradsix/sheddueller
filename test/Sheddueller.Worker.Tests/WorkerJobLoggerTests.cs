@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
@@ -163,6 +164,32 @@ public sealed class WorkerJobLoggerTests
         await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
 
         completed.JobId.ShouldBe(job.JobId);
+    }
+
+    [Fact]
+    public async Task LogDispatcher_StoppedBeforeDispatchLoopRuns_FlushesQueuedEvents()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        // BackgroundService runs ExecuteAsync on the thread pool and skips it when stopped before it starts. An immediate
+        // stop lands there most of the time; repeat so the test doesn't depend on that.
+        for (var i = 0; i < 20; i++)
+        {
+            var queue = new ShedduellerJobLogEventQueue();
+            var eventSink = new RecordingJobEventSink();
+            var request = new AppendJobEventRequest(Guid.NewGuid(), JobEventKind.Log, AttemptNumber: 1, JobLogLevel.Information, "queued");
+            queue.TryEnqueue(request).ShouldBeTrue();
+            using var dispatcher = new ShedduellerJobLogEventDispatcher(
+              queue,
+              eventSink,
+              TimeProvider.System,
+              NullLogger<ShedduellerJobLogEventDispatcher>.Instance);
+
+            await dispatcher.StartAsync(cancellationTokenSource.Token);
+            await dispatcher.StopAsync(cancellationTokenSource.Token);
+
+            eventSink.Requests.ShouldHaveSingleItem().ShouldBe(request);
+        }
     }
 
     private static ServiceProvider CreateProvider<TJob>(
