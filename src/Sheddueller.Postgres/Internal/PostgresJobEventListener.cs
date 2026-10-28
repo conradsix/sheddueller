@@ -1,10 +1,9 @@
 namespace Sheddueller.Postgres.Internal;
 
 using System.Globalization;
+using System.Threading.Channels;
 
 using Microsoft.Extensions.Logging;
-
-using Npgsql;
 
 using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Runtime;
@@ -15,56 +14,44 @@ internal sealed class PostgresJobEventListener(
     IJobEventNotifier publisher,
     ILogger<PostgresJobEventListener> logger) : IShedduellerJobEventListener
 {
-    private static readonly TimeSpan ListenerRetryDelay = TimeSpan.FromSeconds(1);
+    /// <summary>
+    /// The most notifications that may wait to be published; further notifications are dropped until the publisher catches up.
+    /// </summary>
+    internal const int PendingNotificationCapacity = 10_000;
+
+    /// <summary>
+    /// The most pending notifications read from the database in one query.
+    /// </summary>
+    internal const int PublishBatchSize = 256;
 
     private readonly PostgresOperationContext _context = new(options);
+    private readonly Channel<(Guid JobId, long EventSequence)> _pendingNotifications = Channel.CreateBounded<(Guid JobId, long EventSequence)>(
+      new BoundedChannelOptions(PendingNotificationCapacity)
+      {
+          FullMode = BoundedChannelFullMode.Wait,
+          SingleReader = true,
+      });
 
     public async Task ListenAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await this.ListenUntilDisconnectedAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                logger.PostgresJobEventListenerRetrying(exception, options.SchemaName, (long)ListenerRetryDelay.TotalMilliseconds);
-                await Task.Delay(ListenerRetryDelay, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var listenLoop = new PostgresListenLoop(
+          options.DataSource,
+          PostgresNames.JobEventChannel,
+          this.HandleNotificationPayload,
+          () => logger.PostgresJobEventListenerStarted(options.SchemaName),
+          (exception, retryDelay) => logger.PostgresJobEventListenerRetrying(exception, options.SchemaName, (long)retryDelay.TotalMilliseconds),
+          PostgresListenLoop.DefaultKeepAliveInterval,
+          PostgresListenLoop.DefaultRetryDelay);
+
+        var publishTask = this.PublishPendingNotificationsAsync(cancellationToken);
+        await listenLoop.RunAsync(cancellationToken).ConfigureAwait(false);
+        await publishTask.ConfigureAwait(false);
     }
 
-    private async Task ListenUntilDisconnectedAsync(CancellationToken cancellationToken)
-    {
-        await using var connection = await options.DataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        connection.Notification += this.OnNotification;
-
-        try
-        {
-            await using var command = connection.CreateCommand();
-            command.CommandText = $"listen {PostgresNames.JobEventChannel};";
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            logger.PostgresJobEventListenerStarted(options.SchemaName);
-
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await connection.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            connection.Notification -= this.OnNotification;
-        }
-    }
-
-    private void OnNotification(object sender, NpgsqlNotificationEventArgs args)
-      => this.HandleNotificationPayload(args.Payload);
-
+    /// <summary>
+    /// Queues a notification for publishing. Runs on the listening connection's read path, so it never blocks:
+    /// live events are best-effort, and a notification that doesn't fit in the queue is dropped.
+    /// </summary>
     internal void HandleNotificationPayload(string payload)
     {
         if (!TryParsePayload(payload, options.SchemaName, out var jobId, out var eventSequence))
@@ -73,26 +60,70 @@ internal sealed class PostgresJobEventListener(
             return;
         }
 
-        _ = Task.Run(() => this.PublishNotificationAsync(jobId, eventSequence));
+        if (!this._pendingNotifications.Writer.TryWrite((jobId, eventSequence)))
+        {
+            logger.PostgresJobEventNotificationDropped(jobId, eventSequence, PendingNotificationCapacity);
+        }
     }
 
-    private async Task PublishNotificationAsync(Guid jobId, long eventSequence)
+    private async Task PublishPendingNotificationsAsync(CancellationToken cancellationToken)
     {
+        var reader = this._pendingNotifications.Reader;
+        var batch = new List<(Guid JobId, long EventSequence)>(PublishBatchSize);
+
         try
         {
-            var jobEvent = await PostgresJobEvents.ReadEventAsync(this._context, jobId, eventSequence, CancellationToken.None)
-              .ConfigureAwait(false);
-            if (jobEvent is null)
+            while (await reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (batch.Count < PublishBatchSize && reader.TryRead(out var notification))
+                {
+                    batch.Add(notification);
+                }
+
+                await this.PublishBatchAsync(batch, cancellationToken).ConfigureAwait(false);
+                batch.Clear();
+            }
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // Shutting down: notifications still queued are dropped rather than published after the listener stops.
+        }
+    }
+
+    private async Task PublishBatchAsync(
+        List<(Guid JobId, long EventSequence)> batch,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<JobEvent?> jobEvents;
+        try
+        {
+            jobEvents = await PostgresJobEvents.ReadEventsAsync(this._context, batch, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.PostgresJobEventNotificationBatchFailed(exception, options.SchemaName, batch.Count);
+            return;
+        }
+
+        // Notifications arrive in commit order, and a job's events are appended under its row lock, so publishing in
+        // arrival order keeps each job's events in sequence order.
+        for (var i = 0; i < batch.Count; i++)
+        {
+            var (jobId, eventSequence) = batch[i];
+            if (jobEvents[i] is not { } jobEvent)
             {
                 logger.PostgresJobEventNotificationMissing(jobId, eventSequence);
-                return;
+                continue;
             }
 
-            await publisher.NotifyAsync(jobEvent, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            logger.PostgresJobEventNotificationFailed(exception, jobId, eventSequence);
+            try
+            {
+                await publisher.NotifyAsync(jobEvent, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.PostgresJobEventNotificationFailed(exception, jobId, eventSequence);
+            }
         }
     }
 

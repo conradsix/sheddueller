@@ -206,9 +206,9 @@ public sealed class TriggerRecurringScheduleOperationTests(PostgresFixture fixtu
         IShedduellerWakeSignal wakeSignal,
         Func<ValueTask<RecurringScheduleTriggerResult>> action)
     {
+        await WaitForListenerAsync(wakeSignal);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var waitTask = wakeSignal.WaitAsync(TimeSpan.FromSeconds(5), timeout.Token).AsTask();
-        await Task.Delay(TimeSpan.FromMilliseconds(100), CancellationToken.None);
 
         _ = await action().ConfigureAwait(false);
 
@@ -223,5 +223,14 @@ public sealed class TriggerRecurringScheduleOperationTests(PostgresFixture fixtu
         await timeout.CancelAsync();
         await Should.ThrowAsync<OperationCanceledException>(() => waitTask);
         return false;
+    }
+
+    /// <summary>
+    /// Consumes the wake the listener raises once its LISTEN succeeds, so only the action's notification is observed.
+    /// </summary>
+    private static async Task WaitForListenerAsync(IShedduellerWakeSignal wakeSignal)
+    {
+        using var listening = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await wakeSignal.WaitAsync(Timeout.InfiniteTimeSpan, listening.Token);
     }
 }

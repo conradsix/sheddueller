@@ -4,21 +4,18 @@ namespace Sheddueller.Postgres.Internal;
 
 using Microsoft.Extensions.Logging;
 
-using Npgsql;
-
 using Sheddueller.Runtime;
 
 internal sealed class PostgresWakeSignal(
     ShedduellerPostgresOptions options,
-    ILogger<PostgresWakeSignal> logger) : IShedduellerWakeSignal, IDisposable
+    ILogger<PostgresWakeSignal> logger) : IShedduellerWakeSignal, IDisposable, IAsyncDisposable
 {
-    private static readonly TimeSpan ListenerRetryDelay = TimeSpan.FromSeconds(1);
-
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _disposeTokenSource = new();
     private readonly Lock _listenerLock = new();
     private readonly ShedduellerPostgresOptions _options = options;
-    private bool _listenerStarted;
+    private Task? _listenTask;
+    private bool _disposed;
     private int _signaled;
 
     public void Notify()
@@ -35,75 +32,94 @@ internal sealed class PostgresWakeSignal(
 
     public void Dispose()
     {
-        this._disposeTokenSource.Cancel();
-        this._signal.Dispose();
-        this._disposeTokenSource.Dispose();
+        if (!this.TryStopListening(out var listenTask))
+        {
+            return;
+        }
+
+        listenTask?.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
+        this.ReleaseResources();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!this.TryStopListening(out var listenTask))
+        {
+            return;
+        }
+
+        if (listenTask is not null)
+        {
+            await listenTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        this.ReleaseResources();
     }
 
     private void EnsureListening()
     {
         lock (this._listenerLock)
         {
-            if (this._listenerStarted)
+            if (this._listenTask is not null || this._disposed)
             {
                 return;
             }
 
-            this._listenerStarted = true;
-            _ = Task.Run(this.ListenAsync);
+            var listenLoop = new PostgresListenLoop(
+              this._options.DataSource,
+              PostgresNames.WakeupChannel,
+              this.OnNotification,
+              this.OnListening,
+              this.OnListenerRetrying,
+              PostgresListenLoop.DefaultKeepAliveInterval,
+              PostgresListenLoop.DefaultRetryDelay);
+            var stoppingToken = this._disposeTokenSource.Token;
+            this._listenTask = Task.Run(() => listenLoop.RunAsync(stoppingToken), CancellationToken.None);
         }
     }
 
-    private async Task ListenAsync()
+    private bool TryStopListening(out Task? listenTask)
     {
-        while (!this._disposeTokenSource.IsCancellationRequested)
+        lock (this._listenerLock)
         {
-            try
+            listenTask = this._listenTask;
+            if (this._disposed)
             {
-                await this.ListenUntilDisconnectedAsync(this._disposeTokenSource.Token).ConfigureAwait(false);
+                return false;
             }
-            catch (OperationCanceledException) when (this._disposeTokenSource.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                logger.PostgresWakeListenerRetrying(exception, this._options.SchemaName, (long)ListenerRetryDelay.TotalMilliseconds);
-                await Task.Delay(ListenerRetryDelay, this._disposeTokenSource.Token).ConfigureAwait(false);
-            }
+
+            this._disposed = true;
         }
+
+        this._disposeTokenSource.Cancel();
+        return true;
     }
 
-    private async Task ListenUntilDisconnectedAsync(CancellationToken cancellationToken)
+    private void ReleaseResources()
     {
-        await using var connection = await this._options.DataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        connection.Notification += this.OnNotification;
-
-        try
-        {
-            await using var command = connection.CreateCommand();
-            command.CommandText = $"listen {PostgresNames.WakeupChannel};";
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            logger.PostgresWakeListenerStarted(this._options.SchemaName);
-
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await connection.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            connection.Notification -= this.OnNotification;
-        }
+        this._signal.Dispose();
+        this._disposeTokenSource.Dispose();
     }
 
-    private void OnNotification(object sender, NpgsqlNotificationEventArgs args)
+    private void OnNotification(string payload)
     {
-        if (string.Equals(args.Payload, this._options.SchemaName, StringComparison.Ordinal))
+        if (string.Equals(payload, this._options.SchemaName, StringComparison.Ordinal))
         {
             this.Signal();
         }
     }
+
+    private void OnListening()
+    {
+        logger.PostgresWakeListenerStarted(this._options.SchemaName);
+
+        // NOTIFYs sent while no connection was listening (before the first LISTEN, or during an outage) are lost,
+        // so wake waiting workers to re-check the store for work they may have missed.
+        this.Signal();
+    }
+
+    private void OnListenerRetrying(Exception exception, TimeSpan retryDelay)
+      => logger.PostgresWakeListenerRetrying(exception, this._options.SchemaName, (long)retryDelay.TotalMilliseconds);
 
     private void Signal()
     {
@@ -115,7 +131,7 @@ internal sealed class PostgresWakeSignal(
             }
             catch (ObjectDisposedException)
             {
-                // Disposal can race with PostgreSQL notification callbacks during host shutdown.
+                // Disposal can race with callers notifying during host shutdown.
             }
         }
     }

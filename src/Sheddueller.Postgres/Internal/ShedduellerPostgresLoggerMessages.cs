@@ -68,6 +68,26 @@ internal static partial class ShedduellerPostgresLoggerMessages
         long eventSequence);
 
     [LoggerMessage(
+        EventIdStart + 15,
+        LogLevel.Debug,
+        "Dropped PostgreSQL job event {EventSequence} for job {JobId}: {Capacity:D} notifications are already waiting to be published.")]
+    public static partial void PostgresJobEventNotificationDropped(
+        this ILogger logger,
+        Guid jobId,
+        long eventSequence,
+        int capacity);
+
+    [LoggerMessage(
+        EventIdStart + 16,
+        LogLevel.Warning,
+        "Failed to read {Count:D} notified PostgreSQL job events for schema {SchemaName}; they were not published.")]
+    public static partial void PostgresJobEventNotificationBatchFailed(
+        this ILogger logger,
+        Exception exception,
+        string schemaName,
+        int count);
+
+    [LoggerMessage(
         EventIdStart + 20,
         LogLevel.Warning,
         "PostgreSQL migration for schema {SchemaName} couldn't get a table lock within {LockTimeoutMs:D} ms (attempt {Attempt:D} of {MaxAttempts:D}); retrying in {RetryDelayMs:D} ms.")]
