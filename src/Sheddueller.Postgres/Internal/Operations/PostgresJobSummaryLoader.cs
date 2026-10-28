@@ -201,14 +201,15 @@ internal static class PostgresJobSummaryLoader
             return new Dictionary<Guid, IReadOnlyList<JobTag>>();
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select job_id, name, value
           from {context.Names.JobTags}
           where job_id = any(@job_ids)
           order by job_id asc, ordinal asc, name asc, value asc;
-          """;
+          """);
         command.Parameters.AddWithValue("job_ids", jobIds);
 
         var tags = new Dictionary<Guid, List<JobTag>>();
@@ -245,14 +246,15 @@ internal static class PostgresJobSummaryLoader
             return new Dictionary<Guid, IReadOnlyList<string>>();
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select job_id, group_key
           from {context.Names.JobConcurrencyGroups}
           where job_id = any(@job_ids)
           order by job_id asc, group_key asc;
-          """;
+          """);
         command.Parameters.AddWithValue("job_ids", jobIds);
 
         var groups = new Dictionary<Guid, List<string>>();
@@ -289,8 +291,9 @@ internal static class PostgresJobSummaryLoader
             return new Dictionary<Guid, JobProgressSnapshot>();
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select distinct on (job_id)
               job_id,
@@ -301,7 +304,7 @@ internal static class PostgresJobSummaryLoader
           where job_id = any(@job_ids)
             and kind = 'Progress'
           order by job_id asc, event_sequence desc;
-          """;
+          """);
         command.Parameters.AddWithValue("job_ids", jobIds);
 
         var progress = new Dictionary<Guid, JobProgressSnapshot>();
@@ -330,8 +333,9 @@ internal static class PostgresJobSummaryLoader
             return new Dictionary<Guid, long>();
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           with claimable as (
               select
@@ -343,7 +347,7 @@ internal static class PostgresJobSummaryLoader
           select job_id, position
           from claimable
           where job_id = any(@job_ids);
-          """;
+          """);
         command.Parameters.AddWithValue("job_ids", jobIds);
 
         var positions = new Dictionary<Guid, long>();
@@ -367,14 +371,15 @@ internal static class PostgresJobSummaryLoader
             return [];
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select job.job_id
           from {context.Names.Jobs} job
           where job.job_id = any(@job_ids)
             and {PostgresSqlFragments.HasUnfinishedPrerequisites(context.Names, "job")};
-          """;
+          """);
         command.Parameters.AddWithValue("job_ids", jobIds);
 
         var blocked = new HashSet<Guid>();

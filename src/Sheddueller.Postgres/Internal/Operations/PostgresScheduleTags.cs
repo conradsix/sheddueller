@@ -67,15 +67,15 @@ internal static class PostgresScheduleTags
             return tagsByKey;
         }
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select schedule_key, name, value
           from {context.Names.ScheduleTags}
           where schedule_key = any(@schedule_keys)
           order by schedule_key asc, ordinal asc, name asc, value asc;
-          """;
+          """);
         command.Parameters.Add("schedule_keys", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = scheduleKeys.ToArray();
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

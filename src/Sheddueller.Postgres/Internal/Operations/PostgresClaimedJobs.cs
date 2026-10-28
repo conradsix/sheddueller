@@ -29,9 +29,9 @@ internal static class PostgresClaimedJobs
         Guid leaseToken,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
               {PostgresReaders.PostgresClaimedJobColumnsSql(context.Names)}
@@ -42,7 +42,7 @@ internal static class PostgresClaimedJobs
             and job.lease_token = @lease_token
             and job.lease_expires_at_utc > transaction_timestamp()
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
         command.Parameters.AddWithValue("node_id", nodeId);
         command.Parameters.AddWithValue("lease_token", leaseToken);
@@ -59,9 +59,9 @@ internal static class PostgresClaimedJobs
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
               {PostgresReaders.PostgresClaimedJobColumnsSql(context.Names)}
@@ -70,7 +70,7 @@ internal static class PostgresClaimedJobs
             and job.lease_expires_at_utc <= transaction_timestamp()
           order by job.lease_expires_at_utc asc, job.enqueue_sequence asc
           for update skip locked;
-          """;
+          """);
 
         var jobs = new List<PostgresClaimedJob>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -199,9 +199,9 @@ internal static class PostgresClaimedJobs
         PostgresClaimedJob job,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select job_id
           from {context.Names.Jobs}
@@ -210,7 +210,7 @@ internal static class PostgresClaimedJobs
             and job_id <> @job_id
           order by enqueue_sequence asc
           limit 1;
-          """;
+          """);
         command.Parameters.AddWithValue("idempotency_key", job.IdempotencyKey!);
         command.Parameters.AddWithValue("job_id", job.JobId);
 

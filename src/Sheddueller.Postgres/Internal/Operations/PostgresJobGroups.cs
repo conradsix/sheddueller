@@ -57,9 +57,9 @@ internal static class PostgresJobGroups
             return true;
         }
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
               concurrency_group.group_key,
@@ -69,7 +69,7 @@ internal static class PostgresJobGroups
           where concurrency_group.group_key = any(@group_keys)
           order by concurrency_group.group_key asc
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("group_keys", groupKeys.ToArray());
 
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))

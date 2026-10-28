@@ -60,15 +60,16 @@ internal static class PostgresNodeInspectionOperation
         TimeSpan deadThreshold,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
         var conditions = new List<string>();
         ConfigureFilters(conditions, query);
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select count(*)
           from {context.Names.WorkerNodes} node
           {PostgresSql.WhereClause(conditions)};
-          """;
+          """);
         if (query.State is not null)
         {
             command.Parameters.AddWithValue("stale_threshold", staleThreshold);
@@ -86,16 +87,16 @@ internal static class PostgresNodeInspectionOperation
         TimeSpan deadThreshold,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
         var conditions = new List<string>();
         ConfigureFilters(conditions, query);
         if (query.ContinuationToken is not null)
         {
             conditions.Add("node.node_id > @after_node_id");
-            command.Parameters.AddWithValue("after_node_id", query.ContinuationToken);
         }
 
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           with page_nodes as (
               select
@@ -131,7 +132,12 @@ internal static class PostgresNodeInspectionOperation
           from page_nodes
           left join claimed_counts on claimed_counts.node_id = page_nodes.node_id
           order by page_nodes.node_id asc;
-          """;
+          """);
+        if (query.ContinuationToken is not null)
+        {
+            command.Parameters.AddWithValue("after_node_id", query.ContinuationToken);
+        }
+
         command.Parameters.AddWithValue("stale_threshold", staleThreshold);
         command.Parameters.AddWithValue("dead_threshold", deadThreshold);
         command.Parameters.AddWithValue("limit", query.PageSize + 1);
@@ -147,8 +153,9 @@ internal static class PostgresNodeInspectionOperation
         TimeSpan deadThreshold,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           with selected_node as (
               select
@@ -178,7 +185,7 @@ internal static class PostgresNodeInspectionOperation
               selected_node.current_execution_count
           from selected_node
           cross join claimed_counts;
-          """;
+          """);
         command.Parameters.AddWithValue("node_id", nodeId);
         command.Parameters.AddWithValue("stale_threshold", staleThreshold);
         command.Parameters.AddWithValue("dead_threshold", deadThreshold);
@@ -214,15 +221,16 @@ internal static class PostgresNodeInspectionOperation
         string nodeId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select job_id
           from {context.Names.Jobs}
           where state = 'Claimed'
             and claimed_by_node_id = @node_id
           order by enqueue_sequence asc;
-          """;
+          """);
         command.Parameters.AddWithValue("node_id", nodeId);
 
         return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);

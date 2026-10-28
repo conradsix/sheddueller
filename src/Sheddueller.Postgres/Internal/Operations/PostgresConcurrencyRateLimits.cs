@@ -31,9 +31,9 @@ internal static class PostgresConcurrencyRateLimits
         var next = update(current);
         var resetRateState = current.EffectiveRateLimit != next.EffectiveRateLimit;
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           update {context.Names.ConcurrencyGroups}
           set rate_limit_override_enabled = @override_enabled,
@@ -47,7 +47,7 @@ internal static class PostgresConcurrencyRateLimits
               end,
               updated_at_utc = transaction_timestamp()
           where group_key = @group_key;
-          """;
+          """);
         command.Parameters.AddWithValue("group_key", groupKey);
         command.Parameters.AddWithValue("override_enabled", next.OverrideEnabled);
         AddNullableInteger(command, "configured_permit_count", next.ConfiguredRateLimit?.PermitCount);
@@ -67,13 +67,14 @@ internal static class PostgresConcurrencyRateLimits
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select rate_limit_override_enabled, configured_rate_permit_count, configured_rate_period
           from {context.Names.ConcurrencyGroups}
           where group_key = @group_key;
-          """;
+          """);
         command.Parameters.AddWithValue("group_key", groupKey);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -96,9 +97,9 @@ internal static class PostgresConcurrencyRateLimits
         string groupKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
               rate_limit_override_enabled,
@@ -109,7 +110,7 @@ internal static class PostgresConcurrencyRateLimits
           from {context.Names.ConcurrencyGroups}
           where group_key = @group_key
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("group_key", groupKey);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

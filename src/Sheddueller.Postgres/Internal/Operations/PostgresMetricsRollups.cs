@@ -74,9 +74,9 @@ internal static class PostgresMetricsRollups
             return;
         }
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           with job as (
               select
@@ -249,7 +249,7 @@ internal static class PostgresMetricsRollups
           from binned_samples
           on conflict (bucket_started_at_utc, metric, bin_index) do update
           set sample_count = histogram.sample_count + excluded.sample_count;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobEvent.JobId);
         command.Parameters.Add("metric", NpgsqlDbType.Text).Value = metric.ToString();
         command.Parameters.Add("event_occurred_at_utc", NpgsqlDbType.TimestampTz).Value = jobEvent.OccurredAtUtc;
@@ -264,9 +264,9 @@ internal static class PostgresMetricsRollups
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           with counter_samples as (
               select
@@ -328,7 +328,7 @@ internal static class PostgresMetricsRollups
           from binned_samples
           on conflict (bucket_started_at_utc, metric, bin_index) do update
           set sample_count = histogram.sample_count + excluded.sample_count;
-          """;
+          """);
         AddHistogramParameters(command);
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -346,9 +346,9 @@ internal static class PostgresMetricsRollups
             return;
         }
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           with canceled_jobs as (
               select
@@ -368,7 +368,7 @@ internal static class PostgresMetricsRollups
           from canceled_jobs
           on conflict (bucket_started_at_utc) do update
           set canceled_count = bucket.canceled_count + excluded.canceled_count;
-          """;
+          """);
         command.Parameters.Add("job_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid).Value = jobIds.ToArray();
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -443,16 +443,16 @@ internal static class PostgresMetricsRollups
         TimeSpan cleanupInterval,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select last_cleanup_at_utc is null
               or last_cleanup_at_utc <= transaction_timestamp() - @cleanup_interval
           from {context.Names.MetricsRollupState}
           where singleton_id = 1
           {(transaction is null ? string.Empty : "for update")};
-          """;
+          """);
         command.Parameters.AddWithValue("cleanup_interval", cleanupInterval);
 
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)

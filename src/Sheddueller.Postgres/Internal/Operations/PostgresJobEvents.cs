@@ -78,8 +78,9 @@ internal static class PostgresJobEvents
         }
 
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
               {EventColumnsSql},
@@ -91,7 +92,7 @@ internal static class PostgresJobEvents
           join {context.Names.JobEvents} job_event
             on job_event.job_id = requested.job_id
            and job_event.event_sequence = requested.event_sequence;
-          """;
+          """);
         command.Parameters.AddWithValue("job_ids", jobIds);
         command.Parameters.AddWithValue("event_sequences", eventSequences);
 
@@ -158,9 +159,9 @@ internal static class PostgresJobEvents
         CancellationToken cancellationToken)
     {
         var eventId = Guid.NewGuid();
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           insert into {context.Names.JobEvents} (
               job_id,
@@ -185,7 +186,7 @@ internal static class PostgresJobEvents
               @progress_percent,
               @fields)
           returning occurred_at_utc;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", request.JobId);
         command.Parameters.AddWithValue("event_sequence", eventSequence);
         command.Parameters.AddWithValue("event_id", eventId);
@@ -236,15 +237,15 @@ internal static class PostgresJobEvents
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           update {context.Names.Jobs}
           set job_event_sequence = job_event_sequence + 1
           where job_id = @job_id
           returning job_event_sequence;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
 
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)

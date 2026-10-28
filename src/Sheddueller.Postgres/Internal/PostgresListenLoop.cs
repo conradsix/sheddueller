@@ -86,8 +86,7 @@ internal sealed class PostgresListenLoop(
         int? commandTimeout,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = commandText;
+        await using var command = PostgresCommands.Create(connection, transaction: null, commandText);
         if (commandTimeout is { } timeout)
         {
             command.CommandTimeout = timeout;

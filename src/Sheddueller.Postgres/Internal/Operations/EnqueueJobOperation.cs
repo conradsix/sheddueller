@@ -162,9 +162,10 @@ internal static class EnqueueJobOperation
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = $"select exists (select 1 from {context.Names.Jobs} where job_id = @job_id);";
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          $"select exists (select 1 from {context.Names.Jobs} where job_id = @job_id);");
         command.Parameters.AddWithValue("job_id", jobId);
 
         if ((bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false))
@@ -184,9 +185,9 @@ internal static class EnqueueJobOperation
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select job.job_id, job.enqueue_sequence
           from {context.Names.Jobs} job
@@ -194,7 +195,7 @@ internal static class EnqueueJobOperation
             and job.state = 'Queued'
           order by job.enqueue_sequence asc
           limit 1;
-          """;
+          """);
         command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -210,9 +211,9 @@ internal static class EnqueueJobOperation
         EnqueueJobRequest request,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           insert into {context.Names.Jobs} (
               {JobInsertColumnsSql})
@@ -241,7 +242,7 @@ internal static class EnqueueJobOperation
               @idempotency_key,
               1)
           returning enqueue_sequence;
-          """;
+          """);
         var parameters = command.Parameters;
         parameters.Add("job_id", NpgsqlDbType.Uuid).Value = request.JobId;
         parameters.Add("priority", NpgsqlDbType.Integer).Value = request.Priority;
@@ -562,15 +563,15 @@ internal static class EnqueueJobOperation
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var existingCommand = connection.CreateCommand();
-        existingCommand.Transaction = transaction;
-        existingCommand.CommandText =
+        await using var existingCommand = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select staged.job_id
           from sheddueller_enqueue_jobs staged
           join {context.Names.Jobs} job on job.job_id = staged.job_id
           limit 1;
-          """;
+          """);
 
         if (await existingCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid existingJobId)
         {
@@ -706,14 +707,14 @@ internal static class EnqueueJobOperation
           cancellationToken)
           .ConfigureAwait(false);
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           """
           select job_id, enqueue_sequence, was_enqueued
           from sheddueller_enqueue_results
           order by ordinal;
-          """;
+          """);
 
         var results = new List<EnqueueJobResult>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

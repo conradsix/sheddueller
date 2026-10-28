@@ -32,8 +32,10 @@ internal sealed class PostgresStartupValidator(ShedduellerPostgresOptions option
 
     private async ValueTask<bool> SchemaExistsAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = "select exists (select 1 from information_schema.schemata where schema_name = @schema_name);";
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          "select exists (select 1 from information_schema.schemata where schema_name = @schema_name);");
         command.Parameters.AddWithValue("schema_name", this._options.SchemaName);
 
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false);
@@ -43,8 +45,10 @@ internal sealed class PostgresStartupValidator(ShedduellerPostgresOptions option
     {
         try
         {
-            await using var command = connection.CreateCommand();
-            command.CommandText = $"select schema_version from {this._names.SchemaInfo} where singleton_id = 1;";
+            await using var command = PostgresCommands.Create(
+              connection,
+              transaction: null,
+              $"select schema_version from {this._names.SchemaInfo} where singleton_id = 1;");
             var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
             return result is null or DBNull ? null : Convert.ToInt32(result, CultureInfo.InvariantCulture);
         }

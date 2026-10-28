@@ -133,87 +133,81 @@ internal static class PostgresJobInspectionOperation
             }
         }
 
-        await using var countCommand = connection.CreateCommand();
-        var countConditions = new List<string>();
-        configureFilters(countCommand, countConditions);
-        countCommand.CommandText =
-          $"""
-          select count(*)
-          from {context.Names.Jobs} job
-          {PostgresSql.WhereClause(countConditions)};
-          """;
+        await using var countCommand = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              configureFilters(built, conditions);
+              return $"""
+                select count(*)
+                from {context.Names.Jobs} job
+                {PostgresSql.WhereClause(conditions)};
+                """;
+          });
         var totalCount = Convert.ToInt64(
           await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
           CultureInfo.InvariantCulture);
 
-        await using var command = connection.CreateCommand();
-        var conditions = new List<string>();
-        configureFilters(command, conditions);
-        command.Parameters.AddWithValue("limit", query.PageSize + 1);
-        var whereClause = PostgresSql.WhereClause(conditions);
-        string? continuationToken;
-
-        switch (query.Sort)
+        var newestFirst = query.Sort switch
         {
-            case JobInspectionSort.NewestFirst:
-                {
-                    if (PostgresJobInspectionContinuationTokens.DecodeNewest(query.ContinuationToken) is { } sequence)
-                    {
-                        conditions.Add("job.enqueue_sequence < @after_sequence");
-                        command.Parameters.AddWithValue("after_sequence", sequence);
-                        whereClause = PostgresSql.WhereClause(conditions);
-                    }
+            JobInspectionSort.NewestFirst => true,
+            JobInspectionSort.Operational => false,
+            _ => throw new ArgumentOutOfRangeException(nameof(query), query.Sort, "Job inspection sort is not supported."),
+        };
+        var offset = newestFirst ? 0 : PostgresJobInspectionContinuationTokens.DecodeOperational(query.ContinuationToken);
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              configureFilters(built, conditions);
+              built.Parameters.AddWithValue("limit", query.PageSize + 1);
+              if (newestFirst)
+              {
+                  if (PostgresJobInspectionContinuationTokens.DecodeNewest(query.ContinuationToken) is { } sequence)
+                  {
+                      conditions.Add("job.enqueue_sequence < @after_sequence");
+                      built.Parameters.AddWithValue("after_sequence", sequence);
+                  }
 
-                    command.CommandText =
-                      $"""
-                  {PostgresJobInspectionRow.SelectSql(context.Names)}
-                  {whereClause}
-                  order by job.enqueue_sequence desc
-                  limit @limit;
-                  """;
+                  return $"""
+                    {PostgresJobInspectionRow.SelectSql(context.Names)}
+                    {PostgresSql.WhereClause(conditions)}
+                    order by job.enqueue_sequence desc
+                    limit @limit;
+                    """;
+              }
 
-                    var newestRows = await PostgresJobInspectionRow.ReadAllAsync(command, cancellationToken).ConfigureAwait(false);
-                    var newestPageRows = newestRows.Take(query.PageSize).ToArray();
-                    var newestJobs = await PostgresJobSummaryLoader.LoadAsync(context, connection, newestPageRows, nowUtc: null, cancellationToken).ConfigureAwait(false);
-                    continuationToken = newestRows.Count > query.PageSize
-                      ? PostgresJobInspectionContinuationTokens.EncodeNewest(newestPageRows[^1].EnqueueSequence)
-                      : null;
+              built.Parameters.AddWithValue("offset", offset);
+              return $"""
+                with filtered_jobs as (
+                    {PostgresJobInspectionRow.SelectSql(context.Names)}
+                    {PostgresSql.WhereClause(conditions)}
+                )
+                select *
+                from filtered_jobs job
+                order by {OperationalOrderBySql(context)}
+                offset @offset
+                limit @limit;
+                """;
+          });
 
-                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                    return new JobInspectionPage(newestJobs, continuationToken, totalCount);
-                }
-
-            case JobInspectionSort.Operational:
-                {
-                    var offset = PostgresJobInspectionContinuationTokens.DecodeOperational(query.ContinuationToken);
-                    command.Parameters.AddWithValue("offset", offset);
-                    command.CommandText =
-                      $"""
-                  with filtered_jobs as (
-                      {PostgresJobInspectionRow.SelectSql(context.Names)}
-                      {whereClause}
-                  )
-                  select *
-                  from filtered_jobs job
-                  order by {OperationalOrderBySql(context)}
-                  offset @offset
-                  limit @limit;
-                  """;
-
-                    var operationalRows = await PostgresJobInspectionRow.ReadAllAsync(command, cancellationToken).ConfigureAwait(false);
-                    var operationalPageRows = operationalRows.Take(query.PageSize).ToArray();
-                    var operationalJobs = await PostgresJobSummaryLoader.LoadAsync(context, connection, operationalPageRows, nowUtc: null, cancellationToken).ConfigureAwait(false);
-                    continuationToken = operationalRows.Count > query.PageSize
-                      ? PostgresJobInspectionContinuationTokens.EncodeOperational(offset + query.PageSize)
-                      : null;
-
-                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                    return new JobInspectionPage(operationalJobs, continuationToken, totalCount);
-                }
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(query), query.Sort, "Job inspection sort is not supported.");
+        var rows = await PostgresJobInspectionRow.ReadAllAsync(command, cancellationToken).ConfigureAwait(false);
+        var pageRows = rows.Take(query.PageSize).ToArray();
+        var jobs = await PostgresJobSummaryLoader.LoadAsync(context, connection, pageRows, nowUtc: null, cancellationToken).ConfigureAwait(false);
+        string? continuationToken = null;
+        if (rows.Count > query.PageSize)
+        {
+            continuationToken = newestFirst
+              ? PostgresJobInspectionContinuationTokens.EncodeNewest(pageRows[^1].EnqueueSequence)
+              : PostgresJobInspectionContinuationTokens.EncodeOperational(offset + query.PageSize);
         }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new JobInspectionPage(jobs, continuationToken, totalCount);
     }
 
     public static async ValueTask<JobInspectionDetail?> GetJobAsync(
@@ -306,13 +300,14 @@ internal static class PostgresJobInspectionOperation
         NpgsqlConnection connection,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select state, count(*)
           from {context.Names.Jobs}
           group by state;
-          """;
+          """);
 
         var counts = Enum.GetValues<JobState>().ToDictionary(state => state, _ => 0);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -330,12 +325,13 @@ internal static class PostgresJobInspectionOperation
         string clause,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           {PostgresJobInspectionRow.SelectSql(context.Names)}
           {clause};
-          """;
+          """);
 
         return await PostgresJobInspectionRow.ReadAllAsync(command, cancellationToken).ConfigureAwait(false);
     }
@@ -346,12 +342,13 @@ internal static class PostgresJobInspectionOperation
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           {PostgresJobInspectionRow.SelectSql(context.Names)}
           where job.job_id = @job_id;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
 
         var rows = await PostgresJobInspectionRow.ReadAllAsync(command, cancellationToken).ConfigureAwait(false);
@@ -364,15 +361,16 @@ internal static class PostgresJobInspectionOperation
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
               {PostgresJobInspectionRow.ColumnsSql},
               {InvocationColumnsSql}
           from {context.Names.Jobs} job
           where job.job_id = @job_id;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -402,9 +400,10 @@ internal static class PostgresJobInspectionOperation
         int limit,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
         var afterClause = afterEventSequence is null ? string.Empty : "and job_event.event_sequence > @after_event_sequence";
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
               {PostgresJobEvents.EventColumnsSql}
@@ -413,7 +412,7 @@ internal static class PostgresJobInspectionOperation
             {afterClause}
           order by job_event.event_sequence asc
           limit @limit;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
         if (afterEventSequence is not null)
         {
@@ -438,14 +437,15 @@ internal static class PostgresJobInspectionOperation
         Guid sourceJobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select job_id
           from {context.Names.Jobs}
           where retry_clone_source_job_id = @source_job_id
           order by enqueue_sequence asc;
-          """;
+          """);
         command.Parameters.AddWithValue("source_job_id", sourceJobId);
 
         return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
@@ -457,14 +457,15 @@ internal static class PostgresJobInspectionOperation
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select prerequisite_job_id
           from {context.Names.JobDependencies}
           where job_id = @job_id
           order by prerequisite_job_id;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
 
         return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
@@ -476,14 +477,15 @@ internal static class PostgresJobInspectionOperation
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select job_id
           from {context.Names.JobDependencies}
           where prerequisite_job_id = @job_id
           order by job_id;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
 
         return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);

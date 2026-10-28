@@ -116,9 +116,9 @@ internal static class CancelJobOperation
         Guid jobId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select job_id,
                  state,
@@ -127,7 +127,7 @@ internal static class CancelJobOperation
           from {context.Names.Jobs}
           where job_id = @job_id
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("job_id", jobId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

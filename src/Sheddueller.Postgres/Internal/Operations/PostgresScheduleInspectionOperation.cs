@@ -66,37 +66,45 @@ internal static class PostgresScheduleInspectionOperation
         ValidateQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
-        await using var countCommand = connection.CreateCommand();
-        var countConditions = new List<string>();
-        ConfigureFilters(context, countCommand, countConditions, query);
-        countCommand.CommandText =
-          $"""
-          select count(*)
-          from {context.Names.RecurringSchedules} schedule
-          {PostgresSql.WhereClause(countConditions)};
-          """;
+        await using var countCommand = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              ConfigureFilters(context, built, conditions, query);
+              return $"""
+                select count(*)
+                from {context.Names.RecurringSchedules} schedule
+                {PostgresSql.WhereClause(conditions)};
+                """;
+          });
         var totalCount = Convert.ToInt64(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
 
-        await using var command = connection.CreateCommand();
-        var conditions = new List<string>();
-        ConfigureFilters(context, command, conditions, query);
-        if (query.ContinuationToken is not null)
-        {
-            conditions.Add("schedule.schedule_key > @after_schedule_key");
-            command.Parameters.AddWithValue("after_schedule_key", query.ContinuationToken);
-        }
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              ConfigureFilters(context, built, conditions, query);
+              if (query.ContinuationToken is not null)
+              {
+                  conditions.Add("schedule.schedule_key > @after_schedule_key");
+                  built.Parameters.AddWithValue("after_schedule_key", query.ContinuationToken);
+              }
 
-        command.Parameters.AddWithValue("limit", query.PageSize + 1);
-        command.CommandText =
-          $"""
-          select
-              {SummaryColumnsSql}
-          {ScheduleFromSql(context)}
-          {PostgresSql.WhereClause(conditions)}
-          group by schedule.schedule_key
-          order by schedule.schedule_key asc
-          limit @limit;
-          """;
+              built.Parameters.AddWithValue("limit", query.PageSize + 1);
+              return $"""
+                select
+                    {SummaryColumnsSql}
+                {ScheduleFromSql(context)}
+                {PostgresSql.WhereClause(conditions)}
+                group by schedule.schedule_key
+                order by schedule.schedule_key asc
+                limit @limit;
+                """;
+          });
 
         var rows = new List<ScheduleInspectionSummary>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -123,8 +131,9 @@ internal static class PostgresScheduleInspectionOperation
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await PostgresOperationContext.BeginReadSnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
               {SummaryColumnsSql},
@@ -132,7 +141,7 @@ internal static class PostgresScheduleInspectionOperation
           {ScheduleFromSql(context)}
           where schedule.schedule_key = @schedule_key
           group by schedule.schedule_key;
-          """;
+          """);
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
 
         ScheduleInspectionSummary summary;
@@ -247,8 +256,9 @@ internal static class PostgresScheduleInspectionOperation
         const int LastCompleted = 1;
         const int LastFailed = 2;
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select occurrence.*
           from (
@@ -279,7 +289,7 @@ internal static class PostgresScheduleInspectionOperation
               )
           ) occurrence
           order by occurrence.part asc, occurrence.enqueue_sequence desc;
-          """;
+          """);
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
         command.Parameters.AddWithValue("recent_limit", RecentOccurrenceLimit);
 

@@ -95,9 +95,9 @@ internal static class PostgresJobRetentionOperation
         JobRetentionCleanupRequest request,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           with candidates as (
               select job_id
@@ -122,7 +122,7 @@ internal static class PostgresJobRetentionOperation
               returning 1
           )
           select count(*) from deleted_jobs;
-          """;
+          """);
         AddNullableTimestampParameter(command, "completed_before_utc", request.CompletedBeforeUtc);
         AddNullableTimestampParameter(command, "failed_before_utc", request.FailedBeforeUtc);
         AddNullableTimestampParameter(command, "canceled_before_utc", request.CanceledBeforeUtc);

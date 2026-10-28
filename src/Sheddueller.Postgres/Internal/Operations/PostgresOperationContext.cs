@@ -63,9 +63,7 @@ internal sealed class PostgresOperationContext(ShedduellerPostgresOptions option
         NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "select transaction_timestamp();";
+        await using var command = PostgresCommands.Create(connection, transaction, "select transaction_timestamp();");
         return PostgresConversion.ToDateTimeOffset(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
           ?? throw new InvalidOperationException("PostgreSQL did not return transaction_timestamp()."));
     }
@@ -76,8 +74,7 @@ internal sealed class PostgresOperationContext(ShedduellerPostgresOptions option
         Action<NpgsqlCommand> configure,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = commandText;
+        await using var command = PostgresCommands.Create(connection, transaction: null, commandText);
         configure(command);
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -89,9 +86,7 @@ internal sealed class PostgresOperationContext(ShedduellerPostgresOptions option
         Action<NpgsqlCommand> configure,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = commandText;
+        await using var command = PostgresCommands.Create(connection, transaction, commandText);
         configure(command);
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

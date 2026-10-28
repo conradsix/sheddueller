@@ -49,9 +49,10 @@ internal static class PostgresAdvisoryLocks
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, @idempotency_key_hash_seed));";
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
+          "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, @idempotency_key_hash_seed));");
         command.Parameters.AddWithValue("schema_name", schemaName);
         command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
         command.Parameters.AddWithValue("idempotency_key_hash_seed", IdempotencyKeyHashSeed);
@@ -69,9 +70,7 @@ internal static class PostgresAdvisoryLocks
         string schemaName,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "select pg_try_advisory_xact_lock(@lock_key, hashtext(@schema_name));";
+        await using var command = PostgresCommands.Create(connection, transaction, "select pg_try_advisory_xact_lock(@lock_key, hashtext(@schema_name));");
         command.Parameters.AddWithValue("lock_key", lockKey);
         command.Parameters.AddWithValue("schema_name", schemaName);
 

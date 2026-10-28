@@ -15,16 +15,16 @@ internal static class PostgresSchedules
         string scheduleKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
               {PostgresReaders.ScheduleDefinitionColumnsSql}
           from {context.Names.RecurringSchedules} schedule
           where schedule.schedule_key = @schedule_key
           for update;
-          """;
+          """);
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
 
         PostgresScheduleDefinition? schedule = null;
@@ -169,8 +169,9 @@ internal static class PostgresSchedules
         Action<NpgsqlCommand> configure,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           select
               schedule.schedule_key,
@@ -190,7 +191,7 @@ internal static class PostgresSchedules
           {whereClause}
           group by schedule.schedule_key
           order by schedule.schedule_key asc;
-          """;
+          """);
         configure(command);
 
         var schedules = new List<RecurringScheduleInfo>();
@@ -236,9 +237,9 @@ internal static class PostgresSchedules
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select
               {PostgresReaders.ScheduleDefinitionColumnsSql}
@@ -247,7 +248,7 @@ internal static class PostgresSchedules
             and schedule.next_fire_at_utc <= transaction_timestamp()
           order by schedule.next_fire_at_utc asc, schedule.schedule_key asc
           for update skip locked;
-          """;
+          """);
 
         var schedules = new List<PostgresScheduleDefinition>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -268,16 +269,16 @@ internal static class PostgresSchedules
         string scheduleKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select exists (
               select 1
               from {context.Names.Jobs}
               where source_schedule_key = @schedule_key
                 and state in ('Queued', 'Claimed'));
-          """;
+          """);
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
 
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false);
@@ -400,15 +401,15 @@ internal static class PostgresSchedules
         string[] scheduleKeys,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction,
           $"""
           select schedule_key, group_key
           from {context.Names.ScheduleConcurrencyGroups}
           where schedule_key = any(@schedule_keys)
           order by schedule_key asc, group_key asc;
-          """;
+          """);
         command.Parameters.Add("schedule_keys", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = scheduleKeys;
 
         var groupKeysByKey = new Dictionary<string, List<string>>(StringComparer.Ordinal);

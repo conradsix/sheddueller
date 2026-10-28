@@ -96,16 +96,20 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         ConcurrencyGroupInspectionQuery query,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        var conditions = new List<string>();
-        ConfigureFilters(command, conditions, query);
-        command.CommandText =
-          $"""
-          {GroupSummaryCteSql(context)}
-          select count(*)
-          from summary
-          {PostgresSql.WhereClause(conditions)};
-          """;
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              ConfigureFilters(built, conditions, query);
+              return $"""
+                {GroupSummaryCteSql(context)}
+                select count(*)
+                from summary
+                {PostgresSql.WhereClause(conditions)};
+                """;
+          });
 
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
     }
@@ -116,26 +120,30 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         ConcurrencyGroupInspectionQuery query,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        var conditions = new List<string>();
-        ConfigureFilters(command, conditions, query);
-        if (query.ContinuationToken is not null)
-        {
-            conditions.Add("summary.group_key > @after_group_key");
-            command.Parameters.AddWithValue("after_group_key", query.ContinuationToken);
-        }
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
+          built =>
+          {
+              var conditions = new List<string>();
+              ConfigureFilters(built, conditions, query);
+              if (query.ContinuationToken is not null)
+              {
+                  conditions.Add("summary.group_key > @after_group_key");
+                  built.Parameters.AddWithValue("after_group_key", query.ContinuationToken);
+              }
 
-        command.Parameters.AddWithValue("limit", query.PageSize + 1);
-        command.CommandText =
-          $"""
-          {GroupSummaryCteSql(context)}
-          select
-              {GroupSummaryColumnsSql}
-          from summary
-          {PostgresSql.WhereClause(conditions)}
-          order by summary.group_key asc
-          limit @limit;
-          """;
+              built.Parameters.AddWithValue("limit", query.PageSize + 1);
+              return $"""
+                {GroupSummaryCteSql(context)}
+                select
+                    {GroupSummaryColumnsSql}
+                from summary
+                {PostgresSql.WhereClause(conditions)}
+                order by summary.group_key asc
+                limit @limit;
+                """;
+          });
 
         return await ReadGroupSummariesAsync(command, cancellationToken).ConfigureAwait(false);
     }
@@ -146,15 +154,16 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         string groupKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        await using var command = PostgresCommands.Create(
+          connection,
+          transaction: null,
           $"""
           {GroupSummaryCteSql(context)}
           select
               {GroupSummaryColumnsSql}
           from summary
           where summary.group_key = @group_key;
-          """;
+          """);
         command.Parameters.AddWithValue("group_key", groupKey);
 
         var rows = await ReadGroupSummariesAsync(command, cancellationToken).ConfigureAwait(false);
@@ -331,8 +340,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         string groupKey,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = commandText;
+        await using var command = PostgresCommands.Create(connection, transaction: null, commandText);
         command.Parameters.AddWithValue("group_key", groupKey);
 
         return await PostgresSql.ReadGuidsAsync(command, cancellationToken).ConfigureAwait(false);
