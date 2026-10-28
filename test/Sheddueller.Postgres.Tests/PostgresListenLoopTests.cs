@@ -71,6 +71,45 @@ public sealed class PostgresListenLoopTests(PostgresFixture fixture)
         runTask.IsCompletedSuccessfully.ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task ListenLoop_PooledConnectionStillListening_IgnoresNotificationsSentBeforeListen()
+    {
+        var channel = CreateUniqueName("sheddueller_test_");
+
+        // A single pooled connection, so the loop reuses the one an earlier listener returned to the pool.
+        await using var dataSource = NpgsqlDataSource.Create(
+          new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { MaxPoolSize = 1 }.ConnectionString);
+        await using (var earlierListener = await dataSource.OpenConnectionAsync())
+        {
+            await using var listen = PostgresCommands.Create(earlierListener, transaction: null, $"listen {channel};");
+            await listen.ExecuteNonQueryAsync();
+        }
+
+        // Npgsql only resets a pooled connection when it is next used, so this reaches the idle connection.
+        await this.NotifyAsync(channel, "before-listen");
+
+        var payloads = new ConcurrentQueue<string>();
+        var listeningCount = 0;
+        var listenLoop = new PostgresListenLoop(
+          dataSource,
+          channel,
+          payloads.Enqueue,
+          () => Interlocked.Increment(ref listeningCount),
+          (_, _) => { },
+          PostgresListenLoop.DefaultKeepAliveInterval,
+          retryDelay: TimeSpan.FromMilliseconds(100));
+        using var stopping = new CancellationTokenSource();
+        var runTask = listenLoop.RunAsync(stopping.Token);
+        await WaitUntilAsync(() => Volatile.Read(ref listeningCount) == 1);
+
+        await this.NotifyAsync(channel, "after-listen");
+        await WaitUntilAsync(() => payloads.Contains("after-listen"));
+
+        payloads.ShouldBe(["after-listen"]);
+        await stopping.CancelAsync();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
     private async ValueTask<string?> ReadLastQueryAsync(string applicationName)
     {
         await using var command = fixture.DataSource.CreateCommand(

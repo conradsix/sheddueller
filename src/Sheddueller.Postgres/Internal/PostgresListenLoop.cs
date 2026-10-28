@@ -53,11 +53,14 @@ internal sealed class PostgresListenLoop(
     private async Task ListenUntilDisconnectedAsync(CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        // A pooled connection can still be listening for its previous user, and the notifications it buffered while idle
+        // are read during the LISTEN below. Subscribing afterwards drops them; onListening covers anything sent before now.
+        await ExecuteAsync(connection, $"listen {channel};", commandTimeout: null, cancellationToken).ConfigureAwait(false);
         connection.Notification += this.OnNotification;
 
         try
         {
-            await ExecuteAsync(connection, $"listen {channel};", commandTimeout: null, cancellationToken).ConfigureAwait(false);
             onListening();
 
             var probeTimeoutSeconds = Math.Max(1, (int)Math.Ceiling(keepAliveInterval.TotalSeconds));
