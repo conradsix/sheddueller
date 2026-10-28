@@ -50,6 +50,25 @@ internal static class DashboardMetricsFormat
           : string.Create(CultureInfo.InvariantCulture, $"{window.TotalMinutes:0.#}m");
     }
 
+    /// <summary>
+    /// A length of time for running text: "hour" and "minute" for one unit (as in "the last hour", "per minute"),
+    /// otherwise a count, such as "24 hours" or "30 seconds".
+    /// </summary>
+    public static string Period(TimeSpan period)
+    {
+        if (period >= TimeSpan.FromHours(1) && period.Ticks % TimeSpan.TicksPerHour == 0)
+        {
+            return PeriodText((long)period.TotalHours, "hour");
+        }
+
+        if (period >= TimeSpan.FromMinutes(1) && period.Ticks % TimeSpan.TicksPerMinute == 0)
+        {
+            return PeriodText((long)period.TotalMinutes, "minute");
+        }
+
+        return PeriodText((long)Math.Round(period.TotalSeconds), "second");
+    }
+
     public static string Rate(double rate)
     {
         if (rate == 0)
@@ -97,32 +116,6 @@ internal static class DashboardMetricsFormat
         return string.Create(CultureInfo.InvariantCulture, $"{duration.Value.TotalHours:0.#} h");
     }
 
-    public static TimeSpan? MaxDuration(params TimeSpan?[] durations)
-    {
-        var values = durations
-          .Where(static duration => duration is not null)
-          .Select(static duration => duration!.Value)
-          .ToArray();
-
-        return values.Length == 0 ? null : values.Max();
-    }
-
-    public static string DurationBarWidthStyle(
-        TimeSpan? duration,
-        TimeSpan? maxDuration)
-    {
-        if (duration is null || maxDuration is null || maxDuration.Value <= TimeSpan.Zero)
-        {
-            return "width: 0%";
-        }
-
-        var percent = duration.Value <= TimeSpan.Zero
-          ? 0
-          : Math.Clamp(duration.Value.TotalMilliseconds / maxDuration.Value.TotalMilliseconds * 100, 4, 100);
-
-        return string.Create(CultureInfo.InvariantCulture, $"width: {percent:0.##}%");
-    }
-
     public static string AttentionValueClass(int value)
       => value > 0 ? "metrics-value--attention" : string.Empty;
 
@@ -132,6 +125,10 @@ internal static class DashboardMetricsFormat
     public static string WarningValueClass(double value)
       => value > 0 ? "metrics-value--warning" : string.Empty;
 
-    public static string SaturatedGroupTitle(MetricsInspectionWindow window)
-      => string.Create(CultureInfo.InvariantCulture, $"{DashboardFormat.Count(window.SaturatedConcurrencyGroupCount)} saturated groups");
+    private static string PeriodText(
+        long count,
+        string unit)
+      => count == 1
+        ? unit
+        : string.Create(CultureInfo.InvariantCulture, $"{count} {unit}s");
 }

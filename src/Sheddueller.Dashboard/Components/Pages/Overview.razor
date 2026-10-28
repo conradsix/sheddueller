@@ -2,774 +2,339 @@
 @inherits DashboardPageComponent
 @inject IJobInspectionReader Reader
 @inject DashboardLiveUpdateStream LiveUpdates
+@inject Microsoft.Extensions.Options.IOptions<ShedduellerDashboardOptions> DashboardOptions
 
-<div class="overview-page">
-    <header class="overview-header">
-        <div>
-            <h1>Overview</h1>
-            <p>Real-time cluster overview.</p>
-        </div>
-    </header>
+<div class="sd-page overview-page">
+    <PageHeader Title="Overview" Description="Jobs by state, and what is running, failing and waiting right now." />
 
-    @if (_loadError is not null)
+    @if (_overview is null)
     {
-        <section class="overview-panel overview-message overview-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h2>Overview data failed to load</h2>
-                <p>@_loadError</p>
+        @if (_loadError is not null)
+        {
+            <Alert Tone="AlertTone.Destructive" Title="The overview couldn't be loaded">
+                <ChildContent>@_loadError</ChildContent>
+                <Actions>
+                    <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryLoadAsync">Try again</Button>
+                </Actions>
+            </Alert>
+        }
+        else
+        {
+            <div class="overview-stats" aria-busy="true" aria-label="Loading the overview">
+                @foreach (var state in StateOrder)
+                {
+                    <div class="overview-stat" aria-hidden="true">
+                        <Skeleton Width="55%" />
+                        <Skeleton Width="40%" Height="28px" />
+                    </div>
+                }
             </div>
-        </section>
-    }
-    else if (_overview is null)
-    {
-        <section class="overview-panel overview-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h2>Loading overview</h2>
-                <p>Reading current scheduler state.</p>
-            </div>
-        </section>
+            <Card Flush="true" Class="overview-list" aria-hidden="true">
+                <table class="sd-table overview-table">
+                    <tbody>
+                        @for (var row = 0; row < SkeletonRowCount; row++)
+                        {
+                            <tr>
+                                <td><Skeleton Width="@SkeletonWidth(row, 0)" /></td>
+                                <td><Skeleton Width="@SkeletonWidth(row, 1)" /></td>
+                                <td><Skeleton Width="@SkeletonWidth(row, 2)" /></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </Card>
+        }
     }
     else
     {
-        <section class="summary-grid" aria-label="State counts">
-            @foreach (var state in Enum.GetValues<JobState>())
+        @if (LiveRefresh.RefreshError is not null)
+        {
+            <Alert Tone="AlertTone.Warning" Meta="StaleDataNote" Title="Couldn't refresh the overview">
+                <ChildContent>@LiveRefresh.RefreshError</ChildContent>
+                <Actions>
+                    <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryRefreshAsync">Try again</Button>
+                </Actions>
+            </Alert>
+        }
+
+        <section class="overview-stats" aria-label="Jobs by state">
+            @foreach (var state in StateOrder)
             {
                 var count = GetStateCount(_overview, state);
-                var isFailed = state == JobState.Failed && count > 0;
-
-                <a class="summary-card @(isFailed ? "summary-card--failed" : null)" href="@StateFilterHref(state)"
-                   aria-label="@StateFilterTitle(state)">
-                    <span class="summary-card__label">@state</span>
-                    <span class="summary-card__value">@DashboardFormat.Count(count)</span>
+                <a class="@StatClass(state, count)" href="@DashboardJobFilterQuery.StateHref(state)"
+                   aria-label="@StatLabel(state, count)">
+                    <span class="overview-stat__label">
+                        <span class="@StateDotClass(state)" aria-hidden="true"></span>
+                        @StatusBadge.StateLabel(state)
+                        <Icon Name="chevron-right" />
+                    </span>
+                    <span class="overview-stat__value">@DashboardFormat.Count(count)</span>
                 </a>
             }
         </section>
 
-        <section class="priority-grid" aria-label="Job priority sections">
-            <div class="priority-grid__primary">
-                <section class="overview-panel">
-                    <div class="overview-panel__header">
-                        <h2>Running Jobs</h2>
-                        <a href="@StateFilterHref(JobState.Claimed)">@DashboardFormat.Count(_overview.RunningJobs.Count) active</a>
-                    </div>
-
-                    @if (_overview.RunningJobs.Count == 0)
-                    {
-                        <p class="overview-empty">No jobs are currently running.</p>
-                    }
-                    else
-                    {
-                        <div class="overview-table-wrap">
-                            <table class="overview-table">
-                                <colgroup>
-                                    <col class="overview-table__col--job-id" />
-                                    <col class="overview-table__col--timestamp" />
-                                    <col class="overview-table__col--handler" />
-                                    <col class="overview-table__col--tags" />
-                                    <col class="overview-table__col--context" />
-                                </colgroup>
-                                <thead>
-                                    <tr>
-                                        <th>Job ID</th>
-                                        <th>Started</th>
-                                        <th>Handler</th>
-                                        <th>Tags</th>
-                                        <th>Progress</th>
+        <Card Flush="true" Title="Running" Description="Most recently started first." Class="overview-list">
+            <HeaderActions>
+                <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@RunningHref" IconEnd="chevron-right">View all</Button>
+            </HeaderActions>
+            <ChildContent>
+                @if (_overview.RunningJobs.Count == 0)
+                {
+                    <EmptyState Flat="true" Icon="circle-pause" Title="Nothing is running">
+                        Jobs show up here while a node is working on them.
+                    </EmptyState>
+                }
+                else
+                {
+                    <div class="sd-table-scroll">
+                        <table class="sd-table overview-table">
+                            <colgroup>
+                                <col class="overview-col--job" />
+                                <col class="overview-col--handler" />
+                                <col class="overview-col--time" />
+                                <col />
+                                <col class="overview-col--tags" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Job</th>
+                                    <th>Handler</th>
+                                    <th>Started</th>
+                                    <th>Progress</th>
+                                    <th>Tags</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var job in _overview.RunningJobs)
+                                {
+                                    <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)">
+                                        <td>@JobIdLink(job)</td>
+                                        <td>@HandlerLink(job)</td>
+                                        <td><TimestampBlock BaseClass="sd-timestamp" Value="job.ClaimedAtUtc" AllowFutureRelative="false" Inline EmptyText="—" /></td>
+                                        <td>
+                                            @if (job.LatestProgress?.Percent is { } percent)
+                                            {
+                                                <span class="overview-progress" title="@job.LatestProgress.Message">
+                                                    <Progress Value="percent" Label="@($"Progress {percent:0}%")" />
+                                                    <span class="sd-num">@DashboardFormat.ProgressText(job.LatestProgress, string.Empty)</span>
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="sd-muted" title="@job.LatestProgress?.Message">@(job.LatestProgress?.Message ?? "—")</span>
+                                            }
+                                        </td>
+                                        <td>@TagCell(job)</td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var job in _overview.RunningJobs)
-                                    {
-                                        <tr>
-                                            <td>
-                                                <JobLink CssClass="job-id-link" JobId="job.JobId" />
-                                            </td>
-                                            <td>
-                                                <TimestampBlock BaseClass="timestamp-block" Value="job.ClaimedAtUtc"
-                                                                EmptyText="Not set" AllowFutureRelative="false" />
-                                            </td>
-                                            <td>
-                                                <a class="overview-handler overview-filter-link"
-                                                   href="@HandlerFilterHref(job)"
-                                                   title="@DashboardFormat.FullHandler(job)"
-                                                   aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
-                                            </td>
-                                            <td>
-                                                <TagChipList ClassPrefix="overview-chip" Tags="job.Tags"
-                                                             HrefFactory="TagFilterHref"
-                                                             LinkAriaLabelPrefix="Filter jobs by tag" MaxVisible="2" />
-                                            </td>
-                                            <td>
-                                                <span class="overview-context overview-context--progress"
-                                                      title="@DashboardFormat.ProgressText(job.LatestProgress)">@DashboardFormat.ProgressText(job.LatestProgress)</span>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                </section>
-
-                <section class="overview-panel overview-panel--failed">
-                    <div class="overview-panel__header">
-                        <h2>Recently Failed</h2>
-                        <a class="attention-link" href="@StateFilterHref(JobState.Failed)">Attention Required</a>
+                                }
+                            </tbody>
+                        </table>
                     </div>
+                }
+            </ChildContent>
+        </Card>
 
-                    @if (_overview.RecentlyFailedJobs.Count == 0)
-                    {
-                        <p class="overview-empty">No recently failed jobs.</p>
-                    }
-                    else
-                    {
-                        <div class="overview-table-wrap">
-                            <table class="overview-table">
-                                <colgroup>
-                                    <col class="overview-table__col--job-id" />
-                                    <col class="overview-table__col--timestamp" />
-                                    <col class="overview-table__col--handler" />
-                                    <col class="overview-table__col--tags" />
-                                    <col class="overview-table__col--context" />
-                                </colgroup>
-                                <thead>
-                                    <tr>
-                                        <th>Job ID</th>
-                                        <th>Terminated</th>
-                                        <th>Handler</th>
-                                        <th>Tags</th>
-                                        <th>Error</th>
+        <Card Flush="true" Title="Recently failed" Description="Most recent failures first." Class="overview-list">
+            <HeaderActions>
+                <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@FailedHref" IconEnd="chevron-right">View all</Button>
+            </HeaderActions>
+            <ChildContent>
+                @if (_overview.RecentlyFailedJobs.Count == 0)
+                {
+                    <EmptyState Flat="true" Icon="circle-check" Title="No failed jobs">
+                        Jobs that fail after their last attempt show up here.
+                    </EmptyState>
+                }
+                else
+                {
+                    <div class="sd-table-scroll">
+                        <table class="sd-table overview-table">
+                            <colgroup>
+                                <col class="overview-col--job" />
+                                <col class="overview-col--handler" />
+                                <col class="overview-col--time" />
+                                <col />
+                                <col class="overview-col--tags" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Job</th>
+                                    <th>Handler</th>
+                                    <th>Failed</th>
+                                    <th>Error</th>
+                                    <th>Tags</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var job in _overview.RecentlyFailedJobs)
+                                {
+                                    var failure = FailureMessage(job);
+                                    <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)">
+                                        <td>@JobIdLink(job)</td>
+                                        <td>@HandlerLink(job)</td>
+                                        <td><TimestampBlock BaseClass="sd-timestamp" Value="DashboardFormat.TerminalTimestamp(job)" AllowFutureRelative="false" Inline EmptyText="—" /></td>
+                                        <td>
+                                            @if (failure is null)
+                                            {
+                                                <span class="sd-muted">No error message</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="overview-error" title="@failure">@failure</span>
+                                            }
+                                        </td>
+                                        <td>@TagCell(job)</td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var job in _overview.RecentlyFailedJobs)
-                                    {
-                                        <tr>
-                                            <td>
-                                                <JobLink CssClass="job-id-link" JobId="job.JobId" />
-                                            </td>
-                                            <td>
-                                                <TimestampBlock BaseClass="timestamp-block"
-                                                                Value="DashboardFormat.TerminalTimestamp(job)"
-                                                                EmptyText="Not set" AllowFutureRelative="false" />
-                                            </td>
-                                            <td>
-                                                <a class="overview-handler overview-filter-link"
-                                                   href="@HandlerFilterHref(job)"
-                                                   title="@DashboardFormat.FullHandler(job)"
-                                                   aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
-                                            </td>
-                                            <td>
-                                                <TagChipList ClassPrefix="overview-chip" Tags="job.Tags"
-                                                             HrefFactory="TagFilterHref"
-                                                             LinkAriaLabelPrefix="Filter jobs by tag" MaxVisible="2" />
-                                            </td>
-                                            <td>
-                                                <span class="overview-context overview-context--error"
-                                                      title="@DashboardFormat.FailureContext(job)">@DashboardFormat.FailureContext(job)</span>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                </section>
-            </div>
-
-            <div class="priority-grid__secondary">
-                <section class="overview-panel">
-                    <div class="overview-panel__header">
-                        <h2>Retry-Waiting</h2>
+                                }
+                            </tbody>
+                        </table>
                     </div>
+                }
+            </ChildContent>
+        </Card>
 
-                    @if (_overview.RetryWaitingJobs.Count == 0)
-                    {
-                        <p class="overview-empty">No jobs are waiting for retry.</p>
-                    }
-                    else
-                    {
-                        <ul class="compact-list">
-                            @foreach (var job in _overview.RetryWaitingJobs)
-                            {
-                                <li>
-                                    <div class="compact-list__topline">
-                                        <JobLink CssClass="job-id-link" JobId="job.JobId" />
-                                        <span class="attempt-pill">Attempt @DashboardFormat.Count(job.AttemptCount)</span>
-                                    </div>
-                                    <a class="muted overview-compact-handler overview-filter-link"
-                                       href="@HandlerFilterHref(job)"
-                                       title="@DashboardFormat.FullHandler(job)"
-                                       aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
-                                    <div class="compact-list__footer">
-                                        <span class="error-context"
-                                              title="@DashboardFormat.FailureContext(job)">@DashboardFormat.FailureContext(job)</span>
-                                        <TimestampBlock BaseClass="timestamp-block" Value="job.NotBeforeUtc" Prefix="Next:"
-                                                        AlignEnd="true" EmptyText="Not set" />
-                                    </div>
-                                </li>
-                            }
-                        </ul>
-                    }
-                </section>
-
-                <section class="overview-panel">
-                    <div class="overview-panel__header">
-                        <h2>Delayed</h2>
-                    </div>
-
-                    @if (_overview.DelayedJobs.Count == 0)
-                    {
-                        <p class="overview-empty">No delayed jobs are pending.</p>
-                    }
-                    else
-                    {
-                        <ul class="compact-list compact-list--simple">
-                            @foreach (var job in _overview.DelayedJobs)
-                            {
-                                <li>
-                                    <div>
-                                        <JobLink CssClass="job-id-link" JobId="job.JobId" />
-                                        <a class="muted overview-compact-handler overview-filter-link"
-                                           href="@HandlerFilterHref(job)"
-                                           title="@DashboardFormat.FullHandler(job)"
-                                           aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
-                                    </div>
-                                    <TimestampBlock BaseClass="timestamp-block" Value="job.NotBeforeUtc" AlignEnd="true"
-                                                    EmptyText="Not set" />
-                                </li>
-                            }
-                        </ul>
-                    }
-                </section>
-
-                <section class="overview-panel">
-                    <div class="overview-panel__header">
-                        <h2>Queued (Next Up)</h2>
-                        <a href="@StateFilterHref(JobState.Queued)">@DashboardFormat.Count(_overview.QueuedJobs.Count) queued</a>
-                    </div>
-
+        <div class="overview-queues">
+            <Card Flush="true" Title="Next up" Description="Ready to run, in claim order." Class="overview-list overview-list--compact">
+                <HeaderActions>
+                    <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@QueuedHref" IconEnd="chevron-right">View all</Button>
+                </HeaderActions>
+                <ChildContent>
                     @if (_overview.QueuedJobs.Count == 0)
                     {
-                        <p class="overview-empty">No queued jobs are claimable.</p>
+                        <EmptyState Flat="true" Icon="inbox" Title="Nothing is ready">
+                            No queued jobs can be claimed right now.
+                        </EmptyState>
                     }
                     else
                     {
-                        <ul class="queue-list">
-                            @foreach (var job in _overview.QueuedJobs)
-                            {
-                                <li>
-                                    <div class="queue-list__job">
-                                        <span aria-hidden="true"></span>
-                                        <JobLink CssClass="job-id-link" JobId="job.JobId" />
-                                    </div>
-                                    <a class="muted overview-compact-handler overview-filter-link"
-                                       href="@HandlerFilterHref(job)"
-                                       title="@DashboardFormat.FullHandler(job)"
-                                       aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
-                                </li>
-                            }
-                        </ul>
+                        <table class="sd-table overview-table">
+                            <colgroup>
+                                <col class="overview-col--job" />
+                                <col />
+                                <col class="overview-col--when" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Job</th>
+                                    <th>Handler</th>
+                                    <th>Enqueued</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var job in _overview.QueuedJobs)
+                                {
+                                    <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)">
+                                        <td>@JobIdLink(job)</td>
+                                        <td>@HandlerLink(job)</td>
+                                        <td><TimestampBlock BaseClass="sd-timestamp" Value="job.EnqueuedAtUtc" AllowFutureRelative="false" Inline /></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
                     }
-                </section>
-            </div>
-        </section>
-        }
-    </div>
-
-    <style>
-        .overview-page {
-            display: flex;
-            flex-direction: column;
-            gap: var(--sd-gutter);
-        }
-
-        .overview-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--sd-outline-variant);
-        }
-
-        .overview-header p {
-            margin-top: 4px;
-            color: var(--sd-on-surface-variant);
-            font-size: 12px;
-            line-height: 16px;
-        }
-
-        .summary-grid {
-            display: grid;
-            gap: 16px;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-        }
-
-        .summary-card {
-            display: flex;
-            min-height: 98px;
-            flex-direction: column;
-            justify-content: center;
-            gap: 8px;
-            border: 1px solid var(--sd-outline-variant);
-            border-radius: calc(var(--radius) + 2px);
-            box-shadow: var(--shadow-sm);
-            background: var(--sd-surface);
-            padding: 16px;
-            text-decoration: none;
-        }
-
-        .summary-card:hover {
-            background: var(--sd-surface-low);
-        }
-
-        .summary-card--failed {
-            border-color: var(--sd-error-container);
-            border-left: 4px solid var(--sd-error);
-        }
-
-        .summary-card__label {
-            color: var(--sd-on-surface-variant);
-            font-size: 12px;
-            font-weight: 500;
-            line-height: 16px;
-        }
-
-        .summary-card__value {
-            color: var(--sd-on-surface);
-            font-family: var(--font-sans);
-            font-size: 24px;
-            font-weight: 600;
-            line-height: 32px;
-        }
-
-        .summary-card--failed .summary-card__value {
-            color: var(--sd-error);
-        }
-
-        .priority-grid {
-            display: grid;
-            gap: var(--sd-gutter);
-            grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
-            margin-top: 8px;
-        }
-
-        .priority-grid__primary,
-        .priority-grid__secondary {
-            display: flex;
-            flex-direction: column;
-            gap: var(--sd-gutter);
-            min-width: 0;
-        }
-
-        .overview-panel {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid var(--sd-outline-variant);
-            border-radius: calc(var(--radius) + 2px);
-            box-shadow: var(--shadow-sm);
-            background: var(--sd-surface);
-        }
-
-        .overview-panel--failed::before {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            width: 4px;
-            background: var(--sd-error);
-            content: "";
-        }
-
-        .overview-panel__header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            min-height: 50px;
-            border-bottom: 1px solid var(--sd-outline-variant);
-            background: var(--sd-surface-low);
-            padding: 12px 16px;
-        }
-
-        .overview-panel--failed .overview-panel__header {
-            padding-left: 20px;
-        }
-
-        .overview-panel__header a {
-            color: var(--sd-on-surface-variant);
-            font-size: 12px;
-            line-height: 16px;
-            text-decoration: none;
-            white-space: nowrap;
-        }
-
-        .overview-panel__header a:hover {
-            color: var(--sd-on-surface);
-            text-decoration: underline;
-        }
-
-        .overview-panel__header .attention-link {
-            color: var(--sd-error);
-            font-weight: 500;
-        }
-
-        .overview-table-wrap {
-            overflow-x: auto;
-        }
-
-        .overview-table {
-            min-width: 1080px;
-            table-layout: fixed;
-            font-size: 12px;
-            line-height: 16px;
-        }
-
-        .overview-table__col--job-id {
-            width: 88px;
-        }
-
-        .overview-table__col--timestamp {
-            width: 160px;
-        }
-
-        .overview-table__col--handler {
-            width: 260px;
-        }
-
-        .overview-table__col--tags {
-            width: 320px;
-        }
-
-        .overview-table__col--context {
-            width: auto;
-        }
-
-        .overview-table tbody tr {
-            height: 40px;
-            transition: background-color 150ms ease;
-        }
-
-        .overview-table tbody tr:hover {
-            background: var(--sd-surface-low);
-        }
-
-        .text-right {
-            text-align: right;
-        }
-
-        .overview-table .text-right {
-            text-align: right;
-        }
-
-        .job-id-link {
-            color: var(--sd-primary);
-            font-family: var(--font-mono);
-            font-size: 12px;
-            line-height: 16px;
-            text-decoration-color: var(--sd-outline-variant);
-            text-underline-offset: 2px;
-            white-space: nowrap;
-        }
-
-        .job-id-link:hover {
-            text-decoration-color: var(--sd-primary);
-        }
-
-        .overview-table .job-id-link,
-        .overview-handler,
-        .overview-context {
-            display: block;
-            width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .overview-table .job-id-link,
-        .overview-handler,
-        .overview-chip,
-        .overview-context {
-            font-family: var(--font-mono);
-        }
-
-        .overview-handler,
-        .overview-context--progress {
-            color: var(--sd-on-surface-variant);
-        }
-
-        .overview-filter-link {
-            text-decoration: none;
-        }
-
-        .overview-filter-link:hover {
-            color: var(--sd-primary);
-            text-decoration: underline;
-            text-decoration-color: var(--sd-primary);
-            text-underline-offset: 2px;
-        }
-
-        .overview-compact-handler {
-            display: block;
-            overflow: hidden;
-            font-family: var(--font-mono);
-            font-size: 11px;
-            line-height: 16px;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .overview-context--error {
-            color: var(--sd-error);
-        }
-
-        .overview-chip-list {
-            display: flex;
-            width: 100%;
-            min-width: 0;
-            align-items: center;
-            gap: 4px;
-            overflow: visible;
-        }
-
-        .overview-chip {
-            display: inline-block;
-            max-width: 180px;
-            overflow: hidden;
-            border: 1px solid var(--sd-outline-variant);
-            border-radius: 6px;
-            background: var(--sd-surface-low);
-            color: var(--sd-on-surface-variant);
-            font-size: 10px;
-            line-height: 14px;
-            padding: 1px 6px;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        a.overview-chip {
-            text-decoration: none;
-        }
-
-        a.overview-chip:hover {
-            border-color: var(--sd-primary);
-            color: var(--sd-primary);
-        }
-
-        .overview-chip-empty {
-            color: var(--sd-on-surface-variant);
-            font-size: 11px;
-            line-height: 16px;
-        }
-
-        .muted {
-            color: var(--sd-on-surface-variant);
-        }
-
-        .error-context {
-            display: inline-block;
-            max-width: 220px;
-            overflow: hidden;
-            color: var(--sd-error);
-            font-family: var(--font-mono);
-            font-size: 11px;
-            line-height: 16px;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .state-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            border-radius: 999px;
-            padding: 2px 8px;
-            font-size: 11px;
-            font-weight: 500;
-            line-height: 16px;
-            white-space: nowrap;
-        }
-
-        .state-badge::before {
-            width: 6px;
-            height: 6px;
-            flex: 0 0 auto;
-            border-radius: 999px;
-            background: currentColor;
-            content: "";
-        }
-
-        .state-badge--queued {
-            background: var(--sd-surface-variant);
-            color: var(--sd-on-surface-variant);
-        }
-
-        .state-badge--claimed {
-            background: var(--sd-secondary-container);
-            color: var(--sd-on-secondary-container);
-        }
-
-        .state-badge--completed {
-            background: var(--sd-success-container);
-            color: var(--sd-success);
-        }
-
-        .state-badge--failed {
-            background: var(--sd-error-container);
-            color: var(--sd-on-error-container);
-        }
-
-        .state-badge--canceled {
-            background: var(--sd-warning-container);
-            color: var(--sd-warning);
-        }
-
-        .timestamp-block {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .timestamp-block--end {
-            align-items: flex-end;
-            text-align: right;
-        }
-
-        .timestamp-block__relative {
-            color: var(--sd-on-surface);
-            font-size: 12px;
-            line-height: 16px;
-            white-space: nowrap;
-        }
-
-        .timestamp-block__absolute {
-            color: var(--sd-on-surface-variant);
-            font-family: var(--font-mono);
-            font-size: 10px;
-            line-height: 12px;
-            white-space: nowrap;
-        }
-
-        .overview-empty {
-            color: var(--sd-on-surface-variant);
-            padding: 16px;
-            font-size: 12px;
-            line-height: 16px;
-        }
-
-        .overview-message {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 16px;
-        }
-
-        .overview-message .sd-icon {
-            color: var(--sd-on-surface-variant);
-        }
-
-        .overview-message h2 {
-            font-size: 18px;
-            line-height: 24px;
-        }
-
-        .overview-message p {
-            margin-top: 4px;
-            color: var(--sd-on-surface-variant);
-        }
-
-        .overview-message--error {
-            border-color: var(--sd-error-container);
-        }
-
-        .overview-message--error .sd-icon,
-        .overview-message--error h2 {
-            color: var(--sd-error);
-        }
-
-        .compact-list,
-        .queue-list {
-            display: flex;
-            flex-direction: column;
-            margin: 0;
-            padding: 0;
-            list-style: none;
-        }
-
-        .compact-list li,
-        .queue-list li {
-            border-bottom: 1px solid var(--sd-surface-variant);
-            padding: 12px 16px;
-            transition: background-color 150ms ease;
-        }
-
-        .compact-list li:last-child,
-        .queue-list li:last-child {
-            border-bottom: 0;
-        }
-
-        .compact-list li:hover,
-        .queue-list li:hover {
-            background: var(--sd-surface-low);
-        }
-
-        .compact-list__topline,
-        .compact-list__footer,
-        .compact-list--simple li,
-        .queue-list li,
-        .queue-list__job {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .compact-list__topline {
-            margin-bottom: 4px;
-        }
-
-        .compact-list__footer {
-            align-items: flex-end;
-            margin-top: 8px;
-        }
-
-        .attempt-pill {
-            border-radius: 6px;
-            background: var(--sd-surface-variant);
-            color: var(--sd-on-surface);
-            padding: 2px 6px;
-            font-size: 12px;
-            font-weight: 500;
-            line-height: 16px;
-            white-space: nowrap;
-        }
-
-        .queue-list__job {
-            justify-content: flex-start;
-            min-width: 0;
-        }
-
-        .queue-list__job>span {
-            width: 6px;
-            height: 6px;
-            flex: 0 0 auto;
-            border-radius: 999px;
-            background: var(--sd-outline);
-        }
-
-        @@media (max-width: 1100px) {
-
-            .summary-grid,
-            .priority-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
+                </ChildContent>
+            </Card>
+
+            <Card Flush="true" Title="Waiting to retry" Description="Failed an attempt and will run again." Class="overview-list overview-list--compact">
+                <HeaderActions>
+                    <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@QueuedHref" IconEnd="chevron-right">View all</Button>
+                </HeaderActions>
+                <ChildContent>
+                    @if (_overview.RetryWaitingJobs.Count == 0)
+                    {
+                        <EmptyState Flat="true" Icon="rotate-ccw" Title="No retries pending">
+                            Jobs whose attempt failed wait here until their next try.
+                        </EmptyState>
+                    }
+                    else
+                    {
+                        <table class="sd-table overview-table">
+                            <colgroup>
+                                <col class="overview-col--job" />
+                                <col />
+                                <col class="overview-col--attempts" />
+                                <col class="overview-col--when" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Job</th>
+                                    <th>Handler</th>
+                                    <th class="overview-num" title="Attempts so far, of the maximum">Tries</th>
+                                    <th>Next try</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var job in _overview.RetryWaitingJobs)
+                                {
+                                    <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)" title="@FailureMessage(job)">
+                                        <td>@JobIdLink(job)</td>
+                                        <td>@HandlerLink(job)</td>
+                                        <td class="overview-num">@DashboardFormat.Attempts(job, compact: true)</td>
+                                        <td><TimestampBlock BaseClass="sd-timestamp" Value="job.NotBeforeUtc" Inline EmptyText="—" /></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </ChildContent>
+            </Card>
+
+            <Card Flush="true" Title="Delayed" Description="Enqueued to start at a later time." Class="overview-list overview-list--compact">
+                <HeaderActions>
+                    <Button Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@QueuedHref" IconEnd="chevron-right">View all</Button>
+                </HeaderActions>
+                <ChildContent>
+                    @if (_overview.DelayedJobs.Count == 0)
+                    {
+                        <EmptyState Flat="true" Icon="clock" Title="No delayed jobs">
+                            Jobs enqueued with a later start time wait here.
+                        </EmptyState>
+                    }
+                    else
+                    {
+                        <table class="sd-table overview-table">
+                            <colgroup>
+                                <col class="overview-col--job" />
+                                <col />
+                                <col class="overview-col--when" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Job</th>
+                                    <th>Handler</th>
+                                    <th>Starts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var job in _overview.DelayedJobs)
+                                {
+                                    <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)">
+                                        <td>@JobIdLink(job)</td>
+                                        <td>@HandlerLink(job)</td>
+                                        <td><TimestampBlock BaseClass="sd-timestamp" Value="job.NotBeforeUtc" Inline EmptyText="—" /></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </ChildContent>
+            </Card>
+        </div>
+    }
+</div>
 
 @code {
+    private static readonly RenderFragment StaleDataNote = @<span class="sd-alert__meta">The counts and lists below are from the last successful refresh.</span>;
+
+    private const int SkeletonRowCount = 4;
+
+    // Live work first, then outcomes. Claimed is shown as Running.
+    private static readonly JobState[] StateOrder = [JobState.Queued, JobState.Claimed, JobState.Failed, JobState.Completed, JobState.Canceled];
+
+    private static readonly string QueuedHref = DashboardJobFilterQuery.StateHref(JobState.Queued);
+    private static readonly string RunningHref = DashboardJobFilterQuery.StateHref(JobState.Claimed);
+    private static readonly string FailedHref = CreateFailedHref();
+
     private JobInspectionOverview? _overview;
     private string? _loadError;
 
@@ -816,6 +381,16 @@
         }
     }
 
+    private Task RetryLoadAsync()
+    {
+        // Show the loading placeholders again while the retry runs.
+        this._loadError = null;
+        return this.LoadOverviewAsync();
+    }
+
+    private Task RetryRefreshAsync()
+      => this.LiveRefresh.RefreshNowAsync();
+
     private async Task RefreshOverviewAsync(CancellationToken cancellationToken)
     {
         var overview = await Reader.GetOverviewAsync(cancellationToken);
@@ -830,18 +405,46 @@
     private static int GetStateCount(JobInspectionOverview overview, JobState state)
       => overview.StateCounts.TryGetValue(state, out var count) ? count : 0;
 
-    private static string StateFilterHref(JobState state)
-      => DashboardJobFilterQuery.StateHref(state);
+    private static string CreateFailedHref()
+    {
+        var filters = new DashboardJobFilters();
+        _ = filters.ReplaceStates([JobState.Failed]);
+        _ = filters.SetSort(JobInspectionSort.NewestFirst);
+        return DashboardJobFilterQuery.ToHref(filters);
+    }
 
-    private static string StateFilterTitle(JobState state)
-      => string.Concat("Filter jobs by state ", state);
+    private static string StatClass(JobState state, int count)
+      => state == JobState.Failed && count > 0 ? "overview-stat overview-stat--attention" : "overview-stat";
 
-    private static string HandlerFilterHref(JobInspectionSummary job)
-      => DashboardJobFilterQuery.HandlerHref(DashboardFormat.ShortHandler(job));
+    private static string StateDotClass(JobState state)
+      => string.Concat("sd-state-dot sd-state-dot--", DashboardFormat.StateCssModifier(state));
 
-    private static string HandlerFilterTitle(JobInspectionSummary job)
-      => string.Concat("Filter jobs by handler ", DashboardFormat.ShortHandler(job));
+    private static string StatLabel(JobState state, int count)
+      => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{StatusBadge.StateLabel(state)}: {DashboardFormat.Count(count)}. Show these jobs");
 
-    private static string TagFilterHref(string tag)
-      => DashboardJobFilterQuery.TagHref(tag);
+    private static string SkeletonWidth(int row, int column)
+      => string.Create(CultureInfo.InvariantCulture, $"{45 + ((row * 7 + column * 13) % 45)}%");
+
+    // The failure reason recorded with the job, or null when there is none to show.
+    private static string? FailureMessage(JobInspectionSummary job)
+      => new[] { job.LatestProgress?.Message, job.QueuePosition?.Reason }.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
+
+    private static string ShortJobId(Guid jobId)
+      => jobId.ToString("D")[..8];
+
+    private static RenderFragment JobIdLink(JobInspectionSummary job)
+      => @<a class="overview-job-id" href="@DashboardFormat.JobHref(job.JobId)" title="@DashboardFormat.JobId(job.JobId)">@ShortJobId(job.JobId)</a>;
+
+    private static RenderFragment HandlerLink(JobInspectionSummary job)
+      => @<a class="overview-handler" href="@DashboardJobFilterQuery.HandlerHref(DashboardFormat.ShortHandler(job))"
+             data-sd-tooltip="@string.Concat("Show only ", DashboardFormat.FullHandler(job))">@DashboardFormat.ShortHandler(job)</a>;
+
+    private RenderFragment TagCell(JobInspectionSummary job)
+    {
+        var tags = DashboardTagOrder.Apply(job.Tags, DashboardOptions.Value.TagDisplayOrder);
+        return @<TagList Values="@DashboardFormat.Tags(tags)" Title="@DashboardFormat.TagsTitle(tags)"
+                         HrefFactory="DashboardJobFilterQuery.TagHref" TooltipPrefix="Show only tag" />;
+    }
 }

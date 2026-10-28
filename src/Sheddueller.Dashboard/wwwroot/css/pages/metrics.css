@@ -1,3 +1,360 @@
 /* Page-specific layout for the metrics page. Shared look lives in ../sheddueller.css. */
 @layer pages {
+  .metrics-section {
+    display: grid;
+    gap: 12px;
+  }
+
+  .metrics-section + .metrics-section {
+    margin-top: 8px;
+  }
+
+  .metrics-section__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+  }
+
+  .metrics-section__title {
+    font-size: 15px;
+  }
+
+  .metrics-section__description {
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+
+  /* stat tiles */
+  .metrics-stats {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+
+  .metrics-stat {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: 6px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--card);
+    color: var(--card-foreground);
+    padding: 14px 16px;
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+  }
+
+  a.metrics-stat {
+    transition: border-color 150ms, background-color 150ms;
+  }
+
+  a.metrics-stat:hover {
+    border-color: color-mix(in oklab, var(--foreground) 20%, var(--border));
+    background: color-mix(in oklab, var(--muted) 45%, var(--card));
+  }
+
+  a.metrics-stat:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .metrics-stat__label {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .metrics-stat__label .sd-icon {
+    font-size: 15px;
+  }
+
+  .metrics-stat__value {
+    overflow: hidden;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metrics-stat__detail {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metrics-stat--warning {
+    border-color: color-mix(in oklab, var(--warning) 45%, var(--border));
+    background: color-mix(in oklab, var(--warning) 5%, var(--card));
+  }
+
+  .metrics-stat--warning .metrics-stat__label .sd-icon {
+    color: var(--warning);
+  }
+
+  .metrics-stat--destructive {
+    border-color: color-mix(in oklab, var(--state-failed) 45%, var(--border));
+    background: color-mix(in oklab, var(--state-failed) 5%, var(--card));
+  }
+
+  /* throughput chart */
+  .throughput-card .sd-card__content {
+    display: grid;
+    gap: 12px;
+  }
+
+  .throughput-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .throughput-legend__item {
+    display: inline-flex;
+    height: 28px;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--control);
+    color: var(--foreground);
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 150ms, color 150ms;
+  }
+
+  .throughput-legend__item:hover {
+    background: var(--accent);
+  }
+
+  .throughput-legend__item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .throughput-legend__key {
+    width: 14px;
+    height: 3px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--series-color);
+  }
+
+  .throughput-legend__total {
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .throughput-legend__item[aria-pressed="false"] {
+    border-style: dashed;
+    color: var(--muted-foreground);
+  }
+
+  .throughput-legend__item[aria-pressed="false"] .throughput-legend__key {
+    opacity: 0.3;
+  }
+
+  /* The fixed height includes the axes, so the card never scrolls. */
+  .throughput-chart {
+    position: relative;
+    height: 260px;
+  }
+
+  .throughput-chart__plot {
+    position: absolute;
+    inset: 0;
+  }
+
+  .throughput-chart__canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .throughput-chart__empty {
+    position: absolute;
+    inset: 0 0 32px 52px;
+    display: grid;
+    place-items: center;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    pointer-events: none;
+  }
+
+  .throughput-chart--empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+
+  .throughput-chart__crosshair {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    background: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    pointer-events: none;
+  }
+
+  .throughput-chart__tooltip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: 12px auto minmax(0, 1fr);
+    align-items: center;
+    gap: 3px 8px;
+    min-width: 150px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .throughput-chart__tooltip-time,
+  .throughput-chart__tooltip-empty {
+    grid-column: 1 / -1;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .throughput-chart__tooltip-time {
+    margin-bottom: 2px;
+  }
+
+  .throughput-chart__tooltip-row {
+    display: contents;
+  }
+
+  .throughput-chart__tooltip-row strong {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .throughput-chart__tooltip-row span:last-child {
+    color: var(--muted-foreground);
+  }
+
+  .throughput-chart__tooltip-key {
+    width: 12px;
+    height: 2px;
+    border-radius: 1px;
+  }
+
+  .throughput-chart__clip-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .throughput-chart__clip-marker {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    pointer-events: auto;
+    transform: translateX(-50%);
+    box-shadow: 0 0 0 2px var(--card);
+  }
+
+  /* window comparison */
+  .metrics-compare {
+    overflow: hidden;
+  }
+
+  .metrics-compare .sd-card__header {
+    padding-bottom: 12px;
+  }
+
+  .metrics-compare__table {
+    white-space: nowrap;
+  }
+
+  .metrics-compare__table td {
+    height: 44px;
+  }
+
+  .metrics-compare__groups th {
+    height: 30px;
+    border-bottom: 0;
+    font-size: 12px;
+  }
+
+  .metrics-compare__group {
+    background:
+      linear-gradient(var(--border), var(--border)) center bottom / calc(100% - 24px) 1px no-repeat,
+      var(--card);
+    text-align: center;
+  }
+
+  .metrics-compare__groups th[rowspan] {
+    vertical-align: bottom;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 11px;
+  }
+
+  .metrics-compare__num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metrics-compare__table .metrics-compare__start {
+    padding-left: 20px;
+  }
+
+  /* Line the outer columns up with the card title. */
+  .metrics-compare__table tbody td:first-child,
+  .metrics-compare__groups th[rowspan] {
+    padding-left: 20px;
+  }
+
+  .metrics-compare__table tr > :last-child {
+    padding-right: 20px;
+  }
+
+  .metrics-compare__window {
+    font-weight: 500;
+  }
+
+  .metrics-compare__table tbody tr.metrics-compare__row--selected td {
+    background: color-mix(in oklab, var(--primary) 6%, var(--card));
+  }
+
+  .metrics-compare__table tbody tr.metrics-compare__row--selected td:first-child {
+    box-shadow: inset 2px 0 0 var(--primary);
+  }
+
+  .metrics-value--attention {
+    color: var(--state-failed);
+    font-weight: 600;
+  }
+
+  .metrics-value--warning {
+    color: var(--warning);
+    font-weight: 600;
+  }
 }
