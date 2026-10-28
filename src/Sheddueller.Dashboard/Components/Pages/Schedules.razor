@@ -2,7 +2,6 @@
 @inherits DashboardPageComponent
 @inject IScheduleInspectionReader Reader
 @inject IRecurringScheduleManager ScheduleManager
-@inject IJSRuntime JsRuntime
 
 <div class="sd-page schedules-page">
     <PageHeader Title="Schedules"
@@ -186,7 +185,6 @@
     private readonly DashboardScheduleFilters _filters = new();
     private readonly List<ScheduleInspectionSummary> _schedules = [];
     private readonly HashSet<string> _busyKeys = new(StringComparer.Ordinal);
-    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private ScheduleInspectionPage? _page;
     private CancellationTokenSource? _filterDebounceCts;
     private ScheduleInspectionSummary? _confirmSchedule;
@@ -296,31 +294,6 @@
     {
         this.CancelPendingFilterLoad();
         return ValueTask.CompletedTask;
-    }
-
-    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
-    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
-      => this._pendingToasts.Add((title, description, tone));
-
-    private async Task FlushToastsAsync()
-    {
-        if (this._pendingToasts.Count == 0)
-        {
-            return;
-        }
-
-        var toasts = this._pendingToasts.ToArray();
-        this._pendingToasts.Clear();
-        foreach (var (title, description, tone) in toasts)
-        {
-            try
-            {
-                await JsRuntime.ToastAsync(title, description, tone);
-            }
-            catch (JSException)
-            {
-            }
-        }
     }
 
     // Typing filters after a short pause and replaces the current history entry rather than pushing one per burst.

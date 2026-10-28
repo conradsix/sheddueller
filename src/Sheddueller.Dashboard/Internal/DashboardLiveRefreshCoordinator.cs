@@ -4,9 +4,9 @@ using System.Diagnostics.CodeAnalysis;
 
 /// <summary>
 /// Coordinates a page's refreshes. <c>refreshAsync</c> serves explicit refreshes (<see cref="RefreshNowAsync"/>:
-/// manual refresh, re-enabling auto-refresh, after an action). Live events go through <see cref="QueueRefresh"/>,
-/// which is throttled and uses <c>queuedRefreshAsync</c> when supplied so a page can apply live data less
-/// disruptively than an explicit refresh.
+/// manual refresh, re-enabling auto-refresh, after an action). Live events go through <see cref="QueueLiveRefresh"/>
+/// (or <see cref="QueueRefresh"/>), which is throttled and uses <c>queuedRefreshAsync</c> when supplied so a page can
+/// apply live data less disruptively than an explicit refresh.
 /// </summary>
 internal sealed class DashboardLiveRefreshCoordinator(
     Func<CancellationToken, Task> refreshAsync,
@@ -23,6 +23,7 @@ internal sealed class DashboardLiveRefreshCoordinator(
     private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync = delayAsync ?? Task.Delay;
     private readonly Func<CancellationToken, Task> _queuedRefreshAsync = queuedRefreshAsync ?? refreshAsync;
     private readonly TimeSpan _throttle = throttle ?? DefaultThrottle;
+    private DateTimeOffset? _lastUpdatedUtc;
     private bool _disposed;
     private bool _refreshRequested;
     private bool _refreshLoopRunning;
@@ -33,9 +34,25 @@ internal sealed class DashboardLiveRefreshCoordinator(
 
     public string? RefreshError { get; private set; }
 
-    public DateTimeOffset? LastUpdatedUtc { get; private set; }
+    // Guarded: live events record activity from the publishing thread while the shell reads it on the renderer.
+    public DateTimeOffset? LastUpdatedUtc
+    {
+        get
+        {
+            lock (this._gate)
+            {
+                return this._lastUpdatedUtc;
+            }
+        }
 
-
+        private set
+        {
+            lock (this._gate)
+            {
+                this._lastUpdatedUtc = value;
+            }
+        }
+    }
 
     public void MarkUpdated(DateTimeOffset? nowUtc = null)
     {
@@ -48,6 +65,32 @@ internal sealed class DashboardLiveRefreshCoordinator(
     {
         this.LastUpdatedUtc = nowUtc ?? DateTimeOffset.UtcNow;
         this.IsRefreshing = false;
+    }
+
+    /// <summary>
+    /// Handles a live event for a page that reloads rather than applying the event itself: records the activity
+    /// without rendering and queues a throttled refresh, which renders. While auto-refresh is off nothing is recorded,
+    /// so the shell doesn't report an update that never reached the page. Safe to call from any thread.
+    /// </summary>
+    public void QueueLiveRefresh(DateTimeOffset? occurredAtUtc = null)
+    {
+        var activityUtc = occurredAtUtc ?? DateTimeOffset.UtcNow;
+
+        lock (this._gate)
+        {
+            if (this._disposed || !this.AutoRefreshEnabled)
+            {
+                return;
+            }
+
+            // Events can arrive late or out of order; never move the shell's "Updated" time backwards.
+            if (this._lastUpdatedUtc is not { } lastUpdatedUtc || activityUtc > lastUpdatedUtc)
+            {
+                this._lastUpdatedUtc = activityUtc;
+            }
+        }
+
+        this.QueueRefresh();
     }
 
     public void ClearError()

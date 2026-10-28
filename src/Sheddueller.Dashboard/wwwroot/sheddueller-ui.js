@@ -23,6 +23,7 @@
     "refresh-cw": '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" />',
     "search": '<path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" />',
     "sun": '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
+    "triangle-alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" />',
   };
 
   function icon(name) {
@@ -341,11 +342,12 @@
       toaster.showPopover();
     }
 
-    const tone = settings.tone === "success" || settings.tone === "error" ? settings.tone : "info";
+    const toneIcons = { success: "circle-check", warning: "triangle-alert", error: "circle-alert", info: "info" };
+    const tone = Object.hasOwn(toneIcons, settings.tone) ? settings.tone : "info";
     const item = document.createElement("div");
     item.className = `sd-toast sd-toast--${tone}`;
     item.setAttribute("role", tone === "error" ? "alert" : "status");
-    item.append(icon(tone === "success" ? "circle-check" : tone === "error" ? "circle-alert" : "info"));
+    item.append(icon(toneIcons[tone]));
     const body = document.createElement("div");
     const title = document.createElement("div");
     title.textContent = settings.title || "";

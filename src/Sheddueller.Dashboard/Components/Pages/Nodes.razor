@@ -182,6 +182,7 @@
     private NodeHealthCounts? _healthCounts;
     private string? _loadError;
     private string? _loadMoreError;
+    private int _queryVersion;
     private bool _isLoading;
     private bool _isLoadingMore;
 
@@ -308,8 +309,10 @@
         }
     }
 
+    // A newer query (a health filter change) supersedes slower earlier reads: only its results are applied.
     private async Task LoadAsync()
     {
+        var queryVersion = ++this._queryVersion;
         this._loadError = null;
         this._loadMoreError = null;
         this.LiveRefresh.ClearError();
@@ -320,29 +323,40 @@
             var snapshot = await this.ReadSnapshotAsync(
               continuationToken: null,
               pageSize: DefaultPageSize,
-              CancellationToken.None)
-              ;
+              CancellationToken.None);
+            if (queryVersion != this._queryVersion)
+            {
+                return;
+            }
+
             this.ApplySnapshot(snapshot, append: false);
             this.LiveRefresh.MarkUpdated();
         }
         catch (Exception exception)
         {
-            this._loadError = exception.Message;
+            if (queryVersion == this._queryVersion)
+            {
+                this._loadError = exception.Message;
+            }
         }
         finally
         {
-            this._isLoading = false;
-            this.NotifyShellRefreshChanged();
+            if (queryVersion == this._queryVersion)
+            {
+                this._isLoading = false;
+                this.NotifyShellRefreshChanged();
+            }
         }
     }
 
     private async Task LoadMoreAsync()
     {
-        if (this._nodePage?.ContinuationToken is null || this._isLoadingMore)
+        if (this._nodePage?.ContinuationToken is null || this._isLoading || this._isLoadingMore)
         {
             return;
         }
 
+        var queryVersion = this._queryVersion;
         this._loadMoreError = null;
         this._isLoadingMore = true;
 
@@ -351,14 +365,22 @@
             var snapshot = await this.ReadSnapshotAsync(
               this._nodePage.ContinuationToken,
               DefaultPageSize,
-              CancellationToken.None)
-              ;
+              CancellationToken.None);
+            if (queryVersion != this._queryVersion)
+            {
+                return;
+            }
+
             this.ApplySnapshot(snapshot, append: true);
             this.LiveRefresh.MarkUpdated();
         }
         catch (Exception exception)
         {
-            this._loadMoreError = exception.Message;
+            // Keep the loaded rows; the failure is shown next to the Load more control.
+            if (queryVersion == this._queryVersion)
+            {
+                this._loadMoreError = exception.Message;
+            }
         }
         finally
         {
@@ -369,14 +391,20 @@
 
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
+        var queryVersion = this._queryVersion;
         var visiblePageSize = Math.Max(DefaultPageSize, this._nodes.Count);
         var snapshot = await this.ReadSnapshotAsync(
           continuationToken: null,
           pageSize: visiblePageSize,
-          cancellationToken)
-          ;
+          cancellationToken);
 
-        await this.ApplyPageStateAsync(() => this.ApplySnapshot(snapshot, append: false));
+        await this.ApplyPageStateAsync(() =>
+        {
+            if (queryVersion == this._queryVersion)
+            {
+                this.ApplySnapshot(snapshot, append: false);
+            }
+        });
     }
 
     private async Task<NodesSnapshot> ReadSnapshotAsync(

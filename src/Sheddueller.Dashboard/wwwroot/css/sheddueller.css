@@ -1459,6 +1459,10 @@
     color: var(--success);
   }
 
+  .sd-toast--warning > .sd-icon {
+    color: var(--warning);
+  }
+
   .sd-toast--error > .sd-icon {
     color: var(--destructive);
   }
