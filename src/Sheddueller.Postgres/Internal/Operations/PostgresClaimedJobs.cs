@@ -34,7 +34,7 @@ internal static class PostgresClaimedJobs
         command.CommandText =
           $"""
           select
-              {PostgresReaders.PostgresClaimedJobColumnsSql}
+              {PostgresReaders.PostgresClaimedJobColumnsSql(context.Names)}
           from {context.Names.Jobs} job
           where job.job_id = @job_id
             and job.state = 'Claimed'
@@ -47,23 +47,10 @@ internal static class PostgresClaimedJobs
         command.Parameters.AddWithValue("node_id", nodeId);
         command.Parameters.AddWithValue("lease_token", leaseToken);
 
-        PostgresClaimedJob? job = null;
-        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                job = PostgresReaders.ReadPostgresClaimedJob(reader, []);
-            }
-        }
-
-        if (job is null)
-        {
-            return null;
-        }
-
-        var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, job.JobId, cancellationToken)
-          .ConfigureAwait(false);
-        return job with { GroupKeys = groupKeys };
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+          ? PostgresReaders.ReadPostgresClaimedJob(reader)
+          : null;
     }
 
     public static async ValueTask<IReadOnlyList<PostgresClaimedJob>> ReadExpiredClaimsAsync(
@@ -77,7 +64,7 @@ internal static class PostgresClaimedJobs
         command.CommandText =
           $"""
           select
-              {PostgresReaders.PostgresClaimedJobColumnsSql}
+              {PostgresReaders.PostgresClaimedJobColumnsSql(context.Names)}
           from {context.Names.Jobs} job
           where job.state = 'Claimed'
             and job.lease_expires_at_utc <= transaction_timestamp()
@@ -86,19 +73,10 @@ internal static class PostgresClaimedJobs
           """;
 
         var jobs = new List<PostgresClaimedJob>();
-        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                jobs.Add(PostgresReaders.ReadPostgresClaimedJob(reader, []));
-            }
-        }
-
-        for (var i = 0; i < jobs.Count; i++)
-        {
-            var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, jobs[i].JobId, cancellationToken)
-              .ConfigureAwait(false);
-            jobs[i] = jobs[i] with { GroupKeys = groupKeys };
+            jobs.Add(PostgresReaders.ReadPostgresClaimedJob(reader));
         }
 
         return jobs;

@@ -40,16 +40,17 @@ internal static class PostgresReaders
     /// The columns that <see cref="ReadPostgresClaimedJob" /> reads, in ordinal order, from the jobs table aliased
     /// <c>job</c>.
     /// </summary>
-    public const string PostgresClaimedJobColumnsSql =
-      """
-      job.job_id,
-      job.attempt_count,
-      job.max_attempts,
-      job.retry_backoff_kind,
-      job.retry_base_delay_ms,
-      job.retry_max_delay_ms,
-      job.idempotency_key
-      """;
+    public static string PostgresClaimedJobColumnsSql(PostgresNames names)
+      => $"""
+         job.job_id,
+         job.attempt_count,
+         job.max_attempts,
+         job.retry_backoff_kind,
+         job.retry_base_delay_ms,
+         job.retry_max_delay_ms,
+         job.idempotency_key,
+         {PostgresJobGroups.GroupKeysSql(names, "job")}
+         """;
 
     /// <summary>
     /// The columns that <see cref="ReadScheduleDefinition" /> reads, in ordinal order, from the recurring schedules
@@ -99,7 +100,7 @@ internal static class PostgresReaders
         PostgresConversion.ToInvocationTargetKind(reader.GetValue(6)),
         PostgresConversion.ToParameterBindings(reader.GetValue(7)));
 
-    public static PostgresClaimedJob ReadPostgresClaimedJob(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
+    public static PostgresClaimedJob ReadPostgresClaimedJob(NpgsqlDataReader reader)
       => new(
         reader.GetGuid(0),
         reader.GetInt32(1),
@@ -108,7 +109,7 @@ internal static class PostgresReaders
         PostgresConversion.FromMilliseconds(reader.GetValue(4)),
         PostgresConversion.FromMilliseconds(reader.GetValue(5)),
         reader.IsDBNull(6) ? null : reader.GetString(6),
-        groupKeys);
+        reader.GetFieldValue<string[]>(7));
 
     public static PostgresScheduleDefinition ReadScheduleDefinition(
         NpgsqlDataReader reader,

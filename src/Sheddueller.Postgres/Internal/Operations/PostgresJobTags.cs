@@ -2,6 +2,8 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
+using NpgsqlTypes;
+
 using Sheddueller.Enqueueing;
 
 internal static class PostgresJobTags
@@ -23,26 +25,31 @@ internal static class PostgresJobTags
           cancellationToken)
           .ConfigureAwait(false);
 
-        for (var i = 0; i < normalized.Count; i++)
+        if (normalized.Count == 0)
         {
-            var tag = normalized[i];
-            await PostgresOperationContext.ExecuteCountAsync(
-              connection,
-              transaction,
-              $"""
-              insert into {context.Names.JobTags} (job_id, ordinal, name, value)
-              values (@job_id, @ordinal, @name, @value)
-              on conflict (job_id, name, value) do nothing;
-              """,
-              command =>
-              {
-                  command.Parameters.AddWithValue("job_id", jobId);
-                  command.Parameters.AddWithValue("ordinal", i);
-                  command.Parameters.AddWithValue("name", tag.Name);
-                  command.Parameters.AddWithValue("value", tag.Value);
-              },
-              cancellationToken)
-              .ConfigureAwait(false);
+            return;
         }
+
+        await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          insert into {context.Names.JobTags} (job_id, ordinal, name, value)
+          select @job_id, tag.ordinal, tag.name, tag.value
+          from unnest(@ordinals::integer[], @names::text[], @values::text[]) as tag(ordinal, name, value)
+          on conflict (job_id, name, value) do nothing;
+          """,
+          command =>
+          {
+              command.Parameters.AddWithValue("job_id", jobId);
+              command.Parameters.Add("ordinals", NpgsqlDbType.Array | NpgsqlDbType.Integer).Value =
+                Enumerable.Range(0, normalized.Count).ToArray();
+              command.Parameters.Add("names", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
+                normalized.Select(static tag => tag.Name).ToArray();
+              command.Parameters.Add("values", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
+                normalized.Select(static tag => tag.Value).ToArray();
+          },
+          cancellationToken)
+          .ConfigureAwait(false);
     }
 }

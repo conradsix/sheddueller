@@ -454,7 +454,7 @@ internal sealed class PostgresTestContext(
         return values;
     }
 
-    private async ValueTask ExecuteAsync(
+    public async ValueTask ExecuteAsync(
         string commandText,
         Action<NpgsqlCommand> configure)
     {

@@ -25,10 +25,8 @@ internal static class TryClaimNextJobOperation
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
 
         var candidates = await ReadClaimCandidatesAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
-        foreach (var jobId in candidates)
+        foreach (var (jobId, groupKeys) in candidates)
         {
-            var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, jobId, cancellationToken)
-              .ConfigureAwait(false);
             await PostgresJobGroups.EnsureGroupRowsAsync(context, connection, transaction, groupKeys, cancellationToken).ConfigureAwait(false);
 
             if (!await PostgresJobGroups.TryReserveGroupsAsync(context, connection, transaction, groupKeys, cancellationToken).ConfigureAwait(false))
@@ -84,7 +82,11 @@ internal static class TryClaimNextJobOperation
         return new ClaimJobResult.NoJobAvailable(nextClaimAtUtc);
     }
 
-    private static async ValueTask<IReadOnlyList<Guid>> ReadClaimCandidatesAsync(
+    /// <summary>
+    /// Locks the first claimable jobs in claim order, skipping jobs other claims hold, and reads each with its group
+    /// keys.
+    /// </summary>
+    private static async ValueTask<IReadOnlyList<(Guid JobId, string[] GroupKeys)>> ReadClaimCandidatesAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -94,7 +96,9 @@ internal static class TryClaimNextJobOperation
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          select job.job_id
+          select
+              job.job_id,
+              {PostgresJobGroups.GroupKeysSql(context.Names, "job")}
           from {context.Names.Jobs} job
           where {PostgresSqlFragments.JobIsClaimable(context.Names, "job", PostgresSqlFragments.ClockNow)}
           order by {PostgresSqlFragments.ClaimOrder("job")}
@@ -103,14 +107,14 @@ internal static class TryClaimNextJobOperation
           """;
         command.Parameters.AddWithValue("candidate_limit", ClaimCandidateLimit);
 
-        var jobIds = new List<Guid>();
+        var candidates = new List<(Guid JobId, string[] GroupKeys)>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            jobIds.Add(reader.GetGuid(0));
+            candidates.Add((reader.GetGuid(0), reader.GetFieldValue<string[]>(1)));
         }
 
-        return jobIds;
+        return candidates;
     }
 
     private static async ValueTask<DateTimeOffset?> ReadNextRateLimitedClaimAtAsync(

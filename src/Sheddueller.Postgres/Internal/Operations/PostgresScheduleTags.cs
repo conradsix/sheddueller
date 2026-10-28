@@ -2,6 +2,8 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
+using NpgsqlTypes;
+
 internal static class PostgresScheduleTags
 {
     public static async ValueTask ReplaceScheduleTagsAsync(
@@ -21,55 +23,75 @@ internal static class PostgresScheduleTags
           cancellationToken)
           .ConfigureAwait(false);
 
-        for (var i = 0; i < normalized.Count; i++)
+        if (normalized.Count == 0)
         {
-            var tag = normalized[i];
-            await PostgresOperationContext.ExecuteCountAsync(
-              connection,
-              transaction,
-              $"""
-              insert into {context.Names.ScheduleTags} (schedule_key, ordinal, name, value)
-              values (@schedule_key, @ordinal, @name, @value)
-              on conflict (schedule_key, name, value) do nothing;
-              """,
-              command =>
-              {
-                  command.Parameters.AddWithValue("schedule_key", scheduleKey);
-                  command.Parameters.AddWithValue("ordinal", i);
-                  command.Parameters.AddWithValue("name", tag.Name);
-                  command.Parameters.AddWithValue("value", tag.Value);
-              },
-              cancellationToken)
-              .ConfigureAwait(false);
+            return;
         }
+
+        await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          insert into {context.Names.ScheduleTags} (schedule_key, ordinal, name, value)
+          select @schedule_key, tag.ordinal, tag.name, tag.value
+          from unnest(@ordinals::integer[], @names::text[], @values::text[]) as tag(ordinal, name, value)
+          on conflict (schedule_key, name, value) do nothing;
+          """,
+          command =>
+          {
+              command.Parameters.AddWithValue("schedule_key", scheduleKey);
+              command.Parameters.Add("ordinals", NpgsqlDbType.Array | NpgsqlDbType.Integer).Value =
+                Enumerable.Range(0, normalized.Count).ToArray();
+              command.Parameters.Add("names", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
+                normalized.Select(static tag => tag.Name).ToArray();
+              command.Parameters.Add("values", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
+                normalized.Select(static tag => tag.Value).ToArray();
+          },
+          cancellationToken)
+          .ConfigureAwait(false);
     }
 
-    public static async ValueTask<IReadOnlyList<JobTag>> ReadScheduleTagsAsync(
+    /// <summary>
+    /// Reads the tags of each schedule, in tag order, with one query. A schedule without tags has no entry.
+    /// </summary>
+    public static async ValueTask<IReadOnlyDictionary<string, List<JobTag>>> ReadScheduleTagsByKeyAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction? transaction,
-        string scheduleKey,
+        IReadOnlyCollection<string> scheduleKeys,
         CancellationToken cancellationToken)
     {
+        var tagsByKey = new Dictionary<string, List<JobTag>>(StringComparer.Ordinal);
+        if (scheduleKeys.Count == 0)
+        {
+            return tagsByKey;
+        }
+
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          select name, value
+          select schedule_key, name, value
           from {context.Names.ScheduleTags}
-          where schedule_key = @schedule_key
-          order by ordinal asc, name asc, value asc;
+          where schedule_key = any(@schedule_keys)
+          order by schedule_key asc, ordinal asc, name asc, value asc;
           """;
-        command.Parameters.AddWithValue("schedule_key", scheduleKey);
+        command.Parameters.Add("schedule_keys", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = scheduleKeys.ToArray();
 
-        var tags = new List<JobTag>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            tags.Add(new JobTag(reader.GetString(0), reader.GetString(1)));
+            var scheduleKey = reader.GetString(0);
+            if (!tagsByKey.TryGetValue(scheduleKey, out var tags))
+            {
+                tags = [];
+                tagsByKey.Add(scheduleKey, tags);
+            }
+
+            tags.Add(new JobTag(reader.GetString(1), reader.GetString(2)));
         }
 
-        return tags;
+        return tagsByKey;
     }
 
     private static List<JobTag> NormalizeTags(IReadOnlyList<JobTag>? tags)
