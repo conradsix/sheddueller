@@ -1,5 +1,1 @@
 #nullable enable
-Sheddueller.ShedduellerOptions.DeadNodeRetention.get -> System.TimeSpan?
-Sheddueller.ShedduellerOptions.DeadNodeRetention.set -> void
-Sheddueller.Storage.IWorkerNodeRetentionStore
-Sheddueller.Storage.IWorkerNodeRetentionStore.CleanupWorkerNodesAsync(System.TimeSpan retention, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>
