@@ -182,6 +182,16 @@ public sealed class DashboardJobLogTests
           CreateLog(6, JobLogLevel.Critical, "critical"),
       ];
 
+    [Fact]
+    public void Message_ProgressUpdate_ReadsAsPercentAndMessage()
+    {
+        DashboardJobLog.Message(CreateProgress(1, 70, "chunk 7")).ShouldBe("70% chunk 7");
+        DashboardJobLog.Message(CreateProgress(2, 140, string.Empty)).ShouldBe("100%");
+        DashboardJobLog.Message(CreateProgress(3, 50, "half") with { ProgressPercent = null }).ShouldBe("half");
+        DashboardJobLog.Message(CreateProgress(4, 50, " ") with { ProgressPercent = null }).ShouldBe("Progress reported");
+        DashboardJobLog.Message(CreateLog(5, JobLogLevel.Information, " ")).ShouldBe("Log");
+    }
+
     private static JobEvent CreateLog(
         long sequence,
         JobLogLevel level,

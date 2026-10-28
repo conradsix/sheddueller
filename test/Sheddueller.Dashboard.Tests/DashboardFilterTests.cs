@@ -100,13 +100,31 @@ public sealed class DashboardFilterTests
         filters.SetConcurrencyGroupContains("tenant acme");
         filters.SetSort(JobInspectionSort.NewestFirst);
 
-        DashboardJobFilterQuery.WithStateHref(filters, JobState.Claimed)
-          .ShouldBe("jobs?state=Claimed&handler=OldWorker.Run&tag=tenant%3Aacme&group=tenant%20acme&sort=NewestFirst");
+        DashboardJobFilterQuery.WithGroupHref(filters, "billing")
+          .ShouldBe("jobs?state=Queued&state=Failed&handler=OldWorker.Run&tag=tenant%3Aacme&group=billing&sort=NewestFirst");
         DashboardJobFilterQuery.WithHandlerHref(filters, "BillingWorker.Run")
           .ShouldBe("jobs?state=Queued&state=Failed&handler=BillingWorker.Run&tag=tenant%3Aacme&group=tenant%20acme&sort=NewestFirst");
         DashboardJobFilterQuery.WithTagHref(filters, "schedule:daily")
           .ShouldBe("jobs?state=Queued&state=Failed&handler=OldWorker.Run&tag=schedule%3Adaily&group=tenant%20acme&sort=NewestFirst");
         DashboardJobFilterQuery.TagHref("tenant:acme west").ShouldBe("jobs?tag=tenant%3Aacme%20west");
+    }
+
+    [Fact]
+    public void JobFilterQuery_SharedLinks_FilterTheJobsList()
+    {
+        DashboardJobFilterQuery.StateHref(JobState.Queued).ShouldBe("jobs?state=Queued");
+        DashboardJobFilterQuery.RecentlyFailedHref().ShouldBe("jobs?state=Failed&sort=NewestFirst");
+        DashboardJobFilterQuery.QueuedInGroupHref("tenant acme").ShouldBe("jobs?state=Queued&group=tenant%20acme");
+        DashboardJobFilterQuery.HandlerHref(CreateSchedule("Acme.Jobs.RateLoader, Acme.Jobs", "LoadRates"))
+          .ShouldBe("jobs?handler=RateLoader.LoadRates");
+    }
+
+    [Fact]
+    public void ListLinks_OneItem_FilterItsListByKey()
+    {
+        DashboardScheduleFilterQuery.ScheduleHref("nightly rollup").ShouldBe("schedules?key=nightly%20rollup");
+        DashboardConcurrencyGroupFilterQuery.GroupHref("tenant-acme").ShouldBe("concurrency-groups?key=tenant-acme");
+        DashboardNodeFilterQuery.NodeHref("wrk-eu-1").ShouldBe("nodes?node=wrk-eu-1");
     }
 
     [Fact]
@@ -179,6 +197,22 @@ public sealed class DashboardFilterTests
         query.IsRateLimited.ShouldBe(true);
         query.PageSize.ShouldBe(10);
     }
+
+    private static ScheduleInspectionSummary CreateSchedule(
+        string serviceType,
+        string methodName)
+      => new(
+        "nightly",
+        serviceType,
+        methodName,
+        "0 2 * * *",
+        IsPaused: false,
+        RecurringOverlapMode.Skip,
+        NextFireAtUtc: null,
+        Priority: 0,
+        ConcurrencyGroupKeys: [],
+        Tags: [],
+        DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture));
 
     private static NodeInspectionSummary CreateNode(string nodeId)
       => new(

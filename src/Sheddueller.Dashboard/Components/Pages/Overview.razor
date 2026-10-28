@@ -168,7 +168,7 @@
                             <tbody>
                                 @foreach (var job in _overview.RecentlyFailedJobs)
                                 {
-                                    var failure = FailureMessage(job);
+                                    var failure = DashboardFormat.FailureReason(job);
                                     <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)">
                                         <td>@JobIdLink(job)</td>
                                         <td>@HandlerLink(job)</td>
@@ -266,7 +266,7 @@
                             <tbody>
                                 @foreach (var job in _overview.RetryWaitingJobs)
                                 {
-                                    <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)" title="@FailureMessage(job)">
+                                    <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)" title="@DashboardFormat.FailureReason(job)">
                                         <td>@JobIdLink(job)</td>
                                         <td>@HandlerLink(job)</td>
                                         <td class="overview-num">@DashboardFormat.Attempts(job, compact: true)</td>
@@ -333,7 +333,7 @@
 
     private static readonly string QueuedHref = DashboardJobFilterQuery.StateHref(JobState.Queued);
     private static readonly string RunningHref = DashboardJobFilterQuery.StateHref(JobState.Claimed);
-    private static readonly string FailedHref = CreateFailedHref();
+    private static readonly string FailedHref = DashboardJobFilterQuery.RecentlyFailedHref();
 
     private JobInspectionOverview? _overview;
     private string? _loadError;
@@ -389,14 +389,6 @@
     private static int GetStateCount(JobInspectionOverview overview, JobState state)
       => overview.StateCounts.TryGetValue(state, out var count) ? count : 0;
 
-    private static string CreateFailedHref()
-    {
-        var filters = new DashboardJobFilters();
-        _ = filters.ReplaceStates([JobState.Failed]);
-        _ = filters.SetSort(JobInspectionSort.NewestFirst);
-        return DashboardJobFilterQuery.ToHref(filters);
-    }
-
     private static string StatClass(JobState state, int count)
       => state == JobState.Failed && count > 0 ? "overview-stat overview-stat--attention" : "overview-stat";
 
@@ -408,18 +400,11 @@
         CultureInfo.InvariantCulture,
         $"{StatusBadge.StateLabel(state)}: {DashboardFormat.Count(count)}. Show these jobs");
 
-    // The failure reason recorded with the job, or null when there is none to show.
-    private static string? FailureMessage(JobInspectionSummary job)
-      => new[] { job.LatestProgress?.Message, job.QueuePosition?.Reason }.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
-
-    private static string ShortJobId(Guid jobId)
-      => jobId.ToString("D")[..8];
-
     private static RenderFragment JobIdLink(JobInspectionSummary job)
-      => @<a class="overview-job-id" href="@DashboardFormat.JobHref(job.JobId)" title="@DashboardFormat.JobId(job.JobId)">@ShortJobId(job.JobId)</a>;
+      => @<a class="overview-job-id" href="@DashboardFormat.JobHref(job.JobId)" title="@DashboardFormat.JobId(job.JobId)">@DashboardFormat.ShortJobId(job.JobId)</a>;
 
     private static RenderFragment HandlerLink(JobInspectionSummary job)
-      => @<a class="overview-handler" href="@DashboardJobFilterQuery.HandlerHref(DashboardFormat.ShortHandler(job))"
+      => @<a class="overview-handler" href="@DashboardJobFilterQuery.HandlerHref(job)"
              data-sd-tooltip="@string.Concat("Show only ", DashboardFormat.FullHandler(job))">@DashboardFormat.ShortHandler(job)</a>;
 
     private RenderFragment TagCell(JobInspectionSummary job)

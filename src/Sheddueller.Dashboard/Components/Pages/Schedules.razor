@@ -85,7 +85,7 @@
                                         <span class="schedules-key" title="@schedule.ScheduleKey">@schedule.ScheduleKey</span>
                                     </td>
                                     <td>
-                                        <span class="schedules-handler" title="@FullHandler(schedule)">@ShortHandler(schedule)</span>
+                                        <span class="schedules-handler" title="@DashboardFormat.FullHandler(schedule)">@DashboardFormat.ShortHandler(schedule)</span>
                                         @if (details is not null)
                                         {
                                             <span class="schedules-secondary" title="@details">@details</span>
@@ -129,7 +129,7 @@
                                                 <MenuItem Icon="pause" OnClick="() => OpenConfirmDialog(ScheduleAction.Pause, schedule)">Pause…</MenuItem>
                                             }
                                             <MenuSeparator />
-                                            <MenuItem Icon="list-filter" Href="@HandlerJobsHref(schedule)">Jobs with this handler</MenuItem>
+                                            <MenuItem Icon="list-filter" Href="@DashboardJobFilterQuery.HandlerHref(schedule)">Jobs with this handler</MenuItem>
                                             <MenuItem Icon="copy" data-sd-copy="@schedule.ScheduleKey" data-sd-copy-label="schedule key">Copy schedule key</MenuItem>
                                         </DropdownMenu>
                                     </td>
@@ -495,12 +495,6 @@
         }
     }
 
-    private static string FullHandler(ScheduleInspectionSummary schedule)
-      => string.Concat(schedule.ServiceType, ".", schedule.MethodName);
-
-    public static string ShortHandler(ScheduleInspectionSummary job)
-        => string.Concat(DashboardFormat.ShortTypeName(job.ServiceType), ".", job.MethodName);
-
     // Concurrency groups and any non-default priority or overlap mode, shown under the handler.
     private static string? ExecutionDetails(ScheduleInspectionSummary schedule)
     {
@@ -527,9 +521,6 @@
 
     private static string NextRunEmptyText(ScheduleInspectionSummary schedule)
       => schedule.IsPaused ? "—" : "Not scheduled";
-
-    private static string HandlerJobsHref(ScheduleInspectionSummary schedule)
-      => DashboardJobFilterQuery.HandlerHref(ShortHandler(schedule));
 
     internal static string CreateTriggerSuccessMessage(string scheduleKey)
       => string.Create(CultureInfo.InvariantCulture, $"Schedule {scheduleKey} triggered as job");

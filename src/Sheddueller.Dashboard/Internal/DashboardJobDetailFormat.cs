@@ -46,9 +46,6 @@ internal static class DashboardJobDetailFormat
         ? DashboardFormat.JobHref(jobId)
         : DashboardQueryString.Build(DashboardFormat.JobHref(jobId), [(TabParameter, tab.ToString().ToLowerInvariant())]);
 
-    public static string ShortId(Guid jobId)
-      => jobId.ToString("D")[..8];
-
     public static string Attempts(JobInspectionSummary job)
       => job.AttemptCount == 0
         ? string.Create(CultureInfo.InvariantCulture, $"Not started · up to {job.MaxAttempts} {(job.MaxAttempts == 1 ? "attempt" : "attempts")}")
@@ -111,6 +108,17 @@ internal static class DashboardJobDetailFormat
           { Kind: JobQueuePositionKind.BlockedByConcurrency } => "Blocked by a concurrency group",
           _ => "Queued",
       };
+
+    /// <summary>
+    /// Events shown on the timeline: lifecycle changes, attempts, and cancellation.
+    /// </summary>
+    public static bool IsTimelineEvent(JobEvent jobEvent)
+      => jobEvent.Kind is JobEventKind.Lifecycle
+        or JobEventKind.AttemptStarted
+        or JobEventKind.AttemptCompleted
+        or JobEventKind.AttemptFailed
+        or JobEventKind.CancelRequested
+        or JobEventKind.CancelObserved;
 
     public static string TimelineTitle(JobEvent jobEvent)
       => jobEvent.Kind switch

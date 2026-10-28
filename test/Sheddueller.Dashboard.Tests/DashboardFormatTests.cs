@@ -6,6 +6,7 @@ using System.Text.Json;
 using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.Jobs;
 using Sheddueller.Inspection.Metrics;
+using Sheddueller.Inspection.Schedules;
 using Sheddueller.Storage;
 
 using Shouldly;
@@ -22,15 +23,76 @@ public sealed class DashboardFormatTests
     }
 
     [Fact]
-    public void ShortTypeName_AssemblyQualifiedNames_DropsNamespacesAndAssemblies()
+    public void Handler_Schedule_UsesFullAndShortNames()
     {
-        DashboardFormat.ShortTypeName(typeof(CancellationToken).AssemblyQualifiedName!).ShouldBe("CancellationToken");
-        DashboardFormat.ShortTypeName(typeof(IProgress<decimal>).AssemblyQualifiedName!).ShouldBe("IProgress<Decimal>");
-        DashboardFormat.ShortTypeName(typeof(Dictionary<string, List<int>>).AssemblyQualifiedName!).ShouldBe("Dictionary<String, List<Int32>>");
-        DashboardFormat.ShortTypeName(typeof(int?[]).AssemblyQualifiedName!).ShouldBe("Nullable<Int32>[]");
-        DashboardFormat.ShortTypeName(typeof(string[,]).AssemblyQualifiedName!).ShouldBe("String[,]");
-        DashboardFormat.ShortTypeName("System.Collections.Generic.List`1[System.Int32]").ShouldBe("List<Int32>");
-        DashboardFormat.ShortTypeName("Acme.Jobs.RateLoader, Acme.Jobs").ShouldBe("RateLoader");
+        var schedule = new ScheduleInspectionSummary(
+          "nightly",
+          "Acme.Jobs.RateLoader, Acme.Jobs",
+          "LoadRates",
+          "0 2 * * *",
+          IsPaused: false,
+          RecurringOverlapMode.Skip,
+          NextFireAtUtc: null,
+          Priority: 0,
+          ConcurrencyGroupKeys: [],
+          Tags: [],
+          DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture));
+
+        DashboardFormat.FullHandler(schedule).ShouldBe("Acme.Jobs.RateLoader, Acme.Jobs.LoadRates");
+        DashboardFormat.ShortHandler(schedule).ShouldBe("RateLoader.LoadRates");
+    }
+
+    [Theory]
+    [InlineData("8c32d457-9e7a-42bb-8947-0c8fa54743be", "8c32d457")]
+    [InlineData("8c32d457", "8c32d457")]
+    [InlineData("abc", "abc")]
+    public void ShortJobId_TextFromAUrl_KeepsTheFirstBlock(string id, string expected)
+      => DashboardFormat.ShortJobId(id).ShouldBe(expected);
+
+    [Fact]
+    public void ShortJobId_Guid_IsTheFirstBlock()
+      => DashboardFormat.ShortJobId(Guid.Parse("8c32d457-9e7a-42bb-8947-0c8fa54743be")).ShouldBe("8c32d457");
+
+    [Fact]
+    public void FailureReason_ProgressMessageOrQueueReason_PrefersTheProgressMessage()
+    {
+        var job = CreateJob() with
+        {
+            State = JobState.Failed,
+            QueuePosition = new JobQueuePosition(Guid.Empty, JobQueuePositionKind.Terminal, Position: null, Reason: "Job is terminal"),
+        };
+
+        DashboardFormat.FailureReason(job).ShouldBe("Job is terminal");
+        DashboardFormat.FailureReason(job with { LatestProgress = Progress("Timeout talking to the API") }).ShouldBe("Timeout talking to the API");
+        DashboardFormat.FailureReason(job with { LatestProgress = Progress(" "), QueuePosition = null }).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Disposition_FailedJob_ShowsTheFailureReasonOrFailed()
+    {
+        var failed = CreateJob() with { State = JobState.Failed };
+
+        DashboardFormat.Disposition(failed with { LatestProgress = Progress("Timeout") }).ShouldBe("Timeout");
+        DashboardFormat.Disposition(failed).ShouldBe("failed");
+        DashboardFormat.DispositionClass(failed).ShouldBe("jobs-disposition--error");
+        DashboardFormat.DispositionClass(failed with { State = JobState.Completed }).ShouldBe("jobs-disposition--muted");
+    }
+
+    [Theory]
+    [InlineData(JobQueuePositionKind.Claimable, 3L, "#3", "jobs-queue jobs-queue--claimable")]
+    [InlineData(JobQueuePositionKind.Claimable, null, "Ready", "jobs-queue jobs-queue--claimable")]
+    [InlineData(JobQueuePositionKind.RetryWaiting, null, "Retry", "jobs-queue jobs-queue--waiting")]
+    [InlineData(JobQueuePositionKind.BlockedByConcurrency, null, "Blocked", "jobs-queue jobs-queue--blocked")]
+    [InlineData(JobQueuePositionKind.Terminal, null, "-", "jobs-queue jobs-queue--empty")]
+    public void QueuePosition_Kind_HasTextAndClass(JobQueuePositionKind kind, long? position, string text, string cssClass)
+    {
+        var job = CreateJob() with { QueuePosition = new JobQueuePosition(Guid.Empty, kind, position) };
+
+        DashboardFormat.QueuePositionText(job).ShouldBe(text);
+        DashboardFormat.QueuePositionClass(job).ShouldBe(cssClass);
+        DashboardFormat.QueuePositionTitle(job).ShouldBe(text);
+        DashboardFormat.QueuePositionTitle(job with { QueuePosition = new JobQueuePosition(Guid.Empty, kind, position, "Waiting on group billing") })
+          .ShouldBe("Waiting on group billing");
     }
 
     [Fact]
@@ -40,7 +102,6 @@ public sealed class DashboardFormatTests
 
         DashboardFormat.ProgressPercent(progress).ShouldBe("100%");
         DashboardFormat.ProgressText(progress).ShouldBe("100% indexed records");
-        DashboardFormat.ProgressWidthStyle(progress).ShouldBe("width: 100%");
     }
 
     [Fact]
@@ -237,38 +298,6 @@ public sealed class DashboardFormatTests
     }
 
     [Fact]
-    public void JobEvent_LogAndTimelineEvents_FormatsOperationalText()
-    {
-        var failed = new JobEvent(
-          Guid.NewGuid(),
-          Guid.NewGuid(),
-          EventSequence: 4,
-          JobEventKind.AttemptFailed,
-          DateTimeOffset.Parse("2026-04-20T12:04:00Z", CultureInfo.InvariantCulture),
-          AttemptNumber: 2,
-          Message: "Timeout");
-        var progress = failed with
-        {
-            Kind = JobEventKind.Progress,
-            LogLevel = null,
-            Message = "chunk 7",
-            ProgressPercent = 70,
-        };
-        var cancelRequested = failed with
-        {
-            Kind = JobEventKind.CancelRequested,
-            Message = "Cancellation requested",
-        };
-
-        DashboardFormat.TimelineTitle(failed).ShouldBe("Attempt 2 Failed");
-        DashboardFormat.ShouldRenderTimelineMessage(failed).ShouldBeTrue();
-        DashboardFormat.IsLifecycleEvent(cancelRequested).ShouldBeTrue();
-        DashboardFormat.TimelineTitle(cancelRequested).ShouldBe("Cancellation Requested");
-        DashboardFormat.LogLevel(progress).ShouldBe("PROGRESS");
-        DashboardFormat.LogMessage(progress).ShouldBe("70% chunk 7");
-    }
-
-    [Fact]
     public void MetricsFormat_RatesDurationsAndActivity_FormatsOperationalValues()
     {
         var inactiveWindow = CreateMetricsWindow();
@@ -324,6 +353,9 @@ public sealed class DashboardFormatTests
         CompletedAtUtc: null,
         FailedAtUtc: null,
         CanceledAtUtc: null);
+
+    private static JobProgressSnapshot Progress(string message)
+      => new(Percent: null, message, DateTimeOffset.Parse("2026-04-20T12:08:00Z", CultureInfo.InvariantCulture));
 
     private static MetricsInspectionWindow CreateMetricsWindow()
       => new(

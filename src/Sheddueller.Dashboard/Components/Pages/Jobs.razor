@@ -248,7 +248,7 @@
                                                 <td><StatusBadge State="job.State" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Queue:
-                                                <td><span class="@QueuePositionClass(job)" title="@QueuePositionTitle(job)">@QueuePositionText(job)</span></td>
+                                                <td><span class="@DashboardFormat.QueuePositionClass(job)" title="@DashboardFormat.QueuePositionTitle(job)">@DashboardFormat.QueuePositionText(job)</span></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Handler:
                                                 <td><span class="jobs-handler" title="@DashboardFormat.FullHandler(job)">@DashboardFormat.ShortHandler(job)</span></td>
@@ -272,7 +272,7 @@
                                                 </td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Disposition:
-                                                <td><span class="jobs-disposition @GetDispositionClass(job)"
+                                                <td><span class="jobs-disposition @DashboardFormat.DispositionClass(job)"
                                                           title="@DashboardFormat.Disposition(job)">@DashboardFormat.Disposition(job)</span></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Groups:
@@ -492,12 +492,6 @@
       => this._cancelTargets.Count == 1
         ? "A queued job ends as canceled straight away. A running job stops at its next cancellation check. You can't undo this."
         : "Queued jobs end as canceled straight away; running jobs stop at their next cancellation check. You can't undo this.";
-
-    private IReadOnlyList<DashboardResolvedJobView> SharedViews
-      => [.. this._views.Where(view => view.Source == DashboardJobViewSource.Shared)];
-
-    private IReadOnlyList<DashboardResolvedJobView> PersonalViews
-      => [.. this._views.Where(view => view.Source == DashboardJobViewSource.Personal)];
 
     private DashboardResolvedJobView? CurrentView
       => this.FindView(this._selectedViewKey);
@@ -1622,37 +1616,6 @@
 
     internal static string CreateClearQueuedSuccessMessage(int canceledCount)
       => string.Create(CultureInfo.InvariantCulture, $"Canceled {DashboardFormat.Count(canceledCount)} queued job(s).");
-
-    private static string QueuePositionText(JobInspectionSummary job)
-      => job.QueuePosition switch
-      {
-          { Kind: JobQueuePositionKind.Claimable, Position: { } position } => string.Create(CultureInfo.InvariantCulture, $"#{position}"),
-          { Kind: JobQueuePositionKind.Claimable } => "Ready",
-          { Kind: JobQueuePositionKind.Claimed } => "Running",
-          { Kind: JobQueuePositionKind.WaitingForDependencies } => "Dependencies",
-          { Kind: JobQueuePositionKind.BlockedByConcurrency } => "Blocked",
-          { Kind: JobQueuePositionKind.RetryWaiting } => "Retry",
-          { Kind: JobQueuePositionKind.Delayed } => "Delayed",
-          _ => "-",
-      };
-
-    private static string QueuePositionTitle(JobInspectionSummary job)
-      => job.QueuePosition?.Reason ?? QueuePositionText(job);
-
-    private static string QueuePositionClass(JobInspectionSummary job)
-      => string.Concat("jobs-queue jobs-queue--", job.QueuePosition?.Kind switch
-      {
-          JobQueuePositionKind.Claimable => "claimable",
-          JobQueuePositionKind.Claimed => "claimed",
-          JobQueuePositionKind.WaitingForDependencies => "waiting",
-          JobQueuePositionKind.BlockedByConcurrency => "blocked",
-          JobQueuePositionKind.RetryWaiting => "waiting",
-          JobQueuePositionKind.Delayed => "delayed",
-          _ => "empty",
-      });
-
-    private static string GetDispositionClass(JobInspectionSummary job)
-      => job.State == JobState.Failed ? "jobs-disposition--error" : "jobs-disposition--muted";
 
     // Filter links are plain hrefs, so they push history; they keep a non-preferred view in the URL.
     private string HandlerFilterHref(JobInspectionSummary job)

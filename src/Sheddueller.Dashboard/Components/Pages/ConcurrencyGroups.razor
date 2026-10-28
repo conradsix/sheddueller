@@ -725,10 +725,5 @@
       => DashboardJobFilterQuery.GroupHref(group.GroupKey);
 
     private static string BlockedJobsHref(ConcurrencyGroupInspectionSummary group)
-    {
-        var filters = new DashboardJobFilters();
-        _ = filters.SetConcurrencyGroupContains(group.GroupKey);
-        _ = filters.SetStateSelected(JobState.Queued, selected: true);
-        return DashboardJobFilterQuery.ToHref(filters);
-    }
+      => DashboardJobFilterQuery.QueuedInGroupHref(group.GroupKey);
 }

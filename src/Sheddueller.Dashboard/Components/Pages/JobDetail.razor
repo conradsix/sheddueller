@@ -88,11 +88,11 @@
                     <span class="@DashboardJobDetailFormat.AttemptClass(job)">@DashboardJobDetailFormat.Attempts(job)</span>
                     @if (!string.IsNullOrWhiteSpace(_detail.ClaimedByNodeId))
                     {
-                        <span>Node <a class="sd-link sd-mono" href="@NodeHref(_detail.ClaimedByNodeId)">@_detail.ClaimedByNodeId</a></span>
+                        <span>Node <a class="sd-link sd-mono" href="@DashboardNodeFilterQuery.NodeHref(_detail.ClaimedByNodeId)">@_detail.ClaimedByNodeId</a></span>
                     }
                     @if (!string.IsNullOrWhiteSpace(job.SourceScheduleKey))
                     {
-                        <span>Schedule <a class="sd-link sd-mono" href="@ScheduleHref(job.SourceScheduleKey)">@job.SourceScheduleKey</a></span>
+                        <span>Schedule <a class="sd-link sd-mono" href="@DashboardScheduleFilterQuery.ScheduleHref(job.SourceScheduleKey)">@job.SourceScheduleKey</a></span>
                     }
                     <span class="job-detail-meta__id">
                         <span class="sd-mono">@DashboardFormat.JobId(job.JobId)</span>
@@ -113,7 +113,7 @@
                         <MenuItem Icon="copy" data-sd-copy="@call.FullText" data-sd-copy-label="invocation">Copy invocation</MenuItem>
                     }
                     <MenuSeparator />
-                    <MenuItem Icon="list-filter" Href="@HandlerJobsHref(job)">Jobs with this handler</MenuItem>
+                    <MenuItem Icon="list-filter" Href="@DashboardJobFilterQuery.HandlerHref(job)">Jobs with this handler</MenuItem>
                     @foreach (var group in job.ConcurrencyGroupKeys.Take(MenuGroupLimit))
                     {
                         <MenuItem Icon="layers" Href="@DashboardJobFilterQuery.GroupHref(group)">Jobs in group <span class="sd-mono">@group</span></MenuItem>
@@ -197,7 +197,7 @@
                             <div class="sd-tags job-detail-callout__tags">
                                 @foreach (var group in job.ConcurrencyGroupKeys)
                                 {
-                                    <Tag Value="@group" Href="@ConcurrencyGroupHref(group)" data-sd-tooltip="@($"Open concurrency group {group}")" />
+                                    <Tag Value="@group" Href="@DashboardConcurrencyGroupFilterQuery.GroupHref(group)" data-sd-tooltip="@($"Open concurrency group {group}")" />
                                 }
                             </div>
                         }
@@ -294,7 +294,7 @@
                         <dt>Concurrency groups</dt>
                         <dd>
                             <TagList Values="job.ConcurrencyGroupKeys" Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
-                                     HrefFactory="ConcurrencyGroupHref" TooltipPrefix="Open concurrency group" MaxVisible="3" />
+                                     HrefFactory="DashboardConcurrencyGroupFilterQuery.GroupHref" TooltipPrefix="Open concurrency group" MaxVisible="3" />
                         </dd>
                     </div>
                 }
@@ -447,7 +447,7 @@
                                     <dl class="job-detail-invocation-meta">
                                         <div>
                                             <dt>Handler</dt>
-                                            <dd class="sd-mono" title="@DashboardFormat.FullHandler(job)">@DashboardFormat.InvocationHandler(invocation)</dd>
+                                            <dd class="sd-mono" title="@DashboardFormat.FullHandler(job)">@DashboardInvocationView.Handler(invocation)</dd>
                                         </div>
                                         <div>
                                             <dt>Target</dt>
@@ -467,7 +467,7 @@
                             @if (invocation.SerializedArgumentsStatus != JobSerializedArgumentsInspectionStatus.Displayable)
                             {
                                 <Alert Tone="AlertTone.Warning" Title="Argument values can't be shown">
-                                    @DashboardFormat.InvocationStatus(invocation)
+                                    @DashboardInvocationView.StatusMessage(invocation)
                                 </Alert>
                             }
 
@@ -484,8 +484,8 @@
                                                     {
                                                         <strong class="sd-mono">@argument.Name</strong>
                                                     }
-                                                    <span class="job-detail-param__type sd-mono" title="@argument.ParameterType">@DashboardFormat.ShortTypeName(argument.ParameterType)</span>
-                                                    <Badge Variant="BadgeVariant.Secondary">@DashboardFormat.InvocationBinding(argument)</Badge>
+                                                    <span class="job-detail-param__type sd-mono" title="@argument.ParameterType">@DashboardTypeName.Short(argument.ParameterType)</span>
+                                                    <Badge Variant="BadgeVariant.Secondary">@DashboardInvocationView.BindingLabel(argument)</Badge>
                                                 </div>
                                                 @if (argument.ValueJson is not null)
                                                 {
@@ -535,21 +535,21 @@
                                                     {
                                                         <td class="job-detail-related__state"><Skeleton Width="72px" /></td>
                                                         <td><Skeleton Width="60%" /></td>
-                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardJobDetailFormat.ShortId(relatedJobId)</a></td>
+                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardFormat.ShortJobId(relatedJobId)</a></td>
                                                         <td class="job-detail-related__time"><Skeleton Width="96px" /></td>
                                                     }
                                                     else if (relatedJob is null)
                                                     {
                                                         <td class="job-detail-related__state"><span class="sd-muted">Not found</span></td>
                                                         <td><span class="sd-muted">Retention may have removed this job.</span></td>
-                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardJobDetailFormat.ShortId(relatedJobId)</a></td>
+                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardFormat.ShortJobId(relatedJobId)</a></td>
                                                         <td class="job-detail-related__time"></td>
                                                     }
                                                     else
                                                     {
                                                         <td class="job-detail-related__state"><StatusBadge State="relatedJob.State" /></td>
                                                         <td class="job-detail-related__handler" title="@DashboardFormat.FullHandler(relatedJob)">@DashboardFormat.ShortHandler(relatedJob)</td>
-                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardJobDetailFormat.ShortId(relatedJobId)</a></td>
+                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardFormat.ShortJobId(relatedJobId)</a></td>
                                                         <td class="job-detail-related__time">
                                                             <TimestampBlock BaseClass="sd-timestamp" Value="relatedJob.EnqueuedAtUtc" AllowFutureRelative="false"
                                                                             Prefix="enqueued" Inline AlignEnd />
@@ -714,7 +714,7 @@
       => [.. this._eventLog.Events.Where(DashboardJobLog.IsLogLine)];
 
     private IReadOnlyList<JobEvent> LifecycleEvents
-      => [.. this._eventLog.Events.Where(DashboardFormat.IsLifecycleEvent)];
+      => [.. this._eventLog.Events.Where(DashboardJobDetailFormat.IsTimelineEvent)];
 
     private IReadOnlyList<int> LogAttempts
       => DashboardJobLog.Attempts(this._eventLog.Events);
@@ -811,7 +811,7 @@
 
         var arguments = DashboardInvocationView.Arguments(invocation, DashboardInvocationParameterNames.Resolve(invocation));
         var valuesAvailable = invocation.SerializedArgumentsStatus == JobSerializedArgumentsInspectionStatus.Displayable;
-        var receiver = DashboardFormat.ShortTypeName(invocation.ServiceType);
+        var receiver = DashboardTypeName.Short(invocation.ServiceType);
         var fullCall = DashboardInvocationView.CallTokens(
           receiver,
           invocation.MethodName,
@@ -1309,18 +1309,6 @@
             _ => "The job is waiting to be claimed.",
         };
     }
-
-    private static string HandlerJobsHref(JobInspectionSummary job)
-      => DashboardJobFilterQuery.HandlerHref(DashboardFormat.ShortHandler(job));
-
-    private static string NodeHref(string nodeId)
-      => DashboardNodeFilterQuery.ToHref(new DashboardNodeFilters { NodeId = nodeId });
-
-    private static string ScheduleHref(string scheduleKey)
-      => DashboardScheduleFilterQuery.ToHref(new DashboardScheduleFilters { ScheduleKey = scheduleKey });
-
-    private static string ConcurrencyGroupHref(string groupKey)
-      => DashboardConcurrencyGroupFilterQuery.ToHref(new DashboardConcurrencyGroupFilters { GroupKey = groupKey });
 
     private sealed record RelatedSection(
         string Title,

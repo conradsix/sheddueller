@@ -82,6 +82,16 @@ public sealed class DashboardJobDetailFormatTests
         DashboardJobDetailFormat.TimelineTone(jobEvent).ShouldBe(tone);
     }
 
+    [Theory]
+    [InlineData(JobEventKind.Lifecycle, true)]
+    [InlineData(JobEventKind.AttemptFailed, true)]
+    [InlineData(JobEventKind.CancelRequested, true)]
+    [InlineData(JobEventKind.CancelObserved, true)]
+    [InlineData(JobEventKind.Log, false)]
+    [InlineData(JobEventKind.Progress, false)]
+    public void Timeline_EventKind_OnlyLifecycleAttemptAndCancellationEventsShow(JobEventKind kind, bool expected)
+      => DashboardJobDetailFormat.IsTimelineEvent(CreateEvent(1, kind, 1, "event")).ShouldBe(expected);
+
     [Fact]
     public void Timeline_FailedAttempt_ShowsFailureMessage()
     {
