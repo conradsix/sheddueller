@@ -15,6 +15,35 @@ internal static class PostgresJobInspectionOperation
     private const string OperationalContinuationTokenPrefix = "op:";
     private const int SerializedArgumentDisplayByteLimit = 64 * 1024;
 
+    /// <summary>
+    /// The job columns that <see cref="ReadRow"/> reads, in ordinal order.
+    /// </summary>
+    private const string JobColumnsSql =
+      """
+      job.job_id,
+      job.state,
+      job.service_type,
+      job.method_name,
+      job.priority,
+      job.enqueue_sequence,
+      job.enqueued_at_utc,
+      job.not_before_utc,
+      job.attempt_count,
+      job.max_attempts,
+      job.source_schedule_key,
+      job.completed_at_utc,
+      job.failed_at_utc,
+      job.canceled_at_utc,
+      job.claimed_at_utc,
+      job.claimed_by_node_id,
+      job.lease_expires_at_utc,
+      job.scheduled_fire_at_utc,
+      job.retry_clone_source_job_id,
+      job.cancellation_requested_at_utc,
+      job.cancellation_observed_at_utc,
+      job.schedule_occurrence_kind
+      """;
+
     private static readonly JsonSerializerOptions SerializedArgumentDisplayJsonOptions = new()
     {
         WriteIndented = true,
@@ -290,20 +319,22 @@ internal static class PostgresJobInspectionOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        var row = await ReadJobRowAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
-        if (row is null)
+        var detailRow = await ReadJobDetailRowAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
+        if (detailRow is null)
         {
             return null;
         }
 
+        var (row, invocation) = detailRow.Value;
+        var summaries = await CreateSummariesAsync(context, connection, [row], cancellationToken).ConfigureAwait(false);
         return new JobInspectionDetail(
-          await CreateSummaryAsync(context, connection, row, cancellationToken).ConfigureAwait(false),
+          summaries[0],
           row.ClaimedAtUtc,
           row.ClaimedByNodeId,
           row.LeaseExpiresAtUtc,
           row.ScheduledFireAtUtc)
         {
-            Invocation = await ReadInvocationAsync(context, connection, row, cancellationToken).ConfigureAwait(false),
+            Invocation = invocation,
             RetryCloneJobIds = await ReadRetryCloneJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
             PrerequisiteJobIds = await ReadPrerequisiteJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
             DependentJobIds = await ReadDependentJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
@@ -322,45 +353,8 @@ internal static class PostgresJobInspectionOperation
             return new JobQueuePosition(jobId, JobQueuePositionKind.NotFound, Position: null, "Job was not found.");
         }
 
-        if (row.State == JobState.Canceled)
-        {
-            return new JobQueuePosition(jobId, JobQueuePositionKind.Canceled, Position: null, "Job was canceled.");
-        }
-
-        if (row.State is JobState.Completed or JobState.Failed)
-        {
-            return new JobQueuePosition(jobId, JobQueuePositionKind.Terminal, Position: null, "Job is terminal.");
-        }
-
-        if (row.State == JobState.Claimed)
-        {
-            return new JobQueuePosition(jobId, JobQueuePositionKind.Claimed, Position: null, "Job is currently claimed.");
-        }
-
-        if (await HasUnfinishedPrerequisitesAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false))
-        {
-            return new JobQueuePosition(
-              jobId,
-              JobQueuePositionKind.WaitingForDependencies,
-              Position: null,
-              "Job is waiting for prerequisite jobs to become terminal.");
-        }
-
-        var now = await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
-        if (row.NotBeforeUtc is { } notBeforeUtc && notBeforeUtc > now)
-        {
-            return row.FailedAtUtc is null
-              ? new JobQueuePosition(jobId, JobQueuePositionKind.Delayed, Position: null, $"Job is delayed until {notBeforeUtc:O}.")
-              : new JobQueuePosition(jobId, JobQueuePositionKind.RetryWaiting, Position: null, $"Job is waiting to retry until {notBeforeUtc:O}.");
-        }
-
-        var position = await ReadClaimablePositionAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
-        if (position is not null)
-        {
-            return new JobQueuePosition(jobId, JobQueuePositionKind.Claimable, position, "Job is currently claimable.");
-        }
-
-        return new JobQueuePosition(jobId, JobQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits.");
+        var positions = await ReadQueuePositionsAsync(context, connection, [row], nowUtc: null, cancellationToken).ConfigureAwait(false);
+        return positions[jobId];
     }
 
     public static async IAsyncEnumerable<JobEvent> ReadEventsAsync(
@@ -448,38 +442,6 @@ internal static class PostgresJobInspectionOperation
 
         return await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false);
     }
-
-    private static async ValueTask<JobInspectionSummary> CreateSummaryAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        PostgresJobInspectionRow row,
-        CancellationToken cancellationToken)
-      => new(
-        row.JobId,
-        row.State,
-        row.ServiceType,
-        row.MethodName,
-        row.Priority,
-        row.EnqueueSequence,
-        row.EnqueuedAtUtc,
-        row.NotBeforeUtc,
-        row.AttemptCount,
-        row.MaxAttempts,
-        await PostgresJobTags.ReadJobTagsAsync(context, connection, row.JobId, cancellationToken).ConfigureAwait(false),
-        await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction: null, row.JobId, cancellationToken).ConfigureAwait(false),
-        row.SourceScheduleKey,
-        await ReadLatestProgressAsync(context, connection, row.JobId, cancellationToken).ConfigureAwait(false),
-        await GetQueuePositionAsync(context, row.JobId, cancellationToken).ConfigureAwait(false),
-        row.ClaimedAtUtc,
-        row.CompletedAtUtc,
-        row.FailedAtUtc,
-        row.CanceledAtUtc)
-      {
-          RetryCloneSourceJobId = row.RetryCloneSourceJobId,
-          CancellationRequestedAtUtc = row.CancellationRequestedAtUtc,
-          CancellationObservedAtUtc = row.CancellationObservedAtUtc,
-          ScheduleOccurrenceKind = row.ScheduleOccurrenceKind,
-      };
 
     private static List<JobInspectionSummary> CreateSummaries(
         IReadOnlyList<PostgresJobInspectionRow> rows,
@@ -794,77 +756,6 @@ internal static class PostgresJobInspectionOperation
         return positions;
     }
 
-    private static async ValueTask<JobProgressSnapshot?> ReadLatestProgressAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        Guid jobId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-          $"""
-          select progress_percent, message, occurred_at_utc
-          from {context.Names.JobEvents}
-          where job_id = @job_id
-            and kind = 'Progress'
-          order by event_sequence desc
-          limit 1;
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            return null;
-        }
-
-        return new JobProgressSnapshot(
-          reader.IsDBNull(0) ? null : reader.GetDouble(0),
-          reader.IsDBNull(1) ? null : reader.GetString(1),
-          PostgresConversion.ToDateTimeOffset(reader.GetValue(2)));
-    }
-
-    private static async ValueTask<long?> ReadClaimablePositionAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        Guid jobId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-          $"""
-          with claimable as (
-              select
-                  job.job_id,
-                  row_number() over (order by job.priority desc, job.enqueue_sequence asc) as position
-              from {context.Names.Jobs} job
-              where job.state = 'Queued'
-                and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
-                and not exists (
-                    select 1
-                    from {context.Names.JobDependencies} dependency
-                    join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
-                    where dependency.job_id = job.job_id
-                      and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
-                )
-                and not exists (
-                    select 1
-                    from {context.Names.JobConcurrencyGroups} job_group
-                    left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
-                    where job_group.job_id = job.job_id
-                      and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
-                )
-          )
-          select position
-          from claimable
-          where job_id = @job_id;
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return result is null ? null : Convert.ToInt64(result, CultureInfo.InvariantCulture);
-    }
-
     private static async ValueTask<PostgresJobInspectionRow?> ReadJobRowAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -883,25 +774,26 @@ internal static class PostgresJobInspectionOperation
         return rows.Count == 0 ? null : rows[0];
     }
 
-    private static async ValueTask<JobInvocationInspection?> ReadInvocationAsync(
+    private static async ValueTask<(PostgresJobInspectionRow Row, JobInvocationInspection Invocation)?> ReadJobDetailRowAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        PostgresJobInspectionRow row,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
           select
-              method_parameter_types,
-              invocation_target_kind,
-              method_parameter_bindings,
-              serialized_arguments_content_type,
-              serialized_arguments
-          from {context.Names.Jobs}
-          where job_id = @job_id;
+              {JobColumnsSql},
+              job.method_parameter_types,
+              job.invocation_target_kind,
+              job.method_parameter_bindings,
+              job.serialized_arguments_content_type,
+              job.serialized_arguments
+          from {context.Names.Jobs} job
+          where job.job_id = @job_id;
           """;
-        command.Parameters.AddWithValue("job_id", row.JobId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -909,14 +801,17 @@ internal static class PostgresJobInspectionOperation
             return null;
         }
 
-        var parameterTypes = reader.GetFieldValue<string[]>(0);
-        var targetKind = PostgresConversion.ToInvocationTargetKind(reader.GetValue(1));
+        var row = ReadRow(reader);
+        var parameterTypes = reader.GetFieldValue<string[]>(reader.GetOrdinal("method_parameter_types"));
+        var targetKind = PostgresConversion.ToInvocationTargetKind(reader.GetValue(reader.GetOrdinal("invocation_target_kind")));
         var parameterBindings = JobMethodParameterBindingResolver.Normalize(
           parameterTypes,
-          PostgresConversion.ToParameterBindings(reader.GetValue(2)));
-        var payload = PostgresConversion.ToPayload(reader.GetValue(3), reader.GetValue(4));
+          PostgresConversion.ToParameterBindings(reader.GetValue(reader.GetOrdinal("method_parameter_bindings"))));
+        var payload = PostgresConversion.ToPayload(
+          reader.GetValue(reader.GetOrdinal("serialized_arguments_content_type")),
+          reader.GetValue(reader.GetOrdinal("serialized_arguments")));
 
-        return CreateInvocation(row, targetKind, parameterTypes, parameterBindings, payload);
+        return (row, CreateInvocation(row, targetKind, parameterTypes, parameterBindings, payload));
     }
 
     private static JobInvocationInspection CreateInvocation(
@@ -1024,33 +919,36 @@ internal static class PostgresJobInspectionOperation
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            rows.Add(new PostgresJobInspectionRow(
-              reader.GetGuid(0),
-              PostgresConversion.ToJobState(reader.GetValue(1)),
-              reader.GetString(2),
-              reader.GetString(3),
-              reader.GetInt32(4),
-              reader.GetInt64(5),
-              PostgresConversion.ToDateTimeOffset(reader.GetValue(6)),
-              reader.IsDBNull(7) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(7)),
-              reader.GetInt32(8),
-              reader.GetInt32(9),
-              reader.IsDBNull(10) ? null : reader.GetString(10),
-              reader.IsDBNull(11) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(11)),
-              reader.IsDBNull(12) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(12)),
-              reader.IsDBNull(13) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(13)),
-              reader.IsDBNull(14) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(14)),
-              reader.IsDBNull(15) ? null : reader.GetString(15),
-              reader.IsDBNull(16) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(16)),
-              reader.IsDBNull(17) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(17)),
-              reader.IsDBNull(18) ? null : reader.GetGuid(18),
-              reader.IsDBNull(19) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(19)),
-              reader.IsDBNull(20) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(20)),
-              PostgresConversion.ToScheduleOccurrenceKind(reader.GetValue(21))));
+            rows.Add(ReadRow(reader));
         }
 
         return rows;
     }
+
+    private static PostgresJobInspectionRow ReadRow(NpgsqlDataReader reader)
+      => new(
+        reader.GetGuid(0),
+        PostgresConversion.ToJobState(reader.GetValue(1)),
+        reader.GetString(2),
+        reader.GetString(3),
+        reader.GetInt32(4),
+        reader.GetInt64(5),
+        PostgresConversion.ToDateTimeOffset(reader.GetValue(6)),
+        reader.IsDBNull(7) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(7)),
+        reader.GetInt32(8),
+        reader.GetInt32(9),
+        reader.IsDBNull(10) ? null : reader.GetString(10),
+        reader.IsDBNull(11) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(11)),
+        reader.IsDBNull(12) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(12)),
+        reader.IsDBNull(13) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(13)),
+        reader.IsDBNull(14) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(14)),
+        reader.IsDBNull(15) ? null : reader.GetString(15),
+        reader.IsDBNull(16) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(16)),
+        reader.IsDBNull(17) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(17)),
+        reader.IsDBNull(18) ? null : reader.GetGuid(18),
+        reader.IsDBNull(19) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(19)),
+        reader.IsDBNull(20) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(20)),
+        PostgresConversion.ToScheduleOccurrenceKind(reader.GetValue(21)));
 
     private static async ValueTask<IReadOnlyList<JobEvent>> ReadEventPageAsync(
         PostgresOperationContext context,
@@ -1177,29 +1075,6 @@ internal static class PostgresJobInspectionOperation
         return jobIds;
     }
 
-    private static async ValueTask<bool> HasUnfinishedPrerequisitesAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        Guid jobId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-          $"""
-          select exists (
-              select 1
-              from {context.Names.JobDependencies} dependency
-              join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
-              where dependency.job_id = @job_id
-                and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
-          );
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-          ?? throw new InvalidOperationException("PostgreSQL did not return a dependency status."));
-    }
-
     private static async ValueTask<HashSet<Guid>> ReadDependencyBlockedJobIdsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -1245,28 +1120,7 @@ internal static class PostgresJobInspectionOperation
     private static string JobSelectSql(PostgresOperationContext context)
       => $"""
          select
-             job.job_id,
-             job.state,
-             job.service_type,
-             job.method_name,
-             job.priority,
-             job.enqueue_sequence,
-             job.enqueued_at_utc,
-             job.not_before_utc,
-             job.attempt_count,
-             job.max_attempts,
-             job.source_schedule_key,
-             job.completed_at_utc,
-             job.failed_at_utc,
-             job.canceled_at_utc,
-             job.claimed_at_utc,
-             job.claimed_by_node_id,
-             job.lease_expires_at_utc,
-             job.scheduled_fire_at_utc,
-             job.retry_clone_source_job_id,
-             job.cancellation_requested_at_utc,
-             job.cancellation_observed_at_utc,
-             job.schedule_occurrence_kind
+             {JobColumnsSql}
          from {context.Names.Jobs} job
          """;
 

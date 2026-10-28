@@ -44,32 +44,6 @@ internal static class PostgresJobTags
         }
     }
 
-    public static async ValueTask<IReadOnlyList<JobTag>> ReadJobTagsAsync(
-        PostgresOperationContext context,
-        NpgsqlConnection connection,
-        Guid jobId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-          $"""
-          select name, value
-          from {context.Names.JobTags}
-          where job_id = @job_id
-          order by ordinal asc, name asc, value asc;
-          """;
-        command.Parameters.AddWithValue("job_id", jobId);
-
-        var tags = new List<JobTag>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            tags.Add(new JobTag(reader.GetString(0), reader.GetString(1)));
-        }
-
-        return tags;
-    }
-
     private static List<JobTag> NormalizeTags(IReadOnlyList<JobTag>? tags)
     {
         if (tags is null || tags.Count == 0)

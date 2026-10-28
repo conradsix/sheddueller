@@ -53,8 +53,10 @@ internal static class PostgresWorkerOperations
             return false;
         }
 
+        // The claim read locked the job row for this transaction, so the update below targets that row directly and
+        // always applies: the group decrement can never be committed without the matching state change.
         await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
-        var updated = await PostgresOperationContext.ExecuteCountAsync(
+        await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
           $"""
@@ -67,43 +69,33 @@ internal static class PostgresWorkerOperations
               lease_token = null,
               lease_expires_at_utc = null,
               last_heartbeat_at_utc = null
-          where job_id = @job_id
-            and state = 'Claimed'
-            and claimed_by_node_id = @node_id
-            and lease_token = @lease_token
-            and lease_expires_at_utc > transaction_timestamp();
+          where job_id = @job_id;
           """,
           command =>
           {
-              command.Parameters.AddWithValue("job_id", request.JobId);
-              command.Parameters.AddWithValue("node_id", request.NodeId);
-              command.Parameters.AddWithValue("lease_token", request.LeaseToken);
+              command.Parameters.AddWithValue("job_id", job.JobId);
               command.Parameters.AddWithValue("observed_at_utc", request.ObservedAtUtc);
           },
           cancellationToken)
           .ConfigureAwait(false);
-
-        if (updated == 1)
-        {
-            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
-              context,
-              connection,
-              transaction,
-              new AppendJobEventRequest(job.JobId, JobEventKind.CancelObserved, job.AttemptCount, Message: "Cancellation observed"),
-              cancellationToken)
-              .ConfigureAwait(false);
-            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
-              context,
-              connection,
-              transaction,
-              new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: "Canceled"),
-              cancellationToken)
-              .ConfigureAwait(false);
-            await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        }
-
+        await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
+          context,
+          connection,
+          transaction,
+          new AppendJobEventRequest(job.JobId, JobEventKind.CancelObserved, job.AttemptCount, Message: "Cancellation observed"),
+          cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
+          context,
+          connection,
+          transaction,
+          new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: "Canceled"),
+          cancellationToken)
+          .ConfigureAwait(false);
+        await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return updated == 1;
+
+        return true;
     }
 
     public static async ValueTask RecordWorkerNodeHeartbeatAsync(

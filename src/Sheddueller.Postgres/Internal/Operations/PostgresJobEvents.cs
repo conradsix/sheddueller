@@ -37,38 +37,63 @@ internal static class PostgresJobEvents
         return jobEvent;
     }
 
-    public static async ValueTask<JobEvent?> ReadEventAsync(
+    /// <summary>
+    /// Reads the identified events with one query. The result is aligned with <paramref name="eventKeys"/>,
+    /// holding <see langword="null"/> for an event that no longer exists.
+    /// </summary>
+    public static async ValueTask<IReadOnlyList<JobEvent?>> ReadEventsAsync(
         PostgresOperationContext context,
-        Guid jobId,
-        long eventSequence,
+        IReadOnlyList<(Guid JobId, long EventSequence)> eventKeys,
         CancellationToken cancellationToken)
     {
+        var jobEvents = new JobEvent?[eventKeys.Count];
+        if (eventKeys.Count == 0)
+        {
+            return jobEvents;
+        }
+
+        var jobIds = new Guid[eventKeys.Count];
+        var eventSequences = new long[eventKeys.Count];
+        for (var i = 0; i < eventKeys.Count; i++)
+        {
+            (jobIds[i], eventSequences[i]) = eventKeys[i];
+        }
+
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
           select
-              event_id,
-              job_id,
-              event_sequence,
-              kind,
-              occurred_at_utc,
-              attempt_number,
-              log_level,
-              message,
-              progress_percent,
-              fields
-          from {context.Names.JobEvents}
-          where job_id = @job_id
-            and event_sequence = @event_sequence;
+              job_event.event_id,
+              job_event.job_id,
+              job_event.event_sequence,
+              job_event.kind,
+              job_event.occurred_at_utc,
+              job_event.attempt_number,
+              job_event.log_level,
+              job_event.message,
+              job_event.progress_percent,
+              job_event.fields,
+              requested.ordinal
+          from unnest(
+              @job_ids::uuid[],
+              @event_sequences::bigint[])
+            with ordinality as requested(job_id, event_sequence, ordinal)
+          join {context.Names.JobEvents} job_event
+            on job_event.job_id = requested.job_id
+           and job_event.event_sequence = requested.event_sequence;
           """;
-        command.Parameters.AddWithValue("job_id", jobId);
-        command.Parameters.AddWithValue("event_sequence", eventSequence);
+        command.Parameters.AddWithValue("job_ids", jobIds);
+        command.Parameters.AddWithValue("event_sequences", eventSequences);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-          ? ReadEvent(reader)
-          : null;
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // with ordinality numbers the requested keys from 1.
+            jobEvents[checked((int)reader.GetInt64(10)) - 1] = ReadEvent(reader);
+        }
+
+        return jobEvents;
     }
 
     public static JobEvent ReadEvent(NpgsqlDataReader reader)
