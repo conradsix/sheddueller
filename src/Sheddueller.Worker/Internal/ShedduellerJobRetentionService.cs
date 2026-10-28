@@ -39,7 +39,7 @@ internal sealed class ShedduellerJobRetentionService(
                     logger.WorkerJobRetentionCleanupFailed(exception);
                 }
 
-                await Task.Delay(delay, stoppingToken).ConfigureAwait(false);
+                await Task.Delay(delay, timeProvider, stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

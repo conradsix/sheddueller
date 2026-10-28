@@ -10,6 +10,7 @@ using Sheddueller.Storage;
 internal sealed class ShedduellerJobLogEventDispatcher(
     ShedduellerJobLogEventQueue queue,
     IJobEventSink eventSink,
+    TimeProvider timeProvider,
     ILogger<ShedduellerJobLogEventDispatcher> logger) : BackgroundService
 {
     private const int MaxBatchSize = 64;
@@ -17,7 +18,26 @@ internal sealed class ShedduellerJobLogEventDispatcher(
 
     private readonly ShedduellerJobLogEventQueue _queue = queue;
     private readonly IJobEventSink _eventSink = eventSink;
+    private readonly TimeProvider _timeProvider = timeProvider;
     private readonly ILogger<ShedduellerJobLogEventDispatcher> _logger = logger;
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken).ConfigureAwait(false);
+
+        // BackgroundService starts ExecuteAsync on the thread pool and skips it altogether when stopped before it gets a
+        // thread, so the drain in ExecuteAsync may never run. Drain what is still queued here too, but only once
+        // ExecuteAsync has finished: the queue has a single reader.
+        if (this.ExecuteTask is null || this.ExecuteTask.IsCompleted)
+        {
+            var remaining = new List<AppendJobEventRequest>();
+            this.DrainAvailable(remaining, int.MaxValue);
+            await this.FlushAsync(remaining)
+                .AsTask()
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -30,7 +50,7 @@ internal sealed class ShedduellerJobLogEventDispatcher(
                 this.DrainAvailable(batch);
                 if (batch.Count < MaxBatchSize)
                 {
-                    await Task.Delay(FlushInterval, stoppingToken).ConfigureAwait(false);
+                    await Task.Delay(FlushInterval, this._timeProvider, stoppingToken).ConfigureAwait(false);
                     this.DrainAvailable(batch);
                 }
 
