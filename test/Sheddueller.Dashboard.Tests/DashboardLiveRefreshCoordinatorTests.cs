@@ -222,14 +222,14 @@ public sealed class DashboardLiveRefreshCoordinatorTests
     [Fact]
     public void ShellRefreshContext_RegisterAndDispose_TracksCurrentPage()
     {
-        using var first = CreateCoordinator();
-        using var second = CreateCoordinator();
+        using var first = TestData.RefreshCoordinator();
+        using var second = TestData.RefreshCoordinator();
         var context = new DashboardShellRefreshContext();
         var changedCount = 0;
         context.Changed += () => changedCount++;
 
-        var firstRegistration = context.Register(first, CreateShellOptions());
-        var secondRegistration = context.Register(second, CreateShellOptions());
+        var firstRegistration = context.Register(first, TestData.ShellRefreshOptions());
+        var secondRegistration = context.Register(second, TestData.ShellRefreshOptions());
 
         context.Current.ShouldNotBeNull();
         context.Current.Coordinator.ShouldBe(second);
@@ -248,31 +248,17 @@ public sealed class DashboardLiveRefreshCoordinatorTests
     [Fact]
     public async Task ShellRefreshContext_ToggleCurrentAutoRefresh_UpdatesCurrentCoordinator()
     {
-        using var coordinator = CreateCoordinator();
+        using var coordinator = TestData.RefreshCoordinator();
         var context = new DashboardShellRefreshContext();
         var changedCount = 0;
         context.Changed += () => changedCount++;
 
-        using var registration = context.Register(coordinator, CreateShellOptions());
+        using var registration = context.Register(coordinator, TestData.ShellRefreshOptions());
         await context.ToggleCurrentAutoRefreshAsync();
 
         coordinator.AutoRefreshEnabled.ShouldBeFalse();
         changedCount.ShouldBe(2);
     }
-
-    private static DashboardLiveRefreshCoordinator CreateCoordinator()
-      => new(
-        _ => Task.CompletedTask,
-        action =>
-        {
-            action();
-            return Task.CompletedTask;
-        });
-
-    private static DashboardShellRefreshOptions CreateShellOptions()
-      => new(
-        ShowRefreshing: true,
-        LastUpdatedUtc: _ => null);
 
     private sealed class ControlledDelay
     {

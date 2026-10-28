@@ -62,31 +62,7 @@ public sealed class DashboardMetricsSnapshotCacheTests
     }
 
     private static MetricsInspectionSnapshot CreateSnapshot(int queuedCount)
-      => new(
-      [
-          new(
-            TimeSpan.FromMinutes(5),
-            queuedCount,
-            ClaimedCount: 0,
-            FailedCount: 0,
-            CanceledCount: 0,
-            OldestQueuedAge: null,
-            EnqueueRatePerMinute: 0,
-            ClaimRatePerMinute: 0,
-            SuccessRatePerMinute: 0,
-            FailureRatePerMinute: 0,
-            CancellationRatePerMinute: 0,
-            RetryRatePerMinute: 0,
-            P50QueueLatency: null,
-            P95QueueLatency: null,
-            P50ExecutionDuration: null,
-            P95ExecutionDuration: null,
-            P95ScheduleFireLag: null,
-            SaturatedConcurrencyGroupCount: 0,
-            ActiveNodeCount: 0,
-            StaleNodeCount: 0,
-            DeadNodeCount: 0),
-      ]);
+      => new([TestData.MetricsWindow(queuedCount)]);
 
     private sealed class CountingMetricsReader : IMetricsInspectionReader
     {

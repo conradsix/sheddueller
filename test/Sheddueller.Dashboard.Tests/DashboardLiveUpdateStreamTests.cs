@@ -19,7 +19,7 @@ public sealed class DashboardLiveUpdateStreamTests
         var stream = new DashboardLiveUpdateStream(NullLogger<DashboardLiveUpdateStream>.Instance);
         var slowSubscriberRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var otherSubscriberReceived = new TaskCompletionSource<JobEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var jobEvent = CreateEvent();
+        var jobEvent = TestData.Event(7, message: "line");
 
         stream.JobEventPublished += (_, _) => new ValueTask(slowSubscriberRelease.Task);
         stream.JobEventPublished += async (published, _) =>
@@ -46,7 +46,7 @@ public sealed class DashboardLiveUpdateStreamTests
           .AddProvider(logs));
         var stream = new DashboardLiveUpdateStream(loggerFactory.CreateLogger<DashboardLiveUpdateStream>());
         var received = new List<JobEvent>();
-        var jobEvent = CreateEvent();
+        var jobEvent = TestData.Event(7, message: "line");
 
         stream.JobEventPublished += (_, _) => throw new InvalidOperationException("circuit gone");
         stream.JobEventPublished += async (_, _) =>
@@ -68,14 +68,4 @@ public sealed class DashboardLiveUpdateStreamTests
         failures.ShouldAllBe(entry => entry.Level == LogLevel.Warning);
         failures.ShouldAllBe(entry => Equals(entry.Properties["JobId"], jobEvent.JobId));
     }
-
-    private static JobEvent CreateEvent()
-      => new(
-        Guid.NewGuid(),
-        Guid.NewGuid(),
-        EventSequence: 7,
-        JobEventKind.Log,
-        DateTimeOffset.UtcNow,
-        AttemptNumber: 1,
-        Message: "line");
 }
