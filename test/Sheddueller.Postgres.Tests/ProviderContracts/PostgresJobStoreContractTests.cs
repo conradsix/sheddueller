@@ -7,6 +7,6 @@ public sealed class PostgresJobStoreContractTests(PostgresFixture fixture) : Job
     protected override async ValueTask<JobStoreContractContext> CreateContextAsync()
     {
         var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        return new JobStoreContractContext(context.Store, context.MakeScheduleDueAsync, context);
+        return new JobStoreContractContext(context.Store, context.MakeScheduleDueAsync, context, context.InspectionReader);
     }
 }

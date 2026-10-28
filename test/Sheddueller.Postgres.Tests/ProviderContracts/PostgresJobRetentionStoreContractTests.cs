@@ -11,8 +11,8 @@ public sealed class PostgresJobRetentionStoreContractTests(PostgresFixture fixtu
         var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         return new JobRetentionStoreContractContext(
           context.Store,
-          (IJobRetentionStore)context.Store,
-          (IJobInspectionReader)context.Store,
+          context.RetentionStore,
+          context.InspectionReader,
           context);
     }
 }

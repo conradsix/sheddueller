@@ -1011,7 +1011,7 @@ public abstract class JobStoreContractTests
       => new(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray());
 
     private static IJobInspectionReader GetInspectionReader(JobStoreContractContext context)
-      => context.Store as IJobInspectionReader
+      => context.InspectionReader
         ?? throw new InvalidOperationException("Job store contract contexts must provide job inspection.");
 
     private static async ValueTask<IReadOnlyList<JobEvent>> ReadEventsAsync(

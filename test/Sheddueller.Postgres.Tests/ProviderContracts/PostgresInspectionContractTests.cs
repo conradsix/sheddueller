@@ -13,13 +13,13 @@ public sealed class PostgresInspectionContractTests(PostgresFixture fixture) : I
     protected override async ValueTask<InspectionContractContext> CreateContextAsync()
     {
         var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var reader = (IJobInspectionReader)context.Store;
-        var eventSink = (IJobEventSink)context.Store;
-        var retentionStore = (IJobEventRetentionStore)context.Store;
-        var scheduleReader = (IScheduleInspectionReader)context.Store;
-        var concurrencyGroupReader = (IConcurrencyGroupInspectionReader)context.Store;
-        var nodeReader = (INodeInspectionReader)context.Store;
-        var metricsReader = (IMetricsInspectionReader)context.Store;
+        var reader = context.InspectionReader;
+        var eventSink = context.EventSink;
+        var retentionStore = context.EventRetentionStore;
+        var scheduleReader = context.ScheduleReader;
+        var concurrencyGroupReader = context.ConcurrencyGroupReader;
+        var nodeReader = context.NodeReader;
+        var metricsReader = context.MetricsReader;
 
         return new InspectionContractContext(
           context.Store,

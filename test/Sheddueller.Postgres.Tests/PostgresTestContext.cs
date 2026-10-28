@@ -10,7 +10,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 using Sheddueller;
+using Sheddueller.Inspection.ConcurrencyGroups;
 using Sheddueller.Inspection.Jobs;
+using Sheddueller.Inspection.Metrics;
+using Sheddueller.Inspection.Nodes;
+using Sheddueller.Inspection.Schedules;
 using Sheddueller.Postgres;
 using Sheddueller.Storage;
 
@@ -26,6 +30,22 @@ internal sealed class PostgresTestContext(
     public string SchemaName { get; } = schemaName;
 
     public IJobStore Store => this.Provider.GetRequiredService<IJobStore>();
+
+    public IJobEventSink EventSink => this.Provider.GetRequiredService<IJobEventSink>();
+
+    public IJobInspectionReader InspectionReader => this.Provider.GetRequiredService<IJobInspectionReader>();
+
+    public IScheduleInspectionReader ScheduleReader => this.Provider.GetRequiredService<IScheduleInspectionReader>();
+
+    public IConcurrencyGroupInspectionReader ConcurrencyGroupReader => this.Provider.GetRequiredService<IConcurrencyGroupInspectionReader>();
+
+    public INodeInspectionReader NodeReader => this.Provider.GetRequiredService<INodeInspectionReader>();
+
+    public IMetricsInspectionReader MetricsReader => this.Provider.GetRequiredService<IMetricsInspectionReader>();
+
+    public IJobRetentionStore RetentionStore => this.Provider.GetRequiredService<IJobRetentionStore>();
+
+    public IJobEventRetentionStore EventRetentionStore => this.Provider.GetRequiredService<IJobEventRetentionStore>();
 
     public static async ValueTask<PostgresTestContext> CreateMigratedAsync(PostgresFixture fixture)
     {
@@ -368,10 +388,8 @@ internal sealed class PostgresTestContext(
 
     public async ValueTask<IReadOnlyList<JobEvent>> ReadJobEventsAsync(Guid jobId)
     {
-        var inspectionReader = this.Store as IJobInspectionReader
-          ?? throw new InvalidOperationException("Postgres store must provide job inspection.");
         var events = new List<JobEvent>();
-        await foreach (var jobEvent in inspectionReader.ReadEventsAsync(jobId))
+        await foreach (var jobEvent in this.InspectionReader.ReadEventsAsync(jobId))
         {
             events.Add(jobEvent);
         }

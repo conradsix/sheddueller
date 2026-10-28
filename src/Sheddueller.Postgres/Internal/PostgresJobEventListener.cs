@@ -10,7 +10,7 @@ using Sheddueller.Runtime;
 using Sheddueller.Storage;
 
 internal sealed class PostgresJobEventListener(
-    ShedduellerPostgresOptions options,
+    PostgresOperationContext context,
     IJobEventNotifier publisher,
     ILogger<PostgresJobEventListener> logger) : IShedduellerJobEventListener
 {
@@ -24,7 +24,6 @@ internal sealed class PostgresJobEventListener(
     /// </summary>
     internal const int PublishBatchSize = 256;
 
-    private readonly PostgresOperationContext _context = new(options);
     private readonly Channel<(Guid JobId, long EventSequence)> _pendingNotifications = Channel.CreateBounded<(Guid JobId, long EventSequence)>(
       new BoundedChannelOptions(PendingNotificationCapacity)
       {
@@ -35,11 +34,11 @@ internal sealed class PostgresJobEventListener(
     public async Task ListenAsync(CancellationToken cancellationToken)
     {
         var listenLoop = new PostgresListenLoop(
-          options.DataSource,
+          context.Options.DataSource,
           PostgresNames.JobEventChannel,
           this.HandleNotificationPayload,
-          () => logger.PostgresJobEventListenerStarted(options.SchemaName),
-          (exception, retryDelay) => logger.PostgresJobEventListenerRetrying(exception, options.SchemaName, (long)retryDelay.TotalMilliseconds),
+          () => logger.PostgresJobEventListenerStarted(context.Options.SchemaName),
+          (exception, retryDelay) => logger.PostgresJobEventListenerRetrying(exception, context.Options.SchemaName, (long)retryDelay.TotalMilliseconds),
           PostgresListenLoop.DefaultKeepAliveInterval,
           PostgresListenLoop.DefaultRetryDelay);
 
@@ -54,9 +53,9 @@ internal sealed class PostgresJobEventListener(
     /// </summary>
     internal void HandleNotificationPayload(string payload)
     {
-        if (!TryParsePayload(payload, options.SchemaName, out var jobId, out var eventSequence))
+        if (!TryParsePayload(payload, context.Options.SchemaName, out var jobId, out var eventSequence))
         {
-            logger.PostgresJobEventNotificationPayloadInvalid(options.SchemaName);
+            logger.PostgresJobEventNotificationPayloadInvalid(context.Options.SchemaName);
             return;
         }
 
@@ -97,11 +96,11 @@ internal sealed class PostgresJobEventListener(
         IReadOnlyList<JobEvent?> jobEvents;
         try
         {
-            jobEvents = await PostgresJobEvents.ReadEventsAsync(this._context, batch, cancellationToken).ConfigureAwait(false);
+            jobEvents = await PostgresJobEvents.ReadEventsAsync(context, batch, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.PostgresJobEventNotificationBatchFailed(exception, options.SchemaName, batch.Count);
+            logger.PostgresJobEventNotificationBatchFailed(exception, context.Options.SchemaName, batch.Count);
             return;
         }
 

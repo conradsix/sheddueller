@@ -129,10 +129,8 @@ public sealed class CancelJobOperationTests(PostgresFixture fixture)
         PostgresTestContext context,
         Guid jobId)
     {
-        var inspectionReader = context.Store as IJobInspectionReader
-          ?? throw new InvalidOperationException("Postgres store must provide job inspection.");
         var events = new List<JobEvent>();
-        await foreach (var jobEvent in inspectionReader.ReadEventsAsync(jobId))
+        await foreach (var jobEvent in context.InspectionReader.ReadEventsAsync(jobId))
         {
             events.Add(jobEvent);
         }

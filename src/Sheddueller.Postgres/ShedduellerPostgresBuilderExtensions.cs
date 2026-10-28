@@ -14,6 +14,7 @@ using Sheddueller.Inspection.Nodes;
 using Sheddueller.Inspection.Schedules;
 using Sheddueller.Postgres;
 using Sheddueller.Postgres.Internal;
+using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Runtime;
 using Sheddueller.Storage;
 
@@ -138,17 +139,24 @@ public static class ShedduellerPostgresBuilderExtensions
 
     private static void RegisterProviderServices(IServiceCollection services)
     {
+        services.Replace(ServiceDescriptor.Singleton<PostgresOperationContext, PostgresOperationContext>());
+
         services.Replace(ServiceDescriptor.Singleton<PostgresJobStore, PostgresJobStore>());
         services.Replace(ServiceDescriptor.Singleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<IJobInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         services.Replace(ServiceDescriptor.Singleton<IJobEventSink>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<IJobEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<IJobRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<IShedduellerCleanupConfigurationStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<IScheduleInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<IConcurrencyGroupInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<INodeInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        services.Replace(ServiceDescriptor.Singleton<IMetricsInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+
+        services.Replace(ServiceDescriptor.Singleton<PostgresInspectionReader, PostgresInspectionReader>());
+        services.Replace(ServiceDescriptor.Singleton<IJobInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresInspectionReader>()));
+        services.Replace(ServiceDescriptor.Singleton<IScheduleInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresInspectionReader>()));
+        services.Replace(ServiceDescriptor.Singleton<IConcurrencyGroupInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresInspectionReader>()));
+        services.Replace(ServiceDescriptor.Singleton<INodeInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresInspectionReader>()));
+        services.Replace(ServiceDescriptor.Singleton<IMetricsInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresInspectionReader>()));
+
+        services.Replace(ServiceDescriptor.Singleton<PostgresRetentionStore, PostgresRetentionStore>());
+        services.Replace(ServiceDescriptor.Singleton<IJobEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresRetentionStore>()));
+        services.Replace(ServiceDescriptor.Singleton<IJobRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresRetentionStore>()));
+        services.Replace(ServiceDescriptor.Singleton<IShedduellerCleanupConfigurationStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresRetentionStore>()));
+
         services.Replace(ServiceDescriptor.Singleton<IPostgresMigrator, PostgresMigrator>());
         services.Replace(ServiceDescriptor.Singleton<IShedduellerWakeSignal, PostgresWakeSignal>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IShedduellerStartupValidator, PostgresStartupValidator>());

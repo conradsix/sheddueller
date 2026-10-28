@@ -61,7 +61,7 @@ public sealed class TriggerRecurringScheduleOperationTests(PostgresFixture fixtu
         (await context.ReadJobGroupKeysAsync(jobId)).ShouldBe(["shared"]);
         (await context.ReadJobTagsAsync(jobId)).ShouldBe([new JobTag("tenant", "acme"), new JobTag("domain", "payments")]);
 
-        var inspectionReader = context.Store.ShouldBeAssignableTo<IJobInspectionReader>();
+        var inspectionReader = context.InspectionReader;
         var inspected = await inspectionReader.GetJobAsync(jobId);
         inspected.ShouldNotBeNull();
         inspected.ScheduledFireAtUtc.ShouldBeNull();
