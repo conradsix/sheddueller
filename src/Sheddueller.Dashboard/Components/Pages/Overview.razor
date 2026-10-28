@@ -344,24 +344,8 @@
           this.RefreshOverviewAsync,
           showRefreshing: true,
           lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._overview is null ? null : nowUtc));
-        LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
+        this.RefreshOnJobEvents(LiveUpdates);
         await this.LoadOverviewAsync();
-    }
-
-    private protected override ValueTask DisposePageAsync()
-    {
-        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
-        return ValueTask.CompletedTask;
-    }
-
-    private async ValueTask OnJobEventPublishedAsync(
-        JobEvent jobEvent,
-        CancellationToken cancellationToken)
-    {
-        _ = cancellationToken;
-
-        await this.ApplyPageStateAsync(() => this.LiveRefresh.MarkLiveActivity(jobEvent.OccurredAtUtc));
-        this.LiveRefresh.QueueRefresh();
     }
 
     private async Task LoadOverviewAsync()

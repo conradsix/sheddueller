@@ -63,6 +63,22 @@ public sealed class DashboardEndpointTests
         html.ShouldNotContain("sd-sidebar");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MapShedduellerDashboard_InteractiveCircuit_NegotiatesBlazorHub(bool mapWithWebApplication)
+    {
+        await using var app = await CreateStartedDashboardAsync(mapWithWebApplication: mapWithWebApplication);
+        using var content = new StringContent(string.Empty);
+
+        var response = await app.GetTestClient().PostAsync(
+          new Uri("/sheddueller/_blazor/negotiate?negotiateVersion=1", UriKind.Relative),
+          content);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("connectionToken");
+    }
+
     [Fact]
     public async Task DashboardDocument_DefaultOptions_LoadsNoThirdPartyResources()
     {

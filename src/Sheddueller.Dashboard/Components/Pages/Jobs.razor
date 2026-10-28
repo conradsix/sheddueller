@@ -406,7 +406,6 @@
     private readonly List<DashboardResolvedJobView> _views = [];
     private readonly List<DashboardStoredJobView> _storedViews = [];
     private readonly HashSet<Guid> _selected = [];
-    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private DotNetObjectReference<Jobs>? _columnResizeReceiver;
     private JobInspectionPage? _page;
     private JobInspectionQuery _lastQuery = new(PageSize: DefaultPageSize);
@@ -618,7 +617,7 @@
           showRefreshing: true,
           lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._page is null ? null : nowUtc),
           queuedRefreshAsync: this.RefreshLiveAsync);
-        LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
+        this.RefreshOnJobEvents(LiveUpdates);
 
         // When the view depends on browser storage (the preferred view, or a personal view named in the URL), an
         // interactive render waits for storage after the first render and loads once with the resolved view,
@@ -653,37 +652,11 @@
         await this.FlushToastsAsync();
     }
 
-    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
-    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
-      => this._pendingToasts.Add((title, description, tone));
-
     private void ShowToastWarning(string message)
       => this.ShowToast(message, tone: AlertTone.Warning);
 
-    private async Task FlushToastsAsync()
-    {
-        if (this._pendingToasts.Count == 0)
-        {
-            return;
-        }
-
-        var toasts = this._pendingToasts.ToArray();
-        this._pendingToasts.Clear();
-        foreach (var (title, description, tone) in toasts)
-        {
-            try
-            {
-                await JsRuntime.ToastAsync(title, description, tone);
-            }
-            catch (JSException)
-            {
-            }
-        }
-    }
-
     private protected override async ValueTask DisposePageAsync()
     {
-        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
         this.CancelPendingFilterLoad();
         if (this._columnResizingRegistered)
         {
@@ -1503,16 +1476,6 @@
                 this.NotifyShellRefreshChanged();
             }
         }
-    }
-
-    private async ValueTask OnJobEventPublishedAsync(
-        JobEvent jobEvent,
-        CancellationToken cancellationToken)
-    {
-        _ = cancellationToken;
-
-        await this.ApplyPageStateAsync(() => this.LiveRefresh.MarkLiveActivity(jobEvent.OccurredAtUtc));
-        this.LiveRefresh.QueueRefresh();
     }
 
     // Explicit refresh (manual refresh, "N new jobs — show", auto-refresh re-enabled, after an action): the fresh

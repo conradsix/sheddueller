@@ -662,7 +662,6 @@
     private readonly DashboardJobEventLog _eventLog = new(EventPageSize);
 
     private readonly Dictionary<Guid, JobInspectionSummary?> _relatedJobs = [];
-    private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private JobInspectionDetail? _detail;
     private JobInvocationInspection? _callSource;
     private InvocationCall? _call;
@@ -732,7 +731,7 @@
           showRefreshing: true,
           lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._detail is null ? null : nowUtc),
           queuedRefreshAsync: this.RefreshSummaryAsync);
-        LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
+        this.SubscribeToJobEvents(LiveUpdates, this.OnJobEventPublishedAsync);
     }
 
     protected override async Task OnParametersSetAsync()
@@ -802,12 +801,6 @@
         }
     }
 
-    private protected override ValueTask DisposePageAsync()
-    {
-        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
-        return ValueTask.CompletedTask;
-    }
-
     // The call is rebuilt only when a refresh brings a new invocation, not on every live log line.
     private InvocationCall CallFor(JobInvocationInspection invocation)
     {
@@ -837,34 +830,6 @@
           DashboardInvocationView.Text(fullCall),
           [.. arguments.Select(argument => new InvocationParameter(argument, DashboardInvocationView.JsonTokens(argument.ValueJson)))]);
         return this._call;
-    }
-
-    // Action results are shown as toasts once the page has rendered (JS interop is available after render).
-    private void ShowToast(string title, string? description = null, AlertTone tone = AlertTone.Neutral)
-      => this._pendingToasts.Add((title, description, tone));
-
-    private async Task FlushToastsAsync()
-    {
-        if (this._pendingToasts.Count == 0)
-        {
-            return;
-        }
-
-        var toasts = this._pendingToasts.ToArray();
-        this._pendingToasts.Clear();
-        foreach (var (title, description, tone) in toasts)
-        {
-            try
-            {
-                await JsRuntime.ToastAsync(title, description, tone);
-            }
-            catch (JSDisconnectedException)
-            {
-            }
-            catch (JSException)
-            {
-            }
-        }
     }
 
     // Paused means no live appends and no list replacement. Resuming catches up on anything missed while paused.

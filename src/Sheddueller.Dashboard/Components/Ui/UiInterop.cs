@@ -21,6 +21,7 @@ internal static class UiInterop
             tone = tone switch
             {
                 AlertTone.Success => "success",
+                AlertTone.Warning => "warning",
                 AlertTone.Destructive => "error",
                 _ => "info",
             },

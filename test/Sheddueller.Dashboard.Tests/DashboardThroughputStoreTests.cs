@@ -1,5 +1,6 @@
 namespace Sheddueller.Dashboard.Tests;
 
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 
 using Sheddueller.Dashboard.Internal;
@@ -65,7 +66,7 @@ public sealed class DashboardThroughputStoreTests
     public void Record_ReusedSlot_ResetsPreviousBucketCounts()
     {
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 4, 26, 12, 0, 0, TimeSpan.Zero));
-        using var store = new DashboardThroughputStore(new DashboardLiveUpdateStream(), timeProvider);
+        using var store = new DashboardThroughputStore(new DashboardLiveUpdateStream(NullLogger<DashboardLiveUpdateStream>.Instance), timeProvider);
 
         store.Record(CreateEvent(JobEventKind.Lifecycle, timeProvider.GetUtcNow(), "Queued"));
 
@@ -78,7 +79,7 @@ public sealed class DashboardThroughputStoreTests
     }
 
     private static DashboardThroughputStore CreateStore(DateTimeOffset now)
-      => new(new DashboardLiveUpdateStream(), new FakeTimeProvider(now));
+      => new(new DashboardLiveUpdateStream(NullLogger<DashboardLiveUpdateStream>.Instance), new FakeTimeProvider(now));
 
     private static JobEvent CreateEvent(
         JobEventKind kind,

@@ -101,6 +101,98 @@ public sealed class DashboardLiveRefreshCoordinatorTests
     }
 
     [Fact]
+    public async Task LiveEvents_WithinThrottle_RenderOnlyThroughOneRefresh()
+    {
+        var refreshCount = 0;
+        var applyCount = 0;
+        var delay = new ControlledDelay();
+        using var coordinator = new DashboardLiveRefreshCoordinator(
+          _ =>
+          {
+              refreshCount++;
+              return Task.CompletedTask;
+          },
+          action =>
+          {
+              applyCount++;
+              action();
+              return Task.CompletedTask;
+          },
+          throttle: TimeSpan.FromSeconds(1),
+          delayAsync: delay.DelayAsync);
+        var firstEventAt = DateTimeOffset.Parse("2026-04-20T12:08:00Z", CultureInfo.InvariantCulture);
+        var lastEventAt = firstEventAt.AddMilliseconds(400);
+
+        coordinator.QueueLiveRefresh(firstEventAt);
+        coordinator.QueueLiveRefresh(firstEventAt.AddMilliseconds(200));
+        coordinator.QueueLiveRefresh(lastEventAt);
+
+        var throttleDelay = await delay.TakeAsync();
+        applyCount.ShouldBe(0);
+        refreshCount.ShouldBe(0);
+        coordinator.LastUpdatedUtc.ShouldBe(lastEventAt);
+
+        throttleDelay.Complete();
+        var drainDelay = await delay.TakeAsync();
+
+        refreshCount.ShouldBe(1);
+
+        drainDelay.Complete();
+    }
+
+    [Fact]
+    public void LiveEvent_AutoRefreshPaused_DoesNotMarkActivityOrQueueRefresh()
+    {
+        var refreshCount = 0;
+        var applyCount = 0;
+        var delay = new ControlledDelay();
+        using var coordinator = new DashboardLiveRefreshCoordinator(
+          _ =>
+          {
+              refreshCount++;
+              return Task.CompletedTask;
+          },
+          action =>
+          {
+              applyCount++;
+              action();
+              return Task.CompletedTask;
+          },
+          autoRefreshEnabled: false,
+          throttle: TimeSpan.FromSeconds(1),
+          delayAsync: delay.DelayAsync);
+
+        coordinator.QueueLiveRefresh(DateTimeOffset.Parse("2026-04-20T12:08:00Z", CultureInfo.InvariantCulture));
+
+        coordinator.LastUpdatedUtc.ShouldBeNull();
+        delay.PendingCount.ShouldBe(0);
+        refreshCount.ShouldBe(0);
+        applyCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public void LiveEvent_OlderThanLastUpdate_KeepsLastUpdatedTime()
+    {
+        var delay = new ControlledDelay();
+        using var coordinator = new DashboardLiveRefreshCoordinator(
+          _ => Task.CompletedTask,
+          action =>
+          {
+              action();
+              return Task.CompletedTask;
+          },
+          throttle: TimeSpan.FromSeconds(1),
+          delayAsync: delay.DelayAsync);
+        var refreshedAt = DateTimeOffset.Parse("2026-04-20T12:08:05Z", CultureInfo.InvariantCulture);
+        coordinator.MarkUpdated(refreshedAt);
+
+        coordinator.QueueLiveRefresh(refreshedAt.AddSeconds(-3));
+
+        coordinator.LastUpdatedUtc.ShouldBe(refreshedAt);
+        delay.PendingCount.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task SetAutoRefreshEnabled_Disabled_SuppressesQueuedRefreshes()
     {
         var refreshCount = 0;

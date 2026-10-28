@@ -11,7 +11,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 using Sheddueller.Dashboard.Components;
-using Sheddueller.Dashboard.Internal;
 
 /// <summary>
 /// Endpoint mapping extensions for the embedded Sheddueller dashboard.
@@ -19,7 +18,7 @@ using Sheddueller.Dashboard.Internal;
 public static class ShedduellerDashboardEndpointRouteBuilderExtensions
 {
     /// <summary>
-    /// Maps the dashboard UI and live update hub under the supplied path using minimal hosting.
+    /// Maps the dashboard UI under the supplied path using minimal hosting.
     /// </summary>
     /// <param name="app">The web application to map the dashboard branch on.</param>
     /// <param name="path">The absolute route path for the dashboard root.</param>
@@ -35,7 +34,7 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
     }
 
     /// <summary>
-    /// Maps the dashboard UI and live update hub under the supplied path using an application branch.
+    /// Maps the dashboard UI under the supplied path using an application branch.
     /// </summary>
     /// <param name="app">The application builder to map the dashboard branch on.</param>
     /// <param name="path">The absolute route path for the dashboard root.</param>
@@ -80,7 +79,6 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
                 MapStaticAssetsIfManifestExists(endpoints);
                 endpoints.MapRazorComponents<DashboardApp>()
                   .AddInteractiveServerRenderMode();
-                endpoints.MapHub<DashboardUpdatesHub>("/live");
             });
         });
 
@@ -88,7 +86,7 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
     }
 
     /// <summary>
-    /// Maps the dashboard UI and live update hub under the supplied path.
+    /// Maps the dashboard UI under the supplied path.
     /// </summary>
     /// <param name="endpoints">The endpoint route builder to map the dashboard endpoints on.</param>
     /// <param name="path">The absolute route path for the dashboard root.</param>
@@ -110,7 +108,6 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
         MapStaticAssetsIfManifestExists(group);
         group.MapRazorComponents<DashboardApp>()
           .AddInteractiveServerRenderMode();
-        group.MapHub<DashboardUpdatesHub>("/live");
 
         return group;
     }
