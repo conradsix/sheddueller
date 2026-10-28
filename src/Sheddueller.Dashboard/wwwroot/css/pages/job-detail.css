@@ -80,13 +80,44 @@
     font-size: 13px;
   }
 
+  /* the ID is rarely what you came for, so it sits quietly at the end of the row */
   .job-detail-meta__id {
     display: inline-flex;
     min-width: 0;
     align-items: center;
     gap: 2px;
-    color: var(--foreground);
+    font-size: 12px;
     overflow-wrap: anywhere;
+  }
+
+  .job-detail-attempt {
+    display: inline-flex;
+    height: 24px;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--muted);
+    padding: 0 8px;
+    color: var(--foreground);
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .job-detail-attempt--retried,
+  .job-detail-attempt--exhausted {
+    border-color: color-mix(in oklab, var(--tone) 30%, transparent);
+    background: color-mix(in oklab, var(--tone) 10%, transparent);
+    color: var(--tone);
+  }
+
+  .job-detail-attempt--retried {
+    --tone: var(--warning);
+  }
+
+  .job-detail-attempt--exhausted {
+    --tone: var(--state-failed);
   }
 
   .job-detail-meta .sd-link {
@@ -143,33 +174,118 @@
     overflow-wrap: anywhere;
   }
 
-  /* facts */
-  .job-detail-facts-card {
+  /* timing tiles: waited, last run, run time, tags */
+  .job-detail-stats-card {
     overflow: clip;
   }
 
-  .job-detail-facts-card dd {
+  .job-detail-stats {
     display: grid;
-    justify-items: start;
-    gap: 2px;
+    gap: 1px;
+    margin: 0;
+    background: var(--border);
+    /* tags get the extra room: a job can carry several */
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 2fr);
   }
 
-  /* tags and groups wrap here rather than truncating, as they would in a table cell */
-  .job-detail-facts-card .sd-tags--nowrap {
+  .job-detail-stat {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: 4px;
+    background: var(--card);
+    padding: 14px 16px;
+  }
+
+  .job-detail-stat dt {
+    color: var(--muted-foreground);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+
+  .job-detail-stat dd {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .job-detail-stat__value,
+  .job-detail-when__relative {
+    overflow: hidden;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .job-detail-when {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .job-detail-when__absolute {
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+
+  .job-detail-stat__sub {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  /* tags wrap here rather than truncating, as they would in a table cell */
+  .job-detail-stats-card .sd-tags--nowrap {
     max-width: 100%;
     flex-wrap: wrap;
   }
 
-  .job-detail-facts-card .sd-tags--nowrap .sd-tag {
+  .job-detail-stats-card .sd-tags--nowrap .sd-tag {
     flex: none;
     max-width: 100%;
   }
 
-  .job-detail-fact-link {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  /* secondary facts: one quiet line under the tiles, only what applies */
+  .job-detail-details {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 24px;
+    margin: 0;
+    border-top: 1px solid var(--border);
+    padding: 10px 16px;
+    font-size: 12.5px;
+  }
+
+  .job-detail-details > div {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .job-detail-details dt {
+    color: var(--muted-foreground);
+  }
+
+  .job-detail-details dd {
+    min-width: 0;
+    margin: 0;
+  }
+
+  @media (max-width: 1100px) {
+    .job-detail-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 520px) {
+    .job-detail-stats {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   /* sections: sticky tab bar (plus the log toolbar on the Logs tab) */

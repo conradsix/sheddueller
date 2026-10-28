@@ -55,6 +55,17 @@ internal static class DashboardJobDetailFormat
         : string.Create(CultureInfo.InvariantCulture, $"Attempt {job.AttemptCount} of {job.MaxAttempts}");
 
     /// <summary>
+    /// The header's attempt pill: amber once the job has been retried, red when its last allowed attempt failed.
+    /// </summary>
+    public static string AttemptClass(JobInspectionSummary job)
+      => job switch
+      {
+          { State: JobState.Failed } when job.AttemptCount >= job.MaxAttempts => "job-detail-attempt job-detail-attempt--exhausted",
+          { AttemptCount: > 1 } => "job-detail-attempt job-detail-attempt--retried",
+          _ => "job-detail-attempt",
+      };
+
+    /// <summary>
     /// The most recent failed attempt in the loaded events, which carries the failure message.
     /// </summary>
     public static JobEvent? LatestFailure(IEnumerable<JobEvent> events)

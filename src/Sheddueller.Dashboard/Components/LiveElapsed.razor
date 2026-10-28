@@ -1,0 +1,56 @@
+@implements IAsyncDisposable
+
+<span class="@Class" title="@DashboardFormat.Utc(Since)">@DashboardFormat.Elapsed(_nowUtc - Since)</span>
+
+@code {
+    private DateTimeOffset _nowUtc;
+    private bool _subscribed;
+    private bool _disposed;
+
+    [Inject]
+    private DashboardClock Clock { get; set; } = null!;
+
+    /// <summary>
+    /// When the still-running wait or attempt began.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public DateTimeOffset Since { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    protected override void OnParametersSet()
+      => this._nowUtc = this.Clock.UtcNow;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Counts up on the shared circuit clock, like the relative timestamps.
+        if (firstRender && !this._disposed)
+        {
+            this.Clock.Ticked += this.OnClockTicked;
+            this._subscribed = true;
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        this._disposed = true;
+        if (this._subscribed)
+        {
+            this.Clock.Ticked -= this.OnClockTicked;
+            this._subscribed = false;
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private void OnClockTicked()
+      => _ = this.InvokeAsync(() =>
+      {
+          if (!this._disposed)
+          {
+              this._nowUtc = this.Clock.UtcNow;
+              this.StateHasChanged();
+          }
+      });
+}

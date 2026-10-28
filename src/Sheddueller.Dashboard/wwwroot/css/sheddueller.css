@@ -1150,48 +1150,6 @@
     font-size: 12px;
   }
 
-  /* description list (facts grid) */
-  .sd-facts {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1px;
-    margin: 0;
-    overflow: hidden;
-    background: var(--border);
-  }
-
-  .sd-facts__item {
-    display: grid;
-    align-content: start;
-    gap: 4px;
-    min-width: 0;
-    background: var(--card);
-    padding: 12px 16px;
-  }
-
-  .sd-facts__item dt {
-    color: var(--muted-foreground);
-    font-size: 12px;
-  }
-
-  .sd-facts__item dd {
-    min-width: 0;
-    margin: 0;
-    font-size: 13px;
-  }
-
-  @media (max-width: 1100px) {
-    .sd-facts {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 520px) {
-    .sd-facts {
-      grid-template-columns: minmax(0, 1fr);
-    }
-  }
-
   /* progress */
   .sd-progress {
     position: relative;
