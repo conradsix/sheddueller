@@ -174,12 +174,23 @@ internal sealed class PostgresMigrator : IPostgresMigrator
 
     // The schema as of the baseline version, written to converge any older preview schema as well as create a new
     // one. It re-adds constraints whose definitions changed during the previews, which scans those tables, so it only
-    // runs below the baseline version. Don't change it: later schema changes are steps in PostgresMigrationSteps.
+    // runs below the baseline version. Don't change the schema it creates: later schema changes are steps in
+    // PostgresMigrationSteps.
     private async ValueTask ApplyBaselineAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
     {
+        // The migration lock is per schema, but the extension is database-wide: without this lock, baselines of two
+        // schemas in one database both try to create it and the second fails on the extension catalog's unique index.
+        // Held until commit, so a waiting migration then finds the extension already there.
+        await ExecuteAsync(
+          connection,
+          transaction,
+          "select pg_advisory_xact_lock(@lock_key, 0);",
+          command => command.Parameters.AddWithValue("lock_key", PostgresAdvisoryLocks.ExtensionLockKey),
+          cancellationToken)
+          .ConfigureAwait(false);
         await ExecuteAsync(connection, transaction, "create extension if not exists pg_trgm;", cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(

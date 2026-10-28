@@ -32,6 +32,12 @@ internal static class PostgresAdvisoryLocks
     public const int MetricsCleanupLockKey = 7870835;
 
     /// <summary>
+    /// Held by a migration while it creates the database extensions it needs. Extensions belong to the database, not
+    /// a schema, so this lock is database-wide: it is taken with a second key of 0 rather than the schema's hash.
+    /// </summary>
+    public const int ExtensionLockKey = 7870836;
+
+    /// <summary>
     /// The seed of <c>hashtextextended(schema_name || '|' || idempotency_key, seed)</c>, the one-key lock that
     /// serializes enqueues and retries of the same idempotency key. It shares its value with
     /// <see cref="RetentionLockKey" />, which is harmless: one is a hash seed in the one-key lock space, the other a
