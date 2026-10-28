@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class RenewJobLeaseOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class RenewJobLeaseOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task RenewLease_CurrentLease_UpdatesHeartbeatAndExpiry()

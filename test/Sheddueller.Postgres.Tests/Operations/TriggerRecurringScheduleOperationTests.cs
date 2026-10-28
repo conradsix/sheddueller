@@ -8,7 +8,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class TriggerRecurringScheduleOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class TriggerRecurringScheduleOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task TriggerRecurringSchedule_MissingSchedule_ReturnsNotFound()

@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class SetConcurrencyLimitOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class SetConcurrencyLimitOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task SetConcurrencyLimit_InsertAndUpdate_ConfiguresLimit()

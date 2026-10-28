@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task MaterializeDueRecurringSchedules_NoDueSchedules_ReturnsZero()

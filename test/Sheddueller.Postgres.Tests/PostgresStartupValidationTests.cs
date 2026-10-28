@@ -7,7 +7,7 @@ using Sheddueller.Runtime;
 
 using Shouldly;
 
-public sealed class PostgresStartupValidationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresStartupValidationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task StartupValidation_ClientModeMissingSchema_DoesNotRegisterHostedServices()

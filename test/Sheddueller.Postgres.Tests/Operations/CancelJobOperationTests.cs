@@ -7,7 +7,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class CancelJobOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class CancelJobOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task Cancel_QueuedJob_MarksCanceled()

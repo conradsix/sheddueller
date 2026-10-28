@@ -6,7 +6,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class JobRetentionOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class JobRetentionOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task CleanupTerminalJobs_DeletedJob_RemovesCascadingRows()

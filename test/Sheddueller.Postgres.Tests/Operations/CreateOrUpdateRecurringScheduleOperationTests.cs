@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task CreateOrUpdateRecurringSchedule_Create_PersistsDefinitionAndGroups()

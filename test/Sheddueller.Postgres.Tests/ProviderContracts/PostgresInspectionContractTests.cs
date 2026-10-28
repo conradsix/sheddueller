@@ -8,7 +8,7 @@ using Sheddueller.Inspection.Schedules;
 using Sheddueller.ProviderContracts;
 using Sheddueller.Storage;
 
-public sealed class PostgresInspectionContractTests(PostgresFixture fixture) : InspectionContractTests, IClassFixture<PostgresFixture>
+public sealed class PostgresInspectionContractTests(PostgresFixture fixture) : InspectionContractTests
 {
     protected override async ValueTask<InspectionContractContext> CreateContextAsync()
     {

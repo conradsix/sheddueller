@@ -2,7 +2,7 @@ namespace Sheddueller.Postgres.Tests.Operations;
 
 using Shouldly;
 
-public sealed class DeleteRecurringScheduleOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class DeleteRecurringScheduleOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task DeleteRecurringSchedule_ExistingSchedule_RemovesScheduleAndGroups()

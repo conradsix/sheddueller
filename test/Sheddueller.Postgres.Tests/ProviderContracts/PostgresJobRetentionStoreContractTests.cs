@@ -4,7 +4,7 @@ using Sheddueller.Inspection.Jobs;
 using Sheddueller.ProviderContracts;
 using Sheddueller.Storage;
 
-public sealed class PostgresJobRetentionStoreContractTests(PostgresFixture fixture) : JobRetentionStoreContractTests, IClassFixture<PostgresFixture>
+public sealed class PostgresJobRetentionStoreContractTests(PostgresFixture fixture) : JobRetentionStoreContractTests
 {
     protected override async ValueTask<JobRetentionStoreContractContext> CreateRetentionContextAsync()
     {

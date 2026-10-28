@@ -83,6 +83,23 @@ internal sealed class PostgresTestContext(
         """,
         command => command.Parameters.AddWithValue("job_id", jobId));
 
+    /// <summary>
+    /// Moves a group's rate-limit state back by <paramref name="elapsed" />, as if that much time had passed since its
+    /// last permit was taken.
+    /// </summary>
+    public async ValueTask AdvanceRateLimitClockAsync(string groupKey, TimeSpan elapsed)
+      => await this.ExecuteAsync(
+        $"""
+        update {this.Table("concurrency_groups")}
+        set rate_theoretical_arrival_at_utc = rate_theoretical_arrival_at_utc - @elapsed
+        where group_key = @group_key;
+        """,
+        command =>
+        {
+            command.Parameters.AddWithValue("group_key", groupKey);
+            command.Parameters.AddWithValue("elapsed", elapsed);
+        });
+
     public async ValueTask<int?> ReadSchemaVersionAsync()
     {
         var result = await this.ExecuteScalarAsync(

@@ -11,7 +11,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class PostgresWakeSignalTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresWakeSignalTests(PostgresFixture fixture)
 {
     private static readonly TimeSpan SignalTimeout = TimeSpan.FromSeconds(15);
 

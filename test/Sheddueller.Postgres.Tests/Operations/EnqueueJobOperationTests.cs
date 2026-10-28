@@ -5,7 +5,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class EnqueueJobOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class EnqueueJobOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task Enqueue_PersistsJobFieldsAndGroupRows()

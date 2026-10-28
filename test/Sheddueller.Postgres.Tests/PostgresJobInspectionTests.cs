@@ -10,7 +10,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class PostgresJobInspectionTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresJobInspectionTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task JobDetail_SingleConnectionPool_ReadsWholeDetailOnOneConnection()

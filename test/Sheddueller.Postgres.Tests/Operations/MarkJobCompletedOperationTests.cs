@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class MarkJobCompletedOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class MarkJobCompletedOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task MarkCompleted_CurrentLease_CompletesJobAndDecrementsGroups()

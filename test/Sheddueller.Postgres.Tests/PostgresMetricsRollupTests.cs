@@ -13,7 +13,7 @@ using Sheddueller.Tests.Logging;
 
 using Shouldly;
 
-public sealed class PostgresMetricsRollupTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresMetricsRollupTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task MetricsRead_OldRollupBuckets_RemovesExpiredBucketsAndHistogramBins()

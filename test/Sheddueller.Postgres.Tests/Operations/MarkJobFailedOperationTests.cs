@@ -4,7 +4,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class MarkJobFailedOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class MarkJobFailedOperationTests(PostgresFixture fixture)
 {
     [Fact]
     public async Task MarkFailed_NoRetryPolicy_FailsTerminallyAndDecrementsGroups()
@@ -58,7 +58,7 @@ public sealed class MarkJobFailedOperationTests(PostgresFixture fixture) : IClas
           retryBaseDelay: TimeSpan.FromMilliseconds(10)));
         var firstClaim = await PostgresTestData.ClaimAsync(context.Store);
         (await context.Store.MarkFailedAsync(new FailJobRequest(jobId, "node-1", firstClaim.LeaseToken, DateTimeOffset.UtcNow, PostgresTestData.CreateFailure()))).ShouldBeTrue();
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        await context.MakeJobDueAsync(jobId);
         var secondClaim = await PostgresTestData.ClaimAsync(context.Store);
 
         (await context.Store.MarkFailedAsync(new FailJobRequest(jobId, "node-1", secondClaim.LeaseToken, DateTimeOffset.UtcNow, PostgresTestData.CreateFailure()))).ShouldBeTrue();
@@ -85,7 +85,7 @@ public sealed class MarkJobFailedOperationTests(PostgresFixture fixture) : IClas
           retryMaxDelay: TimeSpan.FromMilliseconds(30)));
         var firstClaim = await PostgresTestData.ClaimAsync(context.Store);
         (await context.Store.MarkFailedAsync(new FailJobRequest(jobId, "node-1", firstClaim.LeaseToken, DateTimeOffset.UtcNow, PostgresTestData.CreateFailure()))).ShouldBeTrue();
-        await Task.Delay(TimeSpan.FromMilliseconds(75));
+        await context.MakeJobDueAsync(jobId);
         var secondClaim = await PostgresTestData.ClaimAsync(context.Store);
 
         (await context.Store.MarkFailedAsync(new FailJobRequest(jobId, "node-1", secondClaim.LeaseToken, DateTimeOffset.UtcNow, PostgresTestData.CreateFailure()))).ShouldBeTrue();

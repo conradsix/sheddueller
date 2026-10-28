@@ -12,7 +12,7 @@ using Sheddueller.Tests.Logging;
 
 using Shouldly;
 
-public sealed class PostgresJobEventListenerTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class PostgresJobEventListenerTests(PostgresFixture fixture)
 {
     private const int ListenerStartedEventId = 1210;
 
