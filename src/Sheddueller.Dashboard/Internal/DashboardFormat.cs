@@ -68,24 +68,18 @@ internal static class DashboardFormat
     public static string Nullable(string? value)
       => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
+    /// <summary>
+    /// When the job reached its final state. A job that failed an attempt and then completed keeps its failure time,
+    /// so the state decides which timestamp counts.
+    /// </summary>
     public static DateTimeOffset? TerminalTimestamp(JobInspectionSummary job)
-      => job.FailedAtUtc ?? job.CompletedAtUtc ?? job.CanceledAtUtc;
-
-    public static TimeSpan? RunTimeDuration(JobInspectionDetail detail)
-    {
-        var claimedAtUtc = detail.ClaimedAtUtc;
-        var terminalAtUtc = TerminalTimestamp(detail.Summary);
-        if (claimedAtUtc is null || terminalAtUtc is null)
-        {
-            return null;
-        }
-
-        var duration = terminalAtUtc.Value - claimedAtUtc.Value;
-        return duration < TimeSpan.Zero ? null : duration;
-    }
-
-    public static string RunTime(JobInspectionDetail detail)
-      => DashboardMetricsFormat.Duration(RunTimeDuration(detail));
+      => job.State switch
+      {
+          JobState.Completed => job.CompletedAtUtc,
+          JobState.Failed => job.FailedAtUtc,
+          JobState.Canceled => job.CanceledAtUtc,
+          _ => null,
+      };
 
     public static string ProgressText(
         JobProgressSnapshot? progress,
@@ -198,8 +192,8 @@ internal static class DashboardFormat
         var future = delta > TimeSpan.Zero;
         var duration = future ? delta : -delta;
         var relative = future
-          ? string.Concat("in ", Duration(duration))
-          : string.Concat(Duration(duration), " ago");
+          ? string.Concat("in ", Elapsed(duration))
+          : string.Concat(Elapsed(duration), " ago");
 
         if (Math.Abs(delta.TotalSeconds) < 5)
         {
@@ -374,7 +368,11 @@ internal static class DashboardFormat
         && text[index + 1] is ']' or ',' or '*'
         && text.IndexOf(']', index) > 0;
 
-    private static string Duration(TimeSpan duration)
+    /// <summary>
+    /// A coarse duration for times that keep counting, such as how long a job has been waiting: <c>&lt;1m</c>,
+    /// <c>42m</c>, <c>3h</c>, <c>2d</c>.
+    /// </summary>
+    public static string Elapsed(TimeSpan duration)
     {
         if (duration < TimeSpan.FromMinutes(1))
         {

@@ -57,6 +57,7 @@
         var visibleLogLines = DashboardJobLog.Filter(logLines, _logFilter);
         var lifecycleEvents = LifecycleEvents;
         var latestFailure = DashboardJobDetailFormat.LatestFailure(_eventLog.Events);
+        var timing = DashboardJobTiming.From(_detail, _eventLog.Events);
 
         var call = _detail.Invocation is { } detailInvocation ? CallFor(detailInvocation) : null;
 
@@ -84,11 +85,7 @@
                     </div>
                 }
                 <div class="job-detail-meta">
-                    <span class="job-detail-meta__id">
-                        <span class="sd-mono">@DashboardFormat.JobId(job.JobId)</span>
-                        <CopyButton Value="@DashboardFormat.JobId(job.JobId)" Label="job ID" />
-                    </span>
-                    <span>@DashboardJobDetailFormat.Attempts(job)</span>
+                    <span class="@DashboardJobDetailFormat.AttemptClass(job)">@DashboardJobDetailFormat.Attempts(job)</span>
                     @if (!string.IsNullOrWhiteSpace(_detail.ClaimedByNodeId))
                     {
                         <span>Node <a class="sd-link sd-mono" href="@NodeHref(_detail.ClaimedByNodeId)">@_detail.ClaimedByNodeId</a></span>
@@ -97,6 +94,10 @@
                     {
                         <span>Schedule <a class="sd-link sd-mono" href="@ScheduleHref(job.SourceScheduleKey)">@job.SourceScheduleKey</a></span>
                     }
+                    <span class="job-detail-meta__id">
+                        <span class="sd-mono">@DashboardFormat.JobId(job.JobId)</span>
+                        <CopyButton Value="@DashboardFormat.JobId(job.JobId)" Label="job ID" />
+                    </span>
                 </div>
             </ChildContent>
             <Actions>
@@ -148,20 +149,13 @@
                             }
                             <span class="job-detail-progress__message">@(job.LatestProgress?.Message ?? (job.LatestProgress is null ? "No progress reported yet." : null))</span>
                         </div>
-                        <div class="sd-alert__meta job-detail-callout__meta">
-                            <span>Started</span>
-                            <TimestampBlock BaseClass="sd-timestamp" Value="_detail.ClaimedAtUtc" AllowFutureRelative="false" Inline />
-                            @if (!string.IsNullOrWhiteSpace(_detail.ClaimedByNodeId))
-                            {
-                                <span>on <span class="sd-mono">@_detail.ClaimedByNodeId</span></span>
-                            }
-                            @if (job.LatestProgress is { } progress)
-                            {
-                                <span aria-hidden="true">·</span>
+                        @if (job.LatestProgress is { } progress)
+                        {
+                            <div class="sd-alert__meta job-detail-callout__meta">
                                 <span>Last update</span>
                                 <TimestampBlock BaseClass="sd-timestamp" Value="progress.ReportedAtUtc" AllowFutureRelative="false" Inline />
-                            }
-                        </div>
+                            </div>
+                        }
                     </ChildContent>
                 </Alert>
                 break;
@@ -172,12 +166,6 @@
                 <Alert Tone="AlertTone.Destructive" Icon="circle-x" Title="@FailedTitle(job)" Class="job-detail-callout">
                     <ChildContent>
                         <p class="job-detail-failure">@(latestFailure?.Message is { Length: > 0 } failureMessage ? failureMessage : "No failure message was recorded.")</p>
-                        <div class="sd-alert__meta job-detail-callout__meta">
-                            <span>Failed</span>
-                            <TimestampBlock BaseClass="sd-timestamp" Value="job.FailedAtUtc" AllowFutureRelative="false" Inline />
-                            <span aria-hidden="true">·</span>
-                            <span>@string.Create(CultureInfo.InvariantCulture, $"Attempt {failedAttempt} of {job.MaxAttempts}")</span>
-                        </div>
                     </ChildContent>
                     <Actions>
                         <Button Size="ButtonSize.Small" Icon="list-filter" OnClick="() => ShowAttemptLogs(failedAttempt, failureErrorCount > 0)">
@@ -188,25 +176,13 @@
                 break;
 
             case JobState.Completed:
-                <Alert Tone="AlertTone.Success" Title="@CompletedTitle(_detail)" Class="job-detail-callout">
-                    <ChildContent>
-                        <p>@CompletedText(job)</p>
-                        <div class="sd-alert__meta job-detail-callout__meta">
-                            <span>Finished</span>
-                            <TimestampBlock BaseClass="sd-timestamp" Value="job.CompletedAtUtc" AllowFutureRelative="false" Inline />
-                        </div>
-                    </ChildContent>
-                </Alert>
+                // The status badge and the timing tiles say it all.
                 break;
 
             case JobState.Canceled:
                 <Alert Tone="AlertTone.Neutral" Icon="ban" Title="Canceled" Class="job-detail-callout">
                     <ChildContent>
                         <p>@CanceledText(_detail)</p>
-                        <div class="sd-alert__meta job-detail-callout__meta">
-                            <span>Canceled</span>
-                            <TimestampBlock BaseClass="sd-timestamp" Value="job.CanceledAtUtc" AllowFutureRelative="false" Inline />
-                        </div>
                     </ChildContent>
                 </Alert>
                 break;
@@ -243,87 +219,99 @@
                 break;
         }
 
-        <Card Flush="true" Class="job-detail-facts-card">
-            <dl class="sd-facts">
-                <div class="sd-facts__item">
-                    <dt>Enqueued</dt>
-                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="job.EnqueuedAtUtc" AllowFutureRelative="false" /></dd>
-                </div>
-                <div class="sd-facts__item">
-                    <dt>Started</dt>
-                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="StartedAtUtc(_detail)" AllowFutureRelative="false" EmptyText="Not started" /></dd>
-                </div>
-                <div class="sd-facts__item">
-                    <dt>Finished</dt>
-                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="DashboardFormat.TerminalTimestamp(job)" AllowFutureRelative="false" EmptyText="—" /></dd>
-                </div>
-                <div class="sd-facts__item">
-                    <dt>Run time</dt>
-                    <dd class="sd-num">@RunTimeText(_detail)</dd>
-                </div>
-                <div class="sd-facts__item">
-                    <dt>Attempts</dt>
-                    <dd class="sd-num">@string.Create(CultureInfo.InvariantCulture, $"{job.AttemptCount} of {job.MaxAttempts}")</dd>
-                </div>
-                <div class="sd-facts__item">
-                    <dt>Priority</dt>
-                    <dd class="sd-num">@job.Priority.ToString(CultureInfo.InvariantCulture)</dd>
-                </div>
-                <div class="sd-facts__item">
-                    <dt>Node</dt>
-                    <dd>
-                        @if (string.IsNullOrWhiteSpace(_detail.ClaimedByNodeId))
+        <Card Flush="true" Class="job-detail-stats-card">
+            <dl class="job-detail-stats">
+                <div class="job-detail-stat">
+                    <dt>@(timing.IsWaiting ? "Waiting" : "Waited")</dt>
+                    <dd class="job-detail-stat__value">
+                        @if (timing.IsWaiting)
                         {
-                            <span class="sd-muted">@(StartedAtUtc(_detail) is null ? "Not claimed" : "Not recorded")</span>
+                            <LiveElapsed Since="timing.EnqueuedAtUtc" />
+                        }
+                        else if (timing.Waited is { } waited)
+                        {
+                            @DashboardMetricsFormat.Duration(waited)
                         }
                         else
                         {
-                            <a class="sd-link sd-mono job-detail-fact-link" href="@NodeHref(_detail.ClaimedByNodeId)"
-                               title="@_detail.ClaimedByNodeId">@_detail.ClaimedByNodeId</a>
+                            <span class="sd-muted">—</span>
                         }
                     </dd>
+                    <dd class="job-detail-stat__sub">
+                        <TimestampBlock BaseClass="sd-timestamp" Value="timing.EnqueuedAtUtc" AllowFutureRelative="false" Prefix="enqueued" Inline />
+                    </dd>
                 </div>
-                <div class="sd-facts__item">
-                    <dt>Schedule</dt>
-                    <dd>
-                        @if (string.IsNullOrWhiteSpace(job.SourceScheduleKey))
+                <div class="job-detail-stat">
+                    <dt>@timing.LastRunLabel</dt>
+                    @if (timing.LastRunAtUtc is { } lastRunAtUtc)
+                    {
+                        <dd><TimestampBlock BaseClass="job-detail-when" Value="lastRunAtUtc" AllowFutureRelative="false" /></dd>
+                    }
+                    else
+                    {
+                        <dd class="job-detail-stat__value sd-muted">Not run yet</dd>
+                    }
+                </div>
+                <div class="job-detail-stat">
+                    <dt>@(timing.IsRunning ? "Running for" : "Run time")</dt>
+                    <dd class="job-detail-stat__value">
+                        @if (timing.IsRunning && timing.LastStartedAtUtc is { } runningSinceUtc)
                         {
-                            <span class="sd-muted">Not from a schedule</span>
+                            <LiveElapsed Since="runningSinceUtc" />
+                        }
+                        else if (timing.RunTime is { } runTime)
+                        {
+                            @DashboardMetricsFormat.Duration(runTime)
                         }
                         else
                         {
-                            <a class="sd-link sd-mono job-detail-fact-link" href="@ScheduleHref(job.SourceScheduleKey)"
-                               title="@job.SourceScheduleKey">@job.SourceScheduleKey</a>
-                            @if (_detail.ScheduledFireAtUtc is not null)
-                            {
-                                <TimestampBlock BaseClass="sd-timestamp" Value="_detail.ScheduledFireAtUtc" AllowFutureRelative="false"
-                                                Prefix="fired" Inline />
-                            }
+                            <span class="sd-muted">—</span>
                         }
                     </dd>
+                    @if (!timing.IsRunning && timing.LastStartedAtUtc is { } lastStartedAtUtc)
+                    {
+                        <dd class="job-detail-stat__sub">
+                            <TimestampBlock BaseClass="sd-timestamp" Value="lastStartedAtUtc" AllowFutureRelative="false" Prefix="started" Inline />
+                        </dd>
+                    }
                 </div>
-                <div class="sd-facts__item">
-                    <dt>Concurrency groups</dt>
-                    <dd>
-                        <TagList Values="job.ConcurrencyGroupKeys" Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
-                                 HrefFactory="ConcurrencyGroupHref" TooltipPrefix="Open concurrency group" MaxVisible="3" EmptyText="None" />
-                    </dd>
-                </div>
-                <div class="sd-facts__item">
+                <div class="job-detail-stat">
                     <dt>Tags</dt>
                     <dd>
                         <TagList Values="@DashboardFormat.Tags(job.Tags)" Title="@DashboardFormat.TagsTitle(job.Tags)"
-                                 HrefFactory="DashboardJobFilterQuery.TagHref" TooltipPrefix="Show jobs with tag" MaxVisible="3" EmptyText="None" />
+                                 HrefFactory="DashboardJobFilterQuery.TagHref" TooltipPrefix="Show jobs with tag" MaxVisible="8" EmptyText="No tags" />
                     </dd>
                 </div>
-                <div class="sd-facts__item">
-                    <dt>Not before</dt>
-                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="job.NotBeforeUtc" EmptyText="—" /></dd>
+            </dl>
+            <dl class="job-detail-details">
+                <div>
+                    <dt>Priority</dt>
+                    <dd class="sd-num">@job.Priority.ToString(CultureInfo.InvariantCulture)</dd>
                 </div>
-                <div class="sd-facts__item">
-                    <dt>Lease expires</dt>
-                    <dd><TimestampBlock BaseClass="sd-timestamp" Value="_detail.LeaseExpiresAtUtc" EmptyText="—" /></dd>
-                </div>
+                @if (job.ConcurrencyGroupKeys.Count > 0)
+                {
+                    <div>
+                        <dt>Concurrency groups</dt>
+                        <dd>
+                            <TagList Values="job.ConcurrencyGroupKeys" Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
+                                     HrefFactory="ConcurrencyGroupHref" TooltipPrefix="Open concurrency group" MaxVisible="3" />
+                        </dd>
+                    </div>
+                }
+                @if (timing.IsRunning && _detail.LeaseExpiresAtUtc is not null)
+                {
+                    <div>
+                        <dt>Lease expires</dt>
+                        <dd><TimestampBlock BaseClass="sd-timestamp" Value="_detail.LeaseExpiresAtUtc" Inline /></dd>
+                    </div>
+                }
+                @if (_detail.ScheduledFireAtUtc is not null)
+                {
+                    <div>
+                        <dt>Schedule fired</dt>
+                        <dd><TimestampBlock BaseClass="sd-timestamp" Value="_detail.ScheduledFireAtUtc" AllowFutureRelative="false" Inline /></dd>
+                    </div>
+                }
             </dl>
         </Card>
 
@@ -673,13 +661,6 @@
 
     private readonly DashboardJobEventLog _eventLog = new(EventPageSize);
 
-    // A finished job no longer carries its claim, so fall back to the first attempt's start event.
-    private DateTimeOffset? StartedAtUtc(JobInspectionDetail detail)
-      => detail.ClaimedAtUtc
-        ?? this._eventLog.Events
-          .Where(jobEvent => jobEvent.Kind == JobEventKind.AttemptStarted)
-          .Select(jobEvent => (DateTimeOffset?)jobEvent.OccurredAtUtc)
-          .Min();
     private readonly Dictionary<Guid, JobInspectionSummary?> _relatedJobs = [];
     private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
     private JobInspectionDetail? _detail;
@@ -1315,28 +1296,10 @@
         ? string.Create(CultureInfo.InvariantCulture, $"{DashboardFormat.Count(totalCount)} {(totalCount == 1 ? "line" : "lines")}")
         : string.Create(CultureInfo.InvariantCulture, $"Showing {DashboardFormat.Count(visibleCount)} of {DashboardFormat.Count(totalCount)} lines");
 
-    private static string RunTimeText(JobInspectionDetail detail)
-      => detail.Summary.State switch
-      {
-          JobState.Claimed => "Still running",
-          _ when DashboardFormat.RunTimeDuration(detail) is null => "—",
-          _ => DashboardFormat.RunTime(detail),
-      };
-
     private static string FailedTitle(JobInspectionSummary job)
       => job.AttemptCount > 1
         ? string.Create(CultureInfo.InvariantCulture, $"Failed after {job.AttemptCount} attempts")
         : "Failed";
-
-    private static string CompletedTitle(JobInspectionDetail detail)
-      => DashboardFormat.RunTimeDuration(detail) is null
-        ? "Completed"
-        : string.Concat("Completed in ", DashboardFormat.RunTime(detail));
-
-    private static string CompletedText(JobInspectionSummary job)
-      => job.AttemptCount <= 1
-        ? "The job finished on its first attempt."
-        : string.Create(CultureInfo.InvariantCulture, $"The job finished on attempt {job.AttemptCount} of {job.MaxAttempts}.");
 
     private static string CanceledText(JobInspectionDetail detail)
       => detail.ClaimedAtUtc is null

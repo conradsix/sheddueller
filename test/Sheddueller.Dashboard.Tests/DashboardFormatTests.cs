@@ -64,37 +64,24 @@ public sealed class DashboardFormatTests
     }
 
     [Fact]
-    public void RunTime_TerminalJob_FormatsClaimToTerminalDuration()
+    public void TerminalTimestamp_CompletedAfterAFailedAttempt_UsesTheCompletionTime()
     {
-        var claimedAtUtc = DateTimeOffset.Parse("2026-04-20T12:05:00Z", CultureInfo.InvariantCulture);
-        var job = CreateJob() with
-        {
-            State = JobState.Completed,
-            CompletedAtUtc = claimedAtUtc.AddSeconds(72),
-        };
+        var failedAtUtc = DateTimeOffset.Parse("2026-04-20T12:01:00Z", CultureInfo.InvariantCulture);
+        var job = CreateJob() with { FailedAtUtc = failedAtUtc };
 
-        DashboardFormat.RunTime(CreateDetail(job, claimedAtUtc)).ShouldBe("1.2 m");
+        DashboardFormat.TerminalTimestamp(job with { State = JobState.Completed, CompletedAtUtc = failedAtUtc.AddMinutes(1) })
+          .ShouldBe(failedAtUtc.AddMinutes(1));
+        DashboardFormat.TerminalTimestamp(job with { State = JobState.Failed }).ShouldBe(failedAtUtc);
+        DashboardFormat.TerminalTimestamp(job with { State = JobState.Queued }).ShouldBeNull();
     }
 
-    [Fact]
-    public void RunTime_MissingOrInvalidTimestamps_ReturnsEmptyValue()
-    {
-        var claimedAtUtc = DateTimeOffset.Parse("2026-04-20T12:05:00Z", CultureInfo.InvariantCulture);
-        var terminalJob = CreateJob() with
-        {
-            State = JobState.Completed,
-            CompletedAtUtc = claimedAtUtc.AddSeconds(72),
-        };
-        var activeJob = CreateJob();
-        var invalidJob = terminalJob with
-        {
-            CompletedAtUtc = claimedAtUtc.AddSeconds(-1),
-        };
-
-        DashboardFormat.RunTime(CreateDetail(terminalJob, claimedAtUtc: null)).ShouldBe("-");
-        DashboardFormat.RunTime(CreateDetail(activeJob, claimedAtUtc)).ShouldBe("-");
-        DashboardFormat.RunTime(CreateDetail(invalidJob, claimedAtUtc)).ShouldBe("-");
-    }
+    [Theory]
+    [InlineData(45, "<1m")]
+    [InlineData(2_520, "42m")]
+    [InlineData(14_340, "3h")]
+    [InlineData(176_400, "2d")]
+    public void Elapsed_RunningDurations_RoundDownToTheLargestUnit(int seconds, string expected)
+        => DashboardFormat.Elapsed(TimeSpan.FromSeconds(seconds)).ShouldBe(expected);
 
     [Fact]
     public void TagsAndGroups_EmptyAndPopulatedValues_FormatsTitlesForChips()
@@ -337,16 +324,6 @@ public sealed class DashboardFormatTests
         CompletedAtUtc: null,
         FailedAtUtc: null,
         CanceledAtUtc: null);
-
-    private static JobInspectionDetail CreateDetail(
-        JobInspectionSummary job,
-        DateTimeOffset? claimedAtUtc)
-      => new(
-        job,
-        claimedAtUtc,
-        ClaimedByNodeId: null,
-        LeaseExpiresAtUtc: null,
-        ScheduledFireAtUtc: null);
 
     private static MetricsInspectionWindow CreateMetricsWindow()
       => new(

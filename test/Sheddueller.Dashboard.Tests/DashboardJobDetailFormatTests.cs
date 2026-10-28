@@ -98,6 +98,15 @@ public sealed class DashboardJobDetailFormatTests
     }
 
     [Theory]
+    [InlineData(JobState.Completed, 1, 3, "job-detail-attempt")]
+    [InlineData(JobState.Claimed, 2, 3, "job-detail-attempt job-detail-attempt--retried")]
+    [InlineData(JobState.Completed, 3, 3, "job-detail-attempt job-detail-attempt--retried")]
+    [InlineData(JobState.Failed, 3, 3, "job-detail-attempt job-detail-attempt--exhausted")]
+    [InlineData(JobState.Failed, 1, 1, "job-detail-attempt job-detail-attempt--exhausted")]
+    public void AttemptPill_RetriesAndExhaustion_AreHighlighted(JobState state, int attemptCount, int maxAttempts, string expected)
+        => DashboardJobDetailFormat.AttemptClass(CreateJob(attemptCount, maxAttempts) with { State = state }).ShouldBe(expected);
+
+    [Theory]
     [InlineData(JobQueuePositionKind.Claimable, 4L, "Waiting for a worker · #4 in the queue")]
     [InlineData(JobQueuePositionKind.Claimable, null, "Ready for a worker")]
     [InlineData(JobQueuePositionKind.Delayed, null, "Scheduled to run later")]
