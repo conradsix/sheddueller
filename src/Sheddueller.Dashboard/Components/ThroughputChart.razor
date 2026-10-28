@@ -2,57 +2,64 @@
 @inject IJSRuntime Js
 @inject IDashboardThroughputReader ThroughputReader
 
-@if (_snapshot is null)
-{
-    <div class="throughput-chart throughput-chart--empty">
-        <Icon Name="monitoring" />
-        <span>Waiting for live throughput data</span>
-    </div>
+@{
+    var view = _snapshot is null ? null : DashboardThroughputView.Create(_snapshot, Window);
 }
-else
-{
-    var visibleTotals = WindowTotals(_snapshot);
 
-    <div class="throughput-chart">
-        <div class="throughput-chart__plot" @ref="_chartElement"></div>
-        @if (!HasActivity(_snapshot))
-        {
-            <div class="throughput-chart__empty">
-                <Icon Name="monitoring" />
-                <span>Waiting for live job events</span>
-            </div>
-        }
-    </div>
+<Card Title="Throughput" Description="@Description(view)" Class="throughput-card">
+    @if (view is null)
+    {
+        <div class="throughput-chart throughput-chart--empty">
+            <Icon Name="chart-line" />
+            <span>Waiting for throughput data</span>
+        </div>
+    }
+    else
+    {
+        var totals = view.Totals;
 
-    <div class="throughput-chart-legend" aria-label="Throughput series filters">
-        @foreach (var series in SeriesDefinitions)
-        {
-            <button class="@LegendItemClass(series)" type="button"
-                    aria-pressed="@(IsSeriesActive(series.Key) ? "true" : "false")"
-                    @onclick="@(() => ToggleSeries(series.Key))">
-                <span aria-hidden="true"></span>
-                <em>@series.Label</em>
-                <strong>@DashboardFormat.Count(series.Value(visibleTotals))</strong>
-            </button>
-        }
-    </div>
-}
+        <div class="throughput-legend" role="group" aria-label="Show or hide series">
+            @foreach (var series in SeriesDefinitions)
+            {
+                var visible = IsSeriesVisible(series.Key);
+                <button type="button" class="throughput-legend__item" style="@SwatchStyle(series)"
+                        aria-pressed="@(visible ? "true" : "false")"
+                        data-sd-tooltip="@(visible ? $"Hide {series.Label}" : $"Show {series.Label}")"
+                        @onclick="() => ToggleSeries(series.Key)">
+                    <span class="throughput-legend__key" aria-hidden="true"></span>
+                    <span class="throughput-legend__label">@series.Label</span>
+                    <span class="throughput-legend__total">@DashboardFormat.Count(series.Value(totals))</span>
+                </button>
+            }
+        </div>
+
+        <div class="throughput-chart">
+            <div class="throughput-chart__plot" @ref="_chartElement"></div>
+            @if (!view.HasActivity)
+            {
+                <div class="throughput-chart__empty">No job events in this period</div>
+            }
+        </div>
+    }
+</Card>
 
 @code {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
 
+    // Colours are design tokens, validated as a set for adjacent-series separation in both themes; the legend shows
+    // the same token. Queued is the low-chroma context line on purpose.
     private static readonly ThroughputSeriesDefinition[] SeriesDefinitions =
     [
-        new("queued", "Queued", "throughput-chart-legend__item--queued", "#515f74", static bucket => bucket.QueuedCount),
-        new("started", "Started", "throughput-chart-legend__item--started", "#1d4ed8", static bucket => bucket.StartedCount),
-        new("succeeded", "Succeeded", "throughput-chart-legend__item--succeeded", "#166534", static bucket => bucket.SucceededCount),
-        new("failed", "Failed", "throughput-chart-legend__item--failed", "#ba1a1a", static bucket => bucket.FailedCount),
-        new("canceled", "Canceled", "throughput-chart-legend__item--canceled", "#8a5a00", static bucket => bucket.CanceledCount),
-        new("failedAttempts", "Failed Attempts", "throughput-chart-legend__item--attempts", "#7c3aed", static bucket => bucket.FailedAttemptCount),
+        new("queued", "Queued", "--state-queued", static bucket => bucket.QueuedCount),
+        new("started", "Started", "--chart-1", static bucket => bucket.StartedCount),
+        new("succeeded", "Succeeded", "--state-completed", static bucket => bucket.SucceededCount),
+        new("failed", "Failed", "--chart-4", static bucket => bucket.FailedCount),
+        new("canceled", "Canceled", "--chart-5", static bucket => bucket.CanceledCount),
+        new("failedAttempts", "Failed attempts", "--state-waiting", static bucket => bucket.FailedAttemptCount),
     ];
 
     private readonly CancellationTokenSource _refreshCancellation = new();
-    private readonly HashSet<string> _selectedSeriesKeys = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _hiddenSeriesKeys = new(StringComparer.Ordinal);
 
     private DashboardThroughputSnapshot? _snapshot;
     private ElementReference _chartElement;
@@ -60,6 +67,12 @@ else
     private Task? _refreshTask;
     private bool _chartRendered;
     private bool _disposed;
+
+    /// <summary>
+    /// The metrics window the chart follows. The chart covers at most the history the dashboard keeps.
+    /// </summary>
+    [Parameter]
+    public TimeSpan Window { get; set; } = TimeSpan.FromHours(1);
 
     [Parameter]
     public bool AutoRefreshEnabled { get; set; } = true;
@@ -85,7 +98,8 @@ else
             return;
         }
 
-        await Js.InvokeVoidAsync("shedduellerThroughputChart.render", this._chartElement, CreateModel(this._snapshot, this._selectedSeriesKeys));
+        var view = DashboardThroughputView.Create(this._snapshot, this.Window);
+        await Js.InvokeVoidAsync("shedduellerThroughputChart.render", this._chartElement, this.CreateModel(view));
         this._chartRendered = true;
     }
 
@@ -155,126 +169,56 @@ else
         }).ConfigureAwait(false);
     }
 
-    private static bool HasActivity(DashboardThroughputSnapshot snapshot)
-      => snapshot.Buckets.Any(bucket =>
-        bucket.QueuedCount > 0
-        || bucket.StartedCount > 0
-        || bucket.SucceededCount > 0
-        || bucket.FailedCount > 0
-        || bucket.CanceledCount > 0
-        || bucket.FailedAttemptCount > 0);
+    private static string Description(DashboardThroughputView? view)
+      => view is null
+        ? "Job events as they happen"
+        : view.CoverageNote is { } note ? string.Concat(view.Caption, ". ", note) : view.Caption;
 
-    private bool IsSeriesActive(string key)
-      => this._selectedSeriesKeys.Count == 0 || this._selectedSeriesKeys.Contains(key);
+    private bool IsSeriesVisible(string key)
+      => !this._hiddenSeriesKeys.Contains(key);
 
+    // Each legend item switches its own series on or off; the others keep their state and colour.
     private void ToggleSeries(string key)
     {
-        if (this._selectedSeriesKeys.Count == 0)
+        if (!this._hiddenSeriesKeys.Remove(key))
         {
-            this._selectedSeriesKeys.Add(key);
-
-            return;
+            this._hiddenSeriesKeys.Add(key);
         }
-
-        if (this._selectedSeriesKeys.Contains(key))
-        {
-            this._selectedSeriesKeys.Remove(key);
-
-            return;
-        }
-
-        this._selectedSeriesKeys.Add(key);
     }
 
-    private string LegendItemClass(ThroughputSeriesDefinition series)
-      => this.IsSeriesActive(series.Key)
-        ? $"throughput-chart-legend__item {series.CssClass}"
-        : $"throughput-chart-legend__item {series.CssClass} throughput-chart-legend__item--muted";
+    private static string SwatchStyle(ThroughputSeriesDefinition series)
+      => string.Concat("--series-color: var(", series.ColorToken, ")");
 
-    private static DashboardThroughputBucket WindowTotals(DashboardThroughputSnapshot snapshot)
-    {
-        var totals = snapshot.Buckets
-          .Aggregate(
-            new DashboardThroughputTotals(),
-            static (current, bucket) => current.Add(bucket));
-
-        return new DashboardThroughputBucket(
-          snapshot.WindowStartUtc,
-          totals.QueuedCount,
-          totals.StartedCount,
-          totals.SucceededCount,
-          totals.FailedCount,
-          totals.CanceledCount,
-          totals.FailedAttemptCount);
-    }
-
-    private static ThroughputChartModel CreateModel(
-        DashboardThroughputSnapshot snapshot,
-        IReadOnlySet<string> selectedSeriesKeys)
-    {
-        var allSelected = selectedSeriesKeys.Count == 0;
-
-        return new ThroughputChartModel(
-          (int)snapshot.BucketSize.TotalSeconds,
-          snapshot.WindowStartUtc.ToUnixTimeSeconds(),
-          snapshot.WindowEndUtc.ToUnixTimeSeconds(),
-          snapshot.Buckets.Select(static bucket => bucket.StartedAtUtc.ToUnixTimeSeconds()).ToArray(),
-          allSelected || selectedSeriesKeys.Contains("queued"),
-          allSelected || selectedSeriesKeys.Contains("started"),
-          allSelected || selectedSeriesKeys.Contains("succeeded"),
-          allSelected || selectedSeriesKeys.Contains("failed"),
-          allSelected || selectedSeriesKeys.Contains("canceled"),
-          allSelected || selectedSeriesKeys.Contains("failedAttempts"),
-          snapshot.Buckets.Select(static bucket => bucket.QueuedCount).ToArray(),
-          snapshot.Buckets.Select(static bucket => bucket.StartedCount).ToArray(),
-          snapshot.Buckets.Select(static bucket => bucket.SucceededCount).ToArray(),
-          snapshot.Buckets.Select(static bucket => bucket.FailedCount).ToArray(),
-          snapshot.Buckets.Select(static bucket => bucket.CanceledCount).ToArray(),
-          snapshot.Buckets.Select(static bucket => bucket.FailedAttemptCount).ToArray());
-    }
+    private ThroughputChartModel CreateModel(DashboardThroughputView view)
+      => new(
+        (int)view.BucketSize.TotalSeconds,
+        view.WindowStartUtc?.ToUnixTimeSeconds() ?? 0,
+        view.WindowEndUtc?.ToUnixTimeSeconds() ?? 0,
+        [.. view.Buckets.Select(static bucket => bucket.StartedAtUtc.ToUnixTimeSeconds())],
+        [
+            .. SeriesDefinitions.Select(series => new ThroughputChartSeries(
+              series.Label,
+              series.ColorToken,
+              this.IsSeriesVisible(series.Key),
+              [.. view.Buckets.Select(series.Value)])),
+        ]);
 
     private sealed record ThroughputChartModel(
         int BucketSizeSeconds,
         long WindowStartUnixSeconds,
         long WindowEndUnixSeconds,
         long[] Timestamps,
-        bool QueuedVisible,
-        bool StartedVisible,
-        bool SucceededVisible,
-        bool FailedVisible,
-        bool CanceledVisible,
-        bool FailedAttemptsVisible,
-        int[] Queued,
-        int[] Started,
-        int[] Succeeded,
-        int[] Failed,
-        int[] Canceled,
-        int[] FailedAttempts);
+        ThroughputChartSeries[] Series);
+
+    private sealed record ThroughputChartSeries(
+        string Label,
+        string ColorToken,
+        bool Visible,
+        int[] Values);
 
     private sealed record ThroughputSeriesDefinition(
         string Key,
         string Label,
-        string CssClass,
-        string Color,
+        string ColorToken,
         Func<DashboardThroughputBucket, int> Value);
-
-    private sealed record DashboardThroughputTotals(
-        int QueuedCount = 0,
-        int StartedCount = 0,
-        int SucceededCount = 0,
-        int FailedCount = 0,
-        int CanceledCount = 0,
-        int FailedAttemptCount = 0)
-    {
-        public DashboardThroughputTotals Add(DashboardThroughputBucket bucket)
-          => this with
-          {
-              QueuedCount = this.QueuedCount + bucket.QueuedCount,
-              StartedCount = this.StartedCount + bucket.StartedCount,
-              SucceededCount = this.SucceededCount + bucket.SucceededCount,
-              FailedCount = this.FailedCount + bucket.FailedCount,
-              CanceledCount = this.CanceledCount + bucket.CanceledCount,
-              FailedAttemptCount = this.FailedAttemptCount + bucket.FailedAttemptCount,
-          };
-    }
 }

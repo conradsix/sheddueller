@@ -2,983 +2,231 @@
 @inherits DashboardPageComponent
 @inject IDashboardMetricsReader Reader
 
-<div class="metrics-page">
-    <header class="metrics-header">
-        <div>
-            <h1>Metrics</h1>
-            <p>Live telemetry and comparative metrics for active scheduler nodes.</p>
-        </div>
-
-        <div class="metrics-header__actions">
-            <MetricsWindowSelector Windows="DefaultMetricWindows" SelectedWindow="_selectedWindow"
-                                   SelectedWindowChanged="SetSelectedWindow" />
-        </div>
-    </header>
+<div class="sd-page metrics-page">
+    <PageHeader Title="Metrics" Description="Scheduler health and throughput. Rates and latencies cover the selected window.">
+        <Actions>
+            <Tabs TValue="TimeSpan" Items="WindowTabs" Value="_selectedWindow" Label="Metrics window" />
+        </Actions>
+    </PageHeader>
 
     @if (_metricsUnsupported)
     {
-        <section class="metrics-message metrics-message--warning" aria-live="polite">
-            <Icon Name="monitoring" />
-            <div>
-                <h2>Metrics unavailable</h2>
-                <p>The configured scheduler provider does not support rolling inspection metrics.</p>
-            </div>
-        </section>
+        <EmptyState Icon="chart-line" Title="Metrics aren't available">
+            The configured job store doesn't provide rolling metrics.
+        </EmptyState>
     }
     else if (_loadError is not null)
     {
-        <section class="metrics-message metrics-message--error" aria-live="polite">
-            <Icon Name="error" />
-            <div>
-                <h2>Metrics failed to load</h2>
-                <p>@_loadError</p>
-            </div>
-        </section>
+        <Alert Tone="AlertTone.Destructive" Title="Metrics couldn't be loaded">
+            <ChildContent>@_loadError</ChildContent>
+            <Actions>
+                <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="LoadAsync">Try again</Button>
+            </Actions>
+        </Alert>
     }
     else if (_isLoading && _snapshot is null)
     {
-        <section class="metrics-message" aria-live="polite">
-            <Icon Name="progress_activity" />
-            <div>
-                <h2>Loading metrics</h2>
-                <p>Reading rolling scheduler telemetry.</p>
-            </div>
-        </section>
+        <div class="metrics-stats" aria-busy="true" aria-label="Loading metrics">
+            @for (var index = 0; index < SkeletonTileCount; index++)
+            {
+                <div class="metrics-stat" aria-hidden="true">
+                    <Skeleton Width="45%" />
+                    <Skeleton Width="35%" Height="28px" />
+                    <Skeleton Width="70%" Height="12px" />
+                </div>
+            }
+        </div>
     }
     else if (Windows.Count == 0)
     {
-        <section class="metrics-message" aria-live="polite">
-            <Icon Name="query_stats" />
-            <div>
-                <h2>No metrics returned</h2>
-                <p>The metrics reader returned no rolling windows.</p>
-            </div>
-        </section>
+        <EmptyState Icon="chart-line" Title="No metrics yet">
+            The job store returned no metric windows.
+        </EmptyState>
     }
     else if (SelectedWindow is { } selectedWindow)
     {
-        var queueLatencyMax = DashboardMetricsFormat.MaxDuration(selectedWindow.P50QueueLatency,
-    selectedWindow.P95QueueLatency);
-        var executionDurationMax = DashboardMetricsFormat.MaxDuration(selectedWindow.P50ExecutionDuration,
-    selectedWindow.P95ExecutionDuration);
-
         @if (LiveRefresh.RefreshError is not null)
         {
-            <DashboardInlineAlert CssClass="metrics-inline-alert metrics-inline-alert--error" Icon="warning">
-                <span>Refresh failed: @LiveRefresh.RefreshError</span>
-            </DashboardInlineAlert>
+            <Alert Tone="AlertTone.Warning" Meta="StaleDataNote" Title="Couldn't refresh metrics">
+                <ChildContent>@LiveRefresh.RefreshError</ChildContent>
+                <Actions>
+                    <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryRefreshAsync">Try again</Button>
+                </Actions>
+            </Alert>
         }
 
-        @if (DashboardMetricsFormat.HasNoActivity(selectedWindow))
-        {
-            <DashboardInlineAlert CssClass="metrics-inline-alert" Icon="info">
-                <span>No data in selected window; zero and unavailable values are shown below.</span>
-            </DashboardInlineAlert>
-        }
-
-        <section class="metrics-summary-grid" aria-label="Selected window metrics">
-            <article class="metrics-summary-card">
-                <div class="metrics-summary-card__header">
-                    <span>Queue Depth</span>
-                    <Icon Name="stacked_inbox" />
-                </div>
-                <strong>@DashboardFormat.Count(selectedWindow.QueuedCount)</strong>
-                <div class="metrics-summary-card__detail">
-                    <span>Oldest queued: <em>@DashboardMetricsFormat.Duration(selectedWindow.OldestQueuedAge)</em></span>
-                </div>
-            </article>
-
-            <article class="metrics-summary-card">
-                <div class="metrics-summary-card__header">
-                    <span>Throughput Rate</span>
-                    <Icon Name="speed" />
-                </div>
-                <strong>@DashboardMetricsFormat.Rate(selectedWindow.SuccessRatePerMinute)</strong>
-                <div class="metrics-rate-stack" aria-label="Throughput rates">
-                    <span>Enqueue <em>@DashboardMetricsFormat.Rate(selectedWindow.EnqueueRatePerMinute)</em></span>
-                    <span>Claim <em>@DashboardMetricsFormat.Rate(selectedWindow.ClaimRatePerMinute)</em></span>
-                </div>
-            </article>
-
-            <article class="metrics-summary-card">
-                <div class="metrics-summary-card__header">
-                    <span>Schedule Fire Lag</span>
-                    <Icon Name="timer" />
-                </div>
-                <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95ScheduleFireLag)</strong>
-                <div class="metrics-summary-card__detail">
-                    <span>p95 over @DashboardMetricsFormat.WindowLabel(selectedWindow.Window)</span>
-                </div>
-            </article>
-
-            <article class="metrics-summary-card metrics-summary-card--nodes">
-                <div class="metrics-summary-card__header">
-                    <span>Node Health</span>
-                    <Icon Name="dns" />
-                </div>
-                <div class="metrics-node-health">
-                    <span class="metrics-node-health__item metrics-node-health__item--active">
-                        <span aria-hidden="true"></span>
-                        <em>Active</em>
-                        <strong>@DashboardFormat.Count(selectedWindow.ActiveNodeCount)</strong>
-                    </span>
-                    <span class="metrics-node-health__item metrics-node-health__item--stale">
-                        <span aria-hidden="true"></span>
-                        <em>Stale</em>
-                        <strong>@DashboardFormat.Count(selectedWindow.StaleNodeCount)</strong>
-                    </span>
-                    <span class="metrics-node-health__item metrics-node-health__item--dead">
-                        <span aria-hidden="true"></span>
-                        <em>Dead</em>
-                        <strong>@DashboardFormat.Count(selectedWindow.DeadNodeCount)</strong>
-                    </span>
-                </div>
-            </article>
+        <section class="metrics-section" aria-labelledby="metrics-now-title">
+            <header class="metrics-section__header">
+                <h2 id="metrics-now-title" class="metrics-section__title">Now</h2>
+                <p class="metrics-section__description">Current counts, whatever the window.</p>
+            </header>
+            <div class="metrics-stats">
+                <a class="metrics-stat" href="@QueuedHref">
+                    <span class="metrics-stat__label"><span class="sd-state-dot sd-state-dot--queued" aria-hidden="true"></span>Queued</span>
+                    <span class="metrics-stat__value">@DashboardFormat.Count(selectedWindow.QueuedCount)</span>
+                    <span class="metrics-stat__detail">@OldestQueuedText(selectedWindow)</span>
+                </a>
+                <a class="metrics-stat" href="@RunningHref">
+                    <span class="metrics-stat__label"><span class="sd-state-dot sd-state-dot--claimed" aria-hidden="true"></span>Running</span>
+                    <span class="metrics-stat__value">@DashboardFormat.Count(selectedWindow.ClaimedCount)</span>
+                    <span class="metrics-stat__detail">@ActiveNodesText(selectedWindow)</span>
+                </a>
+                <a class="@AttentionStatClass(selectedWindow.StaleNodeCount + selectedWindow.DeadNodeCount, AttentionTone.Warning)" href="nodes">
+                    <span class="metrics-stat__label"><Icon Name="server" />Active nodes</span>
+                    <span class="metrics-stat__value">@DashboardFormat.Count(selectedWindow.ActiveNodeCount)</span>
+                    <span class="metrics-stat__detail">@UnhealthyNodesText(selectedWindow)</span>
+                </a>
+                <a class="@AttentionStatClass(selectedWindow.SaturatedConcurrencyGroupCount, AttentionTone.Warning)" href="@SaturatedGroupsHref">
+                    <span class="metrics-stat__label"><Icon Name="layers" />Saturated groups</span>
+                    <span class="metrics-stat__value">@DashboardFormat.Count(selectedWindow.SaturatedConcurrencyGroupCount)</span>
+                    <span class="metrics-stat__detail">At their concurrency limit</span>
+                </a>
+            </div>
         </section>
 
-        <section class="metrics-throughput-panel" aria-label="Live throughput graph">
-            <div class="metrics-panel__header">
-                <h2>Live Throughput</h2>
-                <span>5s Buckets / 1h Window</span>
+        <section class="metrics-section" aria-labelledby="metrics-window-title">
+            <header class="metrics-section__header">
+                <h2 id="metrics-window-title" class="metrics-section__title">@WindowTitle(selectedWindow.Window)</h2>
+                <p class="metrics-section__description">Rates and latencies for the selected window.</p>
+            </header>
+
+            @if (DashboardMetricsFormat.HasNoActivity(selectedWindow))
+            {
+                <Alert Tone="AlertTone.Info" Title="@($"No job activity in the {WindowPhrase(selectedWindow.Window)}")">
+                    Counts show zero and latencies show a dash until jobs run.
+                </Alert>
+            }
+
+            <div class="metrics-stats">
+                <div class="metrics-stat">
+                    <span class="metrics-stat__label"><span class="sd-state-dot sd-state-dot--completed" aria-hidden="true"></span>Completed</span>
+                    <span class="metrics-stat__value">@DashboardMetricsFormat.Rate(selectedWindow.SuccessRatePerMinute)</span>
+                    <span class="metrics-stat__detail">
+                        Enqueued @DashboardMetricsFormat.Rate(selectedWindow.EnqueueRatePerMinute), started @DashboardMetricsFormat.Rate(selectedWindow.ClaimRatePerMinute)
+                    </span>
+                </div>
+                <a class="@AttentionStatClass(selectedWindow.FailedCount, AttentionTone.Destructive)" href="@FailedHref">
+                    <span class="metrics-stat__label"><span class="sd-state-dot sd-state-dot--failed" aria-hidden="true"></span>Failed</span>
+                    <span class="metrics-stat__value">@DashboardFormat.Count(selectedWindow.FailedCount)</span>
+                    <span class="metrics-stat__detail">
+                        Failing @DashboardMetricsFormat.Rate(selectedWindow.FailureRatePerMinute), retrying @DashboardMetricsFormat.Rate(selectedWindow.RetryRatePerMinute)
+                    </span>
+                </a>
+                <div class="metrics-stat">
+                    <span class="metrics-stat__label"><Icon Name="hourglass" />Queue latency, p95</span>
+                    <span class="metrics-stat__value">@DashboardMetricsFormat.Duration(selectedWindow.P95QueueLatency)</span>
+                    <span class="metrics-stat__detail">Median @DashboardMetricsFormat.Duration(selectedWindow.P50QueueLatency)</span>
+                </div>
+                <div class="metrics-stat">
+                    <span class="metrics-stat__label"><Icon Name="timer" />Run time, p95</span>
+                    <span class="metrics-stat__value">@DashboardMetricsFormat.Duration(selectedWindow.P95ExecutionDuration)</span>
+                    <span class="metrics-stat__detail">Median @DashboardMetricsFormat.Duration(selectedWindow.P50ExecutionDuration)</span>
+                </div>
+                <div class="metrics-stat">
+                    <span class="metrics-stat__label"><Icon Name="calendar-clock" />Schedule lag, p95</span>
+                    <span class="metrics-stat__value">@DashboardMetricsFormat.Duration(selectedWindow.P95ScheduleFireLag)</span>
+                    <span class="metrics-stat__detail">How late schedules fired</span>
+                </div>
             </div>
 
-            <ThroughputChart AutoRefreshEnabledProvider="@(() => LiveRefresh.AutoRefreshEnabled)" />
+            <ThroughputChart Window="selectedWindow.Window" AutoRefreshEnabledProvider="@(() => LiveRefresh.AutoRefreshEnabled)" />
         </section>
 
-        <section class="metrics-panel-grid" aria-label="Latency and duration metrics">
-            <article class="metrics-panel">
-                <div class="metrics-panel__header">
-                    <h2>Queue Latency</h2>
-                    <span>@DashboardMetricsFormat.WindowLabel(selectedWindow.Window)</span>
-                </div>
-
-                <div class="metrics-bar-list">
-                    <div class="metrics-bar-row">
-                        <div>
-                            <span>p50 Median</span>
-                            <strong>@DashboardMetricsFormat.Duration(selectedWindow.P50QueueLatency)</strong>
-                        </div>
-                        <span class="metrics-bar-row__track" aria-hidden="true">
-                            <span class="metrics-bar-row__fill"
-                                  style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P50QueueLatency, queueLatencyMax)"></span>
-                        </span>
-                    </div>
-                    <div class="metrics-bar-row metrics-bar-row--hot">
-                        <div>
-                            <span>p95 Tail</span>
-                            <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95QueueLatency)</strong>
-                        </div>
-                        <span class="metrics-bar-row__track" aria-hidden="true">
-                            <span class="metrics-bar-row__fill"
-                                  style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P95QueueLatency, queueLatencyMax)"></span>
-                        </span>
-                    </div>
-                </div>
-            </article>
-
-            <article class="metrics-panel">
-                <div class="metrics-panel__header">
-                    <h2>Execution Duration</h2>
-                    <span>@DashboardMetricsFormat.WindowLabel(selectedWindow.Window)</span>
-                </div>
-
-                <div class="metrics-duration-grid">
-                    <div class="metrics-duration-stat">
-                        <span>p50 Duration</span>
-                        <strong>@DashboardMetricsFormat.Duration(selectedWindow.P50ExecutionDuration)</strong>
-                        <span class="metrics-duration-stat__track" aria-hidden="true">
-                            <span
-                            style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P50ExecutionDuration, executionDurationMax)"></span>
-                        </span>
-                    </div>
-                    <div class="metrics-duration-stat metrics-duration-stat--tail">
-                        <span>p95 Duration</span>
-                        <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95ExecutionDuration)</strong>
-                        <span class="metrics-duration-stat__track" aria-hidden="true">
-                            <span
-                            style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P95ExecutionDuration, executionDurationMax)"></span>
-                        </span>
-                    </div>
-                </div>
-            </article>
-        </section>
-
-        <section class="metrics-table-shell">
-            <div class="metrics-table-toolbar">
-                <h2>Window Comparison</h2>
-                <span>Concurrency Saturation &amp; Rates</span>
-            </div>
-
-            <div class="metrics-table-wrap">
-                <table class="metrics-table">
+        <Card Flush="true" Title="All windows" Description="Compare the windows side by side. Rates are per minute; latencies are the 95th percentile."
+              Class="metrics-compare">
+            <div class="sd-table-scroll">
+                <table class="sd-table metrics-compare__table">
                     <thead>
+                        <tr class="metrics-compare__groups">
+                            <th rowspan="2" scope="col">Window</th>
+                            <th colspan="2" scope="colgroup" class="metrics-compare__group">Jobs</th>
+                            <th colspan="5" scope="colgroup" class="metrics-compare__group">Rate</th>
+                            <th colspan="3" scope="colgroup" class="metrics-compare__group">95th percentile</th>
+                        </tr>
                         <tr>
-                            <th>Window</th>
-                            <th class="metrics-table__number">Queued</th>
-                            <th class="metrics-table__number">Claimed</th>
-                            <th class="metrics-table__number">Failed</th>
-                            <th class="metrics-table__number">Canceled</th>
-                            <th class="metrics-table__number">Enqueue/min</th>
-                            <th class="metrics-table__number">Claim/min</th>
-                            <th class="metrics-table__number">Success/min</th>
-                            <th class="metrics-table__number">Failure/min</th>
-                            <th class="metrics-table__number">Retry/min</th>
-                            <th class="metrics-table__number">p95 Queue</th>
-                            <th class="metrics-table__number">p95 Execution</th>
-                            <th class="metrics-table__number">p95 Fire Lag</th>
-                            <th class="metrics-table__number">Saturated Groups</th>
-                            <th>Nodes</th>
+                            <th scope="col" class="metrics-compare__num metrics-compare__start">Failed</th>
+                            <th scope="col" class="metrics-compare__num">Canceled</th>
+                            <th scope="col" class="metrics-compare__num metrics-compare__start">Enqueued</th>
+                            <th scope="col" class="metrics-compare__num">Started</th>
+                            <th scope="col" class="metrics-compare__num">Completed</th>
+                            <th scope="col" class="metrics-compare__num">Failed</th>
+                            <th scope="col" class="metrics-compare__num">Retried</th>
+                            <th scope="col" class="metrics-compare__num metrics-compare__start">Queue latency</th>
+                            <th scope="col" class="metrics-compare__num">Run time</th>
+                            <th scope="col" class="metrics-compare__num">Schedule lag</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var window in Windows)
                         {
-                            <tr class="@WindowRowClass(window)" @key="window.Window">
-                                <td>
-                                    <button class="metrics-window-link" type="button"
-                                            @onclick="@(() => SetSelectedWindow(window.Window))">
-                                        @DashboardMetricsFormat.WindowLabel(window.Window)
-                                    </button>
-                                </td>
-                                <td class="metrics-table__number">@DashboardFormat.Count(window.QueuedCount)</td>
-                                <td class="metrics-table__number">@DashboardFormat.Count(window.ClaimedCount)</td>
-                                <td class="metrics-table__number">
-                                    <span
-                                    class="@DashboardMetricsFormat.AttentionValueClass(window.FailedCount)">@DashboardFormat.Count(window.FailedCount)</span>
-                                </td>
-                                <td class="metrics-table__number">@DashboardFormat.Count(window.CanceledCount)</td>
-                                <td class="metrics-table__number">@DashboardMetricsFormat.Rate(window.EnqueueRatePerMinute)</td>
-                                <td class="metrics-table__number">@DashboardMetricsFormat.Rate(window.ClaimRatePerMinute)</td>
-                                <td class="metrics-table__number">@DashboardMetricsFormat.Rate(window.SuccessRatePerMinute)</td>
-                                <td class="metrics-table__number">
-                                    <span
-                                    class="@DashboardMetricsFormat.AttentionValueClass(window.FailureRatePerMinute)">@DashboardMetricsFormat.Rate(window.FailureRatePerMinute)</span>
-                                </td>
-                                <td class="metrics-table__number">
-                                    <span
-                                    class="@DashboardMetricsFormat.WarningValueClass(window.RetryRatePerMinute)">@DashboardMetricsFormat.Rate(window.RetryRatePerMinute)</span>
-                                </td>
-                                <td class="metrics-table__number">@DashboardMetricsFormat.Duration(window.P95QueueLatency)</td>
-                                <td class="metrics-table__number">@DashboardMetricsFormat.Duration(window.P95ExecutionDuration)
-                                </td>
-                                <td class="metrics-table__number">@DashboardMetricsFormat.Duration(window.P95ScheduleFireLag)
-                                </td>
-                                <td class="metrics-table__number">
-                                    <span
-                                    class="@DashboardMetricsFormat.AttentionValueClass(window.SaturatedConcurrencyGroupCount)"
-                                    title="@DashboardMetricsFormat.SaturatedGroupTitle(window)">@DashboardFormat.Count(window.SaturatedConcurrencyGroupCount)</span>
-                                </td>
-                                <td>
-                                    <span class="metrics-node-cell">
-                                        <span class="metrics-node-cell__active">@DashboardFormat.Count(window.ActiveNodeCount)
-                                            active</span>
-                                            <span class="metrics-node-cell__stale">@DashboardFormat.Count(window.StaleNodeCount)
-                                                stale</span>
-                                                <span class="metrics-node-cell__dead">@DashboardFormat.Count(window.DeadNodeCount)
-                                                    dead</span>
-                                                </span>
-                                            </td>
-                                        </tr>
+                            var selected = window.Window == selectedWindow.Window;
+                            <tr @key="window.Window" class="@(selected ? "metrics-compare__row--selected" : null)" aria-current="@(selected ? "true" : null)">
+                                <td class="metrics-compare__window">
+                                    @DashboardMetricsFormat.WindowLabel(window.Window)
+                                    @if (selected)
+                                    {
+                                        <span class="sd-sr-only">(selected)</span>
                                     }
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-                }
+                                </td>
+                                <td class="metrics-compare__num metrics-compare__start">
+                                    <span class="@DashboardMetricsFormat.AttentionValueClass(window.FailedCount)">@DashboardFormat.Count(window.FailedCount)</span>
+                                </td>
+                                <td class="metrics-compare__num">@DashboardFormat.Count(window.CanceledCount)</td>
+                                <td class="metrics-compare__num metrics-compare__start">@DashboardMetricsFormat.Rate(window.EnqueueRatePerMinute)</td>
+                                <td class="metrics-compare__num">@DashboardMetricsFormat.Rate(window.ClaimRatePerMinute)</td>
+                                <td class="metrics-compare__num">@DashboardMetricsFormat.Rate(window.SuccessRatePerMinute)</td>
+                                <td class="metrics-compare__num">
+                                    <span class="@DashboardMetricsFormat.AttentionValueClass(window.FailureRatePerMinute)">@DashboardMetricsFormat.Rate(window.FailureRatePerMinute)</span>
+                                </td>
+                                <td class="metrics-compare__num">
+                                    <span class="@DashboardMetricsFormat.WarningValueClass(window.RetryRatePerMinute)">@DashboardMetricsFormat.Rate(window.RetryRatePerMinute)</span>
+                                </td>
+                                <td class="metrics-compare__num metrics-compare__start">@DashboardMetricsFormat.Duration(window.P95QueueLatency)</td>
+                                <td class="metrics-compare__num">@DashboardMetricsFormat.Duration(window.P95ExecutionDuration)</td>
+                                <td class="metrics-compare__num">@DashboardMetricsFormat.Duration(window.P95ScheduleFireLag)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
-
-            <style>
-                .metrics-page {
-                    display: flex;
-                    flex-direction: column;
-                    gap: var(--sd-gutter);
-                }
-
-                .metrics-header,
-                .metrics-header__actions,
-                .metrics-window-tabs,
-                .metrics-summary-card__header,
-                .metrics-summary-card__detail,
-                .metrics-rate-stack,
-                .metrics-node-health__item,
-                .metrics-inline-alert,
-                .metrics-message,
-                .metrics-panel__header,
-                .metrics-table-toolbar,
-                .metrics-node-cell {
-                    display: flex;
-                    align-items: center;
-                }
-
-                .metrics-header {
-                    justify-content: space-between;
-                    gap: 16px;
-                }
-
-                .metrics-header h1 {
-                    margin: 0;
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-sans);
-                    font-size: 24px;
-                    font-weight: 600;
-                    line-height: 32px;
-                }
-
-                .metrics-header p {
-                    margin: 4px 0 0;
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .metrics-header__actions {
-                    flex-wrap: wrap;
-                    justify-content: flex-end;
-                    gap: 12px;
-                }
-
-                .metrics-window-tabs {
-                    gap: 2px;
-                    border: 1px solid var(--sd-outline-variant);
-                    border-radius: var(--radius-md);
-                    background: var(--sd-surface-high);
-                    padding: 2px;
-                }
-
-                .metrics-window-tabs button {
-                    min-width: 52px;
-                    border: 1px solid transparent;
-                    border-radius: var(--radius-md);
-                    background: transparent;
-                    color: var(--sd-on-surface-variant);
-                    cursor: pointer;
-                    padding: 6px 12px;
-                    font-size: 12px;
-                    font-weight: 500;
-                    line-height: 16px;
-                }
-
-                .metrics-window-tabs button:hover {
-                    background: var(--sd-surface-variant);
-                    color: var(--sd-on-surface);
-                }
-
-                .metrics-window-tabs button.metrics-window-tabs__button--selected,
-                .metrics-window-tabs button.metrics-window-tabs__button--selected:hover {
-                    border-color: var(--sd-primary) !important;
-                    background: var(--sd-primary) !important;
-                    color: var(--sd-on-primary) !important;
-                }
-
-                .metrics-message {
-                    gap: 12px;
-                    border: 1px solid var(--sd-outline-variant);
-                    border-radius: calc(var(--radius) + 2px);
-                    box-shadow: var(--shadow-sm);
-                    background: var(--sd-surface-lowest);
-                    padding: 16px;
-                }
-
-                .metrics-message--error {
-                    border-color: var(--sd-error);
-                    background: var(--sd-error-container);
-                    color: var(--sd-on-error-container);
-                }
-
-                .metrics-message--warning {
-                    border-color: var(--sd-warning);
-                    background: var(--sd-warning-container);
-                    color: var(--sd-warning);
-                }
-
-                .metrics-message h2 {
-                    margin: 0;
-                    font-family: var(--font-sans);
-                    font-size: 18px;
-                    font-weight: 600;
-                    line-height: 24px;
-                }
-
-                .metrics-message p {
-                    margin: 2px 0 0;
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .metrics-inline-alert {
-                    gap: 8px;
-                    border: 1px solid var(--sd-outline-variant);
-                    border-radius: calc(var(--radius) + 2px);
-                    box-shadow: var(--shadow-sm);
-                    background: var(--sd-info-container);
-                    color: var(--sd-info);
-                    padding: 10px 12px;
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .metrics-inline-alert--error {
-                    border-color: var(--sd-error);
-                    background: var(--sd-error-container);
-                    color: var(--sd-on-error-container);
-                }
-
-                .metrics-summary-grid {
-                    display: grid;
-                    grid-template-columns: repeat(4, minmax(0, 1fr));
-                    gap: var(--sd-gutter);
-                }
-
-                .metrics-summary-card,
-                .metrics-panel,
-                .metrics-throughput-panel,
-                .metrics-table-shell {
-                    border: 1px solid var(--sd-outline-variant);
-                    border-radius: calc(var(--radius) + 2px);
-                    box-shadow: var(--shadow-sm);
-                    background: var(--sd-surface-lowest);
-                }
-
-                .metrics-summary-card {
-                    display: flex;
-                    min-height: 142px;
-                    flex-direction: column;
-                    justify-content: space-between;
-                    gap: 12px;
-                    padding: 16px;
-                }
-
-                .metrics-summary-card__header {
-                    justify-content: space-between;
-                    gap: 10px;
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    font-weight: 500;
-                    line-height: 16px;
-                }
-
-                .metrics-summary-card>strong {
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-mono);
-                    font-size: 30px;
-                    font-weight: 700;
-                    letter-spacing: 0;
-                    line-height: 34px;
-                }
-
-                .metrics-summary-card__detail {
-                    gap: 6px;
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .metrics-summary-card__detail em,
-                .metrics-rate-stack em {
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-mono);
-                    font-style: normal;
-                }
-
-                .metrics-rate-stack {
-                    display: grid;
-                    min-height: 36px;
-                    align-content: start;
-                    gap: 4px;
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .metrics-rate-stack span {
-                    display: grid;
-                    grid-template-columns: 52px max-content;
-                    gap: 6px;
-                    white-space: nowrap;
-                }
-
-                .metrics-node-health {
-                    display: grid;
-                    gap: 8px;
-                }
-
-                .metrics-node-health__item {
-                    justify-content: space-between;
-                    gap: 10px;
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .metrics-node-health__item>span {
-                    width: 8px;
-                    height: 8px;
-                    flex: 0 0 auto;
-                    border-radius: 999px;
-                    background: var(--sd-outline);
-                }
-
-                .metrics-node-health__item em {
-                    flex: 1;
-                    font-style: normal;
-                }
-
-                .metrics-node-health__item strong {
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-mono);
-                    font-size: 18px;
-                    line-height: 22px;
-                }
-
-                .metrics-node-health__item--active>span,
-                .metrics-node-cell__active::before {
-                    background: var(--sd-success);
-                }
-
-                .metrics-node-health__item--stale>span,
-                .metrics-node-cell__stale::before {
-                    background: var(--sd-warning);
-                }
-
-                .metrics-node-health__item--dead>span,
-                .metrics-node-cell__dead::before {
-                    background: var(--sd-error);
-                }
-
-                .metrics-panel-grid {
-                    display: grid;
-                    grid-template-columns: repeat(2, minmax(0, 1fr));
-                    gap: var(--sd-gutter);
-                }
-
-                .metrics-panel {
-                    min-height: 208px;
-                    padding: 16px;
-                }
-
-                .metrics-throughput-panel {
-                    display: grid;
-                    gap: 16px;
-                    min-height: 342px;
-                    padding: 16px;
-                }
-
-                .metrics-panel__header {
-                    justify-content: space-between;
-                    gap: 12px;
-                    margin-bottom: 24px;
-                }
-
-                .metrics-panel__header h2,
-                .metrics-table-toolbar h2 {
-                    margin: 0;
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-sans);
-                    font-size: 18px;
-                    font-weight: 600;
-                    line-height: 24px;
-                }
-
-                .metrics-panel__header span,
-                .metrics-table-toolbar span {
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    font-weight: 500;
-                    line-height: 16px;
-                }
-
-                .metrics-bar-list {
-                    display: grid;
-                    gap: 18px;
-                }
-
-                .metrics-bar-row {
-                    display: grid;
-                    gap: 8px;
-                }
-
-                .metrics-bar-row div {
-                    display: flex;
-                    align-items: flex-end;
-                    justify-content: space-between;
-                    gap: 12px;
-                }
-
-                .metrics-bar-row span {
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .metrics-bar-row strong,
-                .metrics-duration-stat strong {
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-mono);
-                    font-weight: 700;
-                }
-
-                .metrics-bar-row__track,
-                .metrics-duration-stat__track {
-                    display: block;
-                    width: 100%;
-                    overflow: hidden;
-                    border-radius: 999px;
-                    background: var(--sd-surface-variant);
-                }
-
-                .metrics-bar-row__track {
-                    height: 8px;
-                }
-
-                .metrics-bar-row__fill,
-                .metrics-duration-stat__track span {
-                    display: block;
-                    height: 100%;
-                    border-radius: 999px;
-                    background: var(--sd-secondary);
-                }
-
-                .metrics-bar-row--hot .metrics-bar-row__fill,
-                .metrics-duration-stat--tail .metrics-duration-stat__track span {
-                    background: var(--sd-warning);
-                }
-
-                .metrics-duration-grid {
-                    display: grid;
-                    grid-template-columns: repeat(2, minmax(0, 1fr));
-                    gap: 18px;
-                }
-
-                .metrics-duration-stat {
-                    display: grid;
-                    gap: 12px;
-                    min-width: 0;
-                }
-
-                .metrics-duration-stat>span:first-child {
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    font-weight: 500;
-                    line-height: 16px;
-                }
-
-                .metrics-duration-stat strong {
-                    overflow: hidden;
-                    font-size: 24px;
-                    line-height: 28px;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-
-                .metrics-duration-stat__track {
-                    height: 6px;
-                }
-
-                .throughput-chart {
-                    position: relative;
-                    min-height: 220px;
-                    overflow: hidden;
-                }
-
-                .throughput-chart__plot {
-                    position: absolute;
-                    inset: 0;
-                }
-
-                .throughput-chart__plot>div.uplot {
-                    width: 100%;
-                }
-
-                .throughput-chart__canvas {
-                    display: block;
-                    width: 100%;
-                    height: 220px;
-                }
-
-                .throughput-chart__clip-layer {
-                    position: absolute;
-                    inset: 0;
-                    z-index: 1;
-                    pointer-events: none;
-                }
-
-                .throughput-chart__clip-marker {
-                    position: absolute;
-                    width: 7px;
-                    height: 7px;
-                    border: 1px solid var(--sd-surface-lowest);
-                    border-radius: 999px;
-                    box-shadow: 0 0 0 1px var(--sd-background);
-                    pointer-events: auto;
-                    transform: translate(-50%, 0);
-                }
-
-                .throughput-chart__empty,
-                .throughput-chart--empty {
-                    position: absolute;
-                    inset: 0;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 8px;
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    line-height: 16px;
-                    pointer-events: none;
-                }
-
-                .throughput-chart--empty {
-                    position: relative;
-                }
-
-                .throughput-chart-legend {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 8px;
-                }
-
-                .throughput-chart-legend__item {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 6px;
-                    border: 1px solid var(--sd-outline-variant);
-                    border-radius: var(--sd-radius);
-                    background: var(--sd-surface);
-                    padding: 6px 8px;
-                    color: var(--sd-on-surface-variant);
-                    cursor: pointer;
-                    font: inherit;
-                    font-size: 12px;
-                    line-height: 16px;
-                }
-
-                .throughput-chart-legend__item:hover {
-                    border-color: var(--sd-outline);
-                    background: var(--sd-surface-high);
-                }
-
-                .throughput-chart-legend__item:focus-visible {
-                    outline: 2px solid var(--sd-primary);
-                    outline-offset: 2px;
-                }
-
-                .throughput-chart-legend__item--muted {
-                    opacity: 0.55;
-                }
-
-                .throughput-chart-legend__item>span {
-                    width: 8px;
-                    height: 8px;
-                    flex: 0 0 auto;
-                    border-radius: 999px;
-                    background: var(--sd-outline);
-                }
-
-                .throughput-chart-legend__item.throughput-chart-legend__item--muted>span {
-                    background: var(--sd-outline);
-                }
-
-                .throughput-chart-legend__item em {
-                    font-style: normal;
-                }
-
-                .throughput-chart-legend__item strong {
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-mono);
-                    font-weight: 700;
-                }
-
-                .throughput-chart-legend__item--queued>span {
-                    background: var(--sd-secondary);
-                }
-
-                .throughput-chart-legend__item--started>span {
-                    background: var(--sd-info);
-                }
-
-                .throughput-chart-legend__item--succeeded>span {
-                    background: var(--sd-success);
-                }
-
-                .throughput-chart-legend__item--failed>span {
-                    background: var(--sd-error);
-                }
-
-                .throughput-chart-legend__item--canceled>span {
-                    background: var(--sd-warning);
-                }
-
-                .throughput-chart-legend__item--attempts>span {
-                    background: #7c3aed;
-                }
-
-                .metrics-table-shell {
-                    overflow: hidden;
-                }
-
-                .metrics-table-toolbar {
-                    justify-content: space-between;
-                    gap: 16px;
-                    border-bottom: 1px solid var(--sd-outline-variant);
-                    background: var(--sd-surface);
-                    padding: 16px;
-                }
-
-                .metrics-table-wrap {
-                    overflow: auto;
-                }
-
-                .metrics-table {
-                    width: 100%;
-                    min-width: 1540px;
-                    border-collapse: collapse;
-                    table-layout: fixed;
-                    white-space: nowrap;
-                }
-
-                .metrics-table th,
-                .metrics-table td {
-                    border-bottom: 1px solid var(--sd-outline-variant);
-                    padding: 8px 16px;
-                    text-align: left;
-                    vertical-align: middle;
-                }
-
-                .metrics-table th {
-                    background: var(--sd-surface-low);
-                    color: var(--sd-on-surface-variant);
-                    font-size: 12px;
-                    font-weight: 500;
-                    line-height: 16px;
-                }
-
-                .metrics-table td {
-                    color: var(--sd-on-surface);
-                    font-family: var(--font-mono);
-                    font-size: 13px;
-                    line-height: 18px;
-                }
-
-                .metrics-table tbody tr:hover {
-                    background: var(--sd-surface-low);
-                }
-
-                .metrics-table tbody tr:last-child td {
-                    border-bottom: 0;
-                }
-
-                .metrics-table__number {
-                    text-align: right !important;
-                }
-
-                .metrics-window-link {
-                    border: 0;
-                    background: transparent;
-                    color: inherit;
-                    cursor: pointer;
-                    font: inherit;
-                    padding: 0;
-                    text-decoration: underline;
-                    text-decoration-thickness: 1px;
-                    text-underline-offset: 3px;
-                }
-
-                .metrics-row--selected {
-                    background: var(--sd-secondary-container);
-                }
-
-                .metrics-value--attention {
-                    color: var(--sd-error);
-                    font-weight: 700;
-                }
-
-                .metrics-value--warning {
-                    color: var(--sd-warning);
-                    font-weight: 700;
-                }
-
-                .metrics-node-cell {
-                    flex-wrap: wrap;
-                    gap: 8px;
-                }
-
-                .metrics-node-cell span {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 4px;
-                }
-
-                .metrics-node-cell span::before {
-                    width: 6px;
-                    height: 6px;
-                    border-radius: 999px;
-                    content: "";
-                }
-
-                .metrics-node-cell__stale {
-                    color: var(--sd-warning);
-                }
-
-                .metrics-node-cell__dead {
-                    color: var(--sd-error);
-                }
-
-                @@media (max-width: 1180px) {
-
-                    .metrics-header,
-                    .metrics-header__actions {
-                        align-items: stretch;
-                        flex-direction: column;
-                    }
-
-                    .metrics-header__actions {
-                        gap: 8px;
-                    }
-
-                    .metrics-window-tabs {
-                        align-self: flex-start;
-                    }
-
-                    .metrics-summary-grid {
-                        grid-template-columns: repeat(2, minmax(0, 1fr));
-                    }
-                }
-
-                @@media (max-width: 760px) {
-
-                    .metrics-summary-grid,
-                    .metrics-panel-grid,
-                    .metrics-duration-grid {
-                        grid-template-columns: 1fr;
-                    }
-
-                    .metrics-table-toolbar {
-                        align-items: flex-start;
-                        flex-direction: column;
-                    }
-
-                    .metrics-window-tabs {
-                        width: 100%;
-                    }
-
-                    .metrics-window-tabs button {
-                        flex: 1;
-                    }
-                }
-            </style>
+        </Card>
+    }
+</div>
 
 @code {
-    private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan[] DefaultMetricWindows = [TimeSpan.FromMinutes(5), TimeSpan.FromHours(1),
-TimeSpan.FromHours(24)];
+    private static readonly RenderFragment StaleDataNote = @<span class="sd-alert__meta">The values below are from the last successful refresh.</span>;
 
+    private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan[] DefaultMetricWindows = [TimeSpan.FromMinutes(5), TimeSpan.FromHours(1), TimeSpan.FromHours(24)];
     private static readonly TimeSpan DefaultSelectedWindow = TimeSpan.FromHours(1);
+    private const int SkeletonTileCount = 4;
+
+    // The window lives in the URL (metrics?window=5m); the tabs are links, so Back and shared links restore it.
+    private static readonly IReadOnlyList<TabItem<TimeSpan>> WindowTabs =
+    [
+        .. DefaultMetricWindows.Select(window => new TabItem<TimeSpan>(
+          window,
+          DashboardMetricsFormat.WindowLabel(window),
+          Href: DashboardMetricsWindowQuery.ToHref(window, DefaultSelectedWindow))),
+    ];
+
+    private static readonly string QueuedHref = DashboardJobFilterQuery.StateHref(JobState.Queued);
+    private static readonly string RunningHref = DashboardJobFilterQuery.StateHref(JobState.Claimed);
+    private static readonly string FailedHref = CreateFailedHref();
+    private static readonly string SaturatedGroupsHref = DashboardConcurrencyGroupFilterQuery.ToHref(
+      new DashboardConcurrencyGroupFilters { SaturatedOnly = true });
 
     private MetricsInspectionSnapshot? _snapshot;
     private string? _loadError;
     private TimeSpan _selectedWindow = DefaultSelectedWindow;
     private bool _isLoading;
     private bool _metricsUnsupported;
+
+    private enum AttentionTone
+    {
+        Warning,
+        Destructive,
+    }
 
     [Inject]
     private NavigationManager Navigation { get; set; } = null!;
@@ -1001,12 +249,6 @@ TimeSpan.FromHours(24)];
 
         await this.LoadAsync();
         this.StartPeriodicRefresh(PageRefreshInterval);
-    }
-
-    private void SetSelectedWindow(TimeSpan window)
-    {
-        this._selectedWindow = window;
-        this.NavigateToLocation(DashboardMetricsWindowQuery.ToHref(window, DefaultSelectedWindow), replace: false);
     }
 
     private Task ApplyLocationAsync(string location)
@@ -1045,6 +287,9 @@ TimeSpan.FromHours(24)];
         }
     }
 
+    private Task RetryRefreshAsync()
+      => this.LiveRefresh.RefreshNowAsync();
+
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
         var snapshot = await Reader.GetMetricsAsync(
@@ -1065,7 +310,43 @@ TimeSpan.FromHours(24)];
         }
     }
 
-    private string WindowRowClass(MetricsInspectionWindow window)
-      => window.Window == (this.SelectedWindow?.Window ?? this._selectedWindow) ? "metrics-row--selected" : string.Empty;
+    private static string CreateFailedHref()
+    {
+        var filters = new DashboardJobFilters();
+        _ = filters.ReplaceStates([JobState.Failed]);
+        _ = filters.SetSort(JobInspectionSort.NewestFirst);
+        return DashboardJobFilterQuery.ToHref(filters);
+    }
 
+    private static string WindowPhrase(TimeSpan window)
+      => string.Concat("last ", DashboardMetricsFormat.Period(window));
+
+    private static string WindowTitle(TimeSpan window)
+      => string.Concat("Last ", DashboardMetricsFormat.Period(window));
+
+    private static string OldestQueuedText(MetricsInspectionWindow window)
+      => window.OldestQueuedAge is { } age
+        ? string.Concat("Oldest waiting ", DashboardMetricsFormat.Duration(age))
+        : "Nothing waiting";
+
+    private static string ActiveNodesText(MetricsInspectionWindow window)
+      => window.ActiveNodeCount == 1
+        ? "On 1 active node"
+        : string.Create(CultureInfo.InvariantCulture, $"On {DashboardFormat.Count(window.ActiveNodeCount)} active nodes");
+
+    private static string UnhealthyNodesText(MetricsInspectionWindow window)
+      => window.StaleNodeCount == 0 && window.DeadNodeCount == 0
+        ? "None stale or dead"
+        : string.Create(
+          CultureInfo.InvariantCulture,
+          $"{DashboardFormat.Count(window.StaleNodeCount)} stale, {DashboardFormat.Count(window.DeadNodeCount)} dead");
+
+    private static string AttentionStatClass(
+        int count,
+        AttentionTone tone)
+      => count <= 0
+        ? "metrics-stat"
+        : tone == AttentionTone.Destructive
+          ? "metrics-stat metrics-stat--destructive"
+          : "metrics-stat metrics-stat--warning";
 }

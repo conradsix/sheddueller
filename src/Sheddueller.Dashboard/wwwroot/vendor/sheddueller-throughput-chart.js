@@ -1,22 +1,40 @@
 (function () {
+  // element -> { kind, chart?, canvas?, width, hover }
   const charts = new WeakMap();
   const models = new Map();
-  const seriesDefinitions = [
-    { label: "Queued", color: "#515f74", valuesKey: "Queued", visibleKey: "QueuedVisible" },
-    { label: "Started", color: "#1d4ed8", valuesKey: "Started", visibleKey: "StartedVisible" },
-    { label: "Succeeded", color: "#166534", valuesKey: "Succeeded", visibleKey: "SucceededVisible" },
-    { label: "Failed", color: "#ba1a1a", valuesKey: "Failed", visibleKey: "FailedVisible" },
-    { label: "Canceled", color: "#8a5a00", valuesKey: "Canceled", visibleKey: "CanceledVisible" },
-    { label: "Failed Attempts", color: "#7c3aed", valuesKey: "FailedAttempts", visibleKey: "FailedAttemptsVisible" },
-  ];
+  const observers = new WeakMap();
+  const fallbackColor = "#71717a";
 
   function read(model, key) {
     const lower = key.charAt(0).toLowerCase() + key.slice(1);
-    return model[lower] ?? model[key];
+    return model?.[lower] ?? model?.[key];
+  }
+
+  // Colours are design tokens (CSS custom properties), so light and dark themes come from the stylesheet.
+  function token(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  function axisColor() {
+    return token("--muted-foreground", fallbackColor);
+  }
+
+  function gridColor() {
+    return token("--border", "#e4e4e7");
+  }
+
+  function surfaceColor() {
+    return token("--card", "#ffffff");
+  }
+
+  function axisFont() {
+    return `11px ${token("--font-sans", "system-ui, sans-serif")}`;
   }
 
   function destroy(element) {
     models.delete(element);
+    observers.get(element)?.disconnect();
+    observers.delete(element);
     teardown(element);
   }
 
@@ -40,12 +58,42 @@
     }
 
     models.set(element, model);
+    observe(element);
     if (window.uPlot) {
       renderUPlot(element, model);
       return;
     }
 
     renderCanvas(element, model);
+  }
+
+  // Redraw when the card changes width (sidebar toggle, window resize); uPlot draws at a fixed size.
+  function observe(element) {
+    if (observers.has(element) || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const existing = charts.get(element);
+        const model = models.get(element);
+        if (model && element.isConnected && existing && Math.floor(element.getBoundingClientRect().width) !== existing.width) {
+          render(element, model);
+        }
+      });
+    });
+    observer.observe(element);
+    observers.set(element, observer);
+
+    element.addEventListener("pointerleave", () => {
+      const existing = charts.get(element);
+      if (existing) {
+        existing.hover = null;
+        hideHover(element);
+      }
+    });
   }
 
   function renderUPlot(element, model) {
@@ -55,12 +103,23 @@
     const visibleSeries = datasets.filter((series) => series.visible);
     const scale = scaleInfo(timestamps, visibleSeries);
     const timeScale = timeScaleRange(model, timestamps);
+    const hover = charts.get(element)?.hover ?? null;
+    const surface = surfaceColor();
 
     teardown(element);
+    const size = chartSize(element);
     const options = {
-      ...chartSize(element),
+      ...size,
       cursor: {
+        x: false,
+        y: false,
         drag: { x: false, y: false },
+        points: {
+          size: 9,
+          width: 2,
+          stroke: () => surface,
+          fill: (chart, seriesIndex) => datasets[seriesIndex - 1]?.color ?? fallbackColor,
+        },
       },
       legend: {
         show: false,
@@ -72,26 +131,44 @@
       axes: [
         {
           stroke: axisColor(),
-          grid: { stroke: gridColor() },
+          font: axisFont(),
+          grid: { show: false },
+          ticks: { stroke: gridColor(), width: 1, size: 4 },
         },
         {
           stroke: axisColor(),
-          grid: { stroke: gridColor() },
-          values: (_, values) => values.map((value) => value.toLocaleString()),
+          font: axisFont(),
+          grid: { stroke: gridColor(), width: 1 },
+          ticks: { show: false },
+          values: (_, values) => values.map(formatCount),
         },
       ],
       series: [
         {},
-        ...datasets.map((dataset) => series(dataset.label, dataset.color, dataset.visible)),
+        ...datasets.map((dataset) => ({
+          label: dataset.label,
+          show: dataset.visible,
+          stroke: dataset.color,
+          width: 2,
+          points: { show: false },
+        })),
       ],
+      hooks: {
+        setCursor: [(chart) => updateHover(element, chart, model, datasets)],
+      },
     };
 
     const chart = new window.uPlot(options, data, element);
-    applySeriesVisibility(chart, datasets);
-    applyScales(chart, timeScale, scale.max);
-    charts.set(element, { kind: "uplot", chart });
+    chart.setScale("x", timeScale);
+    chart.setScale("y", { min: 0, max: scale.max });
+    charts.set(element, { kind: "uplot", chart, width: size.width, hover: null });
     updateDebugAttributes(element, model, timestamps, data);
     renderClipMarkers(element, scale.clipped, timestamps, chart);
+
+    // Keep the readout under a pointer that is still over the chart when live data redraws it.
+    if (hover) {
+      chart.setCursor(hover);
+    }
   }
 
   function renderCanvas(element, model) {
@@ -101,11 +178,11 @@
       const canvas = document.createElement("canvas");
       canvas.className = "throughput-chart__canvas";
       element.appendChild(canvas);
-      existing = { kind: "canvas", canvas };
+      existing = { kind: "canvas", canvas, width: 0, hover: null };
       charts.set(element, existing);
     }
 
-    drawCanvas(existing.canvas, model);
+    existing.width = drawCanvas(existing.canvas, model);
     updateDebugAttributes(element, model, read(model, "Timestamps") ?? [], []);
   }
 
@@ -113,7 +190,7 @@
     const rect = canvas.parentElement.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(220, Math.floor(rect.height));
+    const height = Math.max(200, Math.floor(rect.height));
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     canvas.style.width = `${width}px`;
@@ -127,8 +204,7 @@
     const plotWidth = width - padding.left - padding.right;
     const plotHeight = height - padding.top - padding.bottom;
     const timestamps = read(model, "Timestamps") ?? [];
-    const datasets = chartSeries(model);
-    const visibleDatasets = datasets.filter((dataset) => dataset.visible);
+    const visibleDatasets = chartSeries(model).filter((dataset) => dataset.visible);
     const pointCount = timestamps.length;
     const scale = scaleInfo(timestamps, visibleDatasets);
     const maxValue = scale.max;
@@ -144,18 +220,20 @@
     }
 
     context.fillStyle = axisColor();
-    context.font = "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    context.font = axisFont();
     context.textAlign = "right";
     context.textBaseline = "middle";
     for (let index = 0; index <= 4; index++) {
       const value = Math.round(maxValue - (maxValue / 4) * index);
       const y = padding.top + (plotHeight / 4) * index;
-      context.fillText(value.toLocaleString(), padding.left - 8, y);
+      context.fillText(formatCount(value), padding.left - 8, y);
     }
 
+    context.lineJoin = "round";
+    context.lineCap = "round";
     for (const dataset of visibleDatasets) {
       context.strokeStyle = dataset.color;
-      context.lineWidth = 1.5;
+      context.lineWidth = 2;
       context.beginPath();
       for (let index = 0; index < pointCount; index++) {
         const x = padding.left + (plotWidth * index) / Math.max(1, pointCount - 1);
@@ -172,35 +250,110 @@
     }
 
     renderClipMarkers(canvas.parentElement, scale.clipped, timestamps);
+    return width;
   }
 
-  function series(label, stroke, show) {
-    return {
-      label,
-      show,
-      stroke,
-      width: 1.5,
-      points: { show: false },
-    };
+  // Crosshair + readout: a hairline snapped to the nearest bucket and one tooltip listing every visible series.
+  function updateHover(element, chart, model, datasets) {
+    const index = chart.cursor.idx;
+    const state = charts.get(element);
+    if (index == null || chart.cursor.left == null || chart.cursor.left < 0) {
+      if (state) {
+        state.hover = null;
+      }
+
+      hideHover(element);
+      return;
+    }
+
+    if (state) {
+      state.hover = { left: chart.cursor.left, top: chart.cursor.top };
+    }
+
+    const timestamp = chart.data[0][index];
+    const x = chart.valToPos(timestamp, "x");
+    const over = chart.over;
+
+    let crosshair = over.querySelector(".throughput-chart__crosshair");
+    if (!crosshair) {
+      crosshair = document.createElement("div");
+      crosshair.className = "throughput-chart__crosshair";
+      crosshair.setAttribute("aria-hidden", "true");
+      over.appendChild(crosshair);
+    }
+
+    crosshair.style.transform = `translateX(${Math.round(x)}px)`;
+    crosshair.hidden = false;
+
+    let tooltip = element.querySelector(".throughput-chart__tooltip");
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.className = "throughput-chart__tooltip";
+      // Pointer-only readout; the legend totals and the window table carry the same numbers for everyone.
+      tooltip.setAttribute("aria-hidden", "true");
+      element.appendChild(tooltip);
+    }
+
+    const bucketSeconds = read(model, "BucketSizeSeconds") ?? 0;
+    const heading = document.createElement("div");
+    heading.className = "throughput-chart__tooltip-time";
+    heading.textContent = `${formatTime(timestamp)} – ${formatTime(timestamp + bucketSeconds)}`;
+
+    const rows = datasets
+      .filter((dataset) => dataset.visible)
+      .map((dataset) => {
+        const row = document.createElement("div");
+        row.className = "throughput-chart__tooltip-row";
+        const key = document.createElement("span");
+        key.className = "throughput-chart__tooltip-key";
+        key.style.backgroundColor = dataset.color;
+        const value = document.createElement("strong");
+        value.textContent = (dataset.values[index] ?? 0).toLocaleString();
+        const label = document.createElement("span");
+        label.textContent = dataset.label;
+        row.append(key, value, label);
+        return row;
+      });
+
+    if (rows.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "throughput-chart__tooltip-empty";
+      empty.textContent = "All series are hidden";
+      rows.push(empty);
+    }
+
+    tooltip.replaceChildren(heading, ...rows);
+    tooltip.hidden = false;
+
+    // Beside the crosshair, flipped to the left near the right edge, and kept inside the chart.
+    const bounds = element.getBoundingClientRect();
+    const anchorX = over.offsetLeft + x;
+    const anchorY = over.offsetTop + (chart.cursor.top ?? 0);
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    const left = anchorX + 12 + width <= bounds.width ? anchorX + 12 : Math.max(0, anchorX - 12 - width);
+    const top = Math.min(Math.max(0, anchorY - height / 2), Math.max(0, bounds.height - height));
+    tooltip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+  }
+
+  function hideHover(element) {
+    const tooltip = element.querySelector(".throughput-chart__tooltip");
+    if (tooltip) {
+      tooltip.hidden = true;
+    }
+
+    const crosshair = element.querySelector(".throughput-chart__crosshair");
+    if (crosshair) {
+      crosshair.hidden = true;
+    }
   }
 
   function chartSize(element) {
     const rect = element.getBoundingClientRect();
     return {
       width: Math.max(320, Math.floor(rect.width)),
-      height: Math.max(220, Math.floor(rect.height)),
+      height: Math.max(200, Math.floor(rect.height)),
     };
-  }
-
-  function applyScales(chart, timeScale, yMax) {
-    chart.setScale("x", timeScale);
-    chart.setScale("y", { min: 0, max: yMax });
-  }
-
-  function applySeriesVisibility(chart, series) {
-    for (let index = 0; index < series.length; index++) {
-      chart.setSeries(index + 1, { show: series[index].visible });
-    }
   }
 
   function timeScaleRange(model, timestamps) {
@@ -210,11 +363,11 @@
   }
 
   function chartSeries(model) {
-    return seriesDefinitions.map((definition) => ({
-      label: definition.label,
-      color: definition.color,
-      visible: read(model, definition.visibleKey) !== false,
-      values: read(model, definition.valuesKey) ?? [],
+    return (read(model, "Series") ?? []).map((series) => ({
+      label: read(series, "Label") ?? "",
+      color: token(read(series, "ColorToken") ?? "", fallbackColor),
+      visible: read(series, "Visible") !== false,
+      values: read(series, "Values") ?? [],
     }));
   }
 
@@ -226,6 +379,8 @@
     element.dataset.seriesCount = `${Math.max(0, data.length - 1)}`;
   }
 
+  // The y-axis ignores a lone spike far above the rest so ordinary traffic stays readable; values above the
+  // axis get a marker at the top edge instead.
   function scaleInfo(timestamps, series) {
     const values = series
       .flatMap((series) => Array.from(series.values))
@@ -281,10 +436,10 @@
       timestampCounts.set(point.timestamp, stackIndex + 1);
       const marker = document.createElement("span");
       marker.className = "throughput-chart__clip-marker";
-      marker.title = `${point.label}: ${point.value.toLocaleString()} clipped above visible scale`;
+      marker.title = `${point.label}: ${point.value.toLocaleString()}, above the axis`;
       marker.style.backgroundColor = point.color;
       marker.style.left = `${xPosition(point.timestamp, start, span, bounds, chart)}px`;
-      marker.style.top = `${bounds.top + 2 + stackIndex * 8}px`;
+      marker.style.top = `${bounds.top + 2 + stackIndex * 10}px`;
       layer.appendChild(marker);
     }
 
@@ -292,14 +447,12 @@
   }
 
   function plotBounds(element, chart) {
-    if (chart?.bbox) {
-      const rect = element.getBoundingClientRect();
-      const scale = chart.bbox.width > rect.width ? window.devicePixelRatio || 1 : 1;
+    if (chart?.over) {
       return {
-        left: chart.bbox.left / scale,
-        top: chart.bbox.top / scale,
-        width: chart.bbox.width / scale,
-        height: chart.bbox.height / scale,
+        left: chart.over.offsetLeft,
+        top: chart.over.offsetTop,
+        width: chart.over.offsetWidth,
+        height: chart.over.offsetHeight,
       };
     }
 
@@ -315,7 +468,7 @@
     if (chart?.valToPos) {
       const position = chart.valToPos(timestamp, "x");
       if (Number.isFinite(position)) {
-        return position <= bounds.width + 1 ? bounds.left + position : position;
+        return bounds.left + position;
       }
     }
 
@@ -326,22 +479,21 @@
     const exponent = Math.floor(Math.log10(value));
     const magnitude = 10 ** exponent;
     const normalized = value / magnitude;
-    let niceNormalized;
     const steps = [1, 1.25, 1.5, 2, 2.5, 5, 7.5, 10];
-    niceNormalized = steps.find((step) => normalized <= step) ?? 10;
-
-    return niceNormalized * magnitude;
+    return (steps.find((step) => normalized <= step) ?? 10) * magnitude;
   }
 
-  function axisColor() {
-    return getComputedStyle(document.documentElement).getPropertyValue("--muted-foreground").trim() || "#71717a";
+  const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+
+  function formatCount(value) {
+    return Math.abs(value) >= 1000 ? compact.format(value) : value.toLocaleString();
   }
 
-  function gridColor() {
-    return getComputedStyle(document.documentElement).getPropertyValue("--border").trim() || "#e4e4e7";
+  function formatTime(unixSeconds) {
+    return new Date(unixSeconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
-  // Axis and grid colours come from theme tokens, so redraw when the theme changes.
+  // Colours come from theme tokens, so redraw when the theme changes.
   function redrawAll() {
     for (const [element, model] of models) {
       if (element.isConnected) {

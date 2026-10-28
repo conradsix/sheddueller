@@ -1,3 +1,224 @@
 /* Page-specific layout for the overview page. Shared look lives in ../sheddueller.css. */
 @layer pages {
+  /* state counts */
+  .overview-stats {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
+  .overview-stat {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: 6px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--card);
+    color: var(--card-foreground);
+    padding: 14px 16px;
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+  }
+
+  a.overview-stat {
+    transition: border-color 150ms, background-color 150ms;
+  }
+
+  a.overview-stat:hover {
+    border-color: color-mix(in oklab, var(--foreground) 20%, var(--border));
+    background: color-mix(in oklab, var(--muted) 45%, var(--card));
+  }
+
+  a.overview-stat:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .overview-stat__label {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .overview-stat__label .sd-icon {
+    margin-left: auto;
+    font-size: 15px;
+    opacity: 0;
+    translate: -2px 0;
+    transition: opacity 150ms, translate 150ms;
+  }
+
+  a.overview-stat:hover .overview-stat__label .sd-icon,
+  a.overview-stat:focus-visible .overview-stat__label .sd-icon {
+    opacity: 1;
+    translate: 0 0;
+  }
+
+  .overview-stat__value {
+    overflow: hidden;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .overview-stat--attention {
+    border-color: color-mix(in oklab, var(--state-failed) 45%, var(--border));
+    background: color-mix(in oklab, var(--state-failed) 5%, var(--card));
+  }
+
+  a.overview-stat--attention:hover {
+    border-color: color-mix(in oklab, var(--state-failed) 65%, var(--border));
+    background: color-mix(in oklab, var(--state-failed) 9%, var(--card));
+  }
+
+  /* job lists */
+  .overview-list {
+    overflow: hidden;
+  }
+
+  .overview-list .sd-card__header {
+    align-items: center;
+    padding-bottom: 12px;
+  }
+
+  .overview-list .sd-card__header > .sd-btn {
+    margin-right: -8px;
+  }
+
+  .overview-table {
+    table-layout: fixed;
+    white-space: nowrap;
+  }
+
+  /* Short lists flow with the page; a header pinned to the page scroll would slide over the rows. */
+  .overview-table th {
+    position: static;
+  }
+
+  .overview-table th,
+  .overview-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .overview-table td {
+    height: 44px;
+  }
+
+  /* Line the outer columns up with the card title. */
+  .overview-table :is(th, td):first-child {
+    padding-left: 20px;
+  }
+
+  .overview-table :is(th, td):last-child {
+    padding-right: 20px;
+  }
+
+  .sd-table-scroll > .overview-table {
+    min-width: 760px;
+  }
+
+  .overview-col--job {
+    width: 104px;
+  }
+
+  .overview-col--handler,
+  .overview-col--tags {
+    width: 24%;
+  }
+
+  .overview-col--time {
+    width: 180px;
+  }
+
+  /* Compact lists sit three to a row, so their inner columns pack tighter. */
+  .overview-list--compact .overview-table :is(th, td):not(:first-child, :last-child) {
+    padding-inline: 8px;
+  }
+
+  .overview-list--compact .overview-col--job {
+    width: 100px;
+  }
+
+  .overview-col--when {
+    width: 96px;
+  }
+
+  .overview-col--attempts {
+    width: 52px;
+  }
+
+  .overview-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .overview-job-id {
+    border-radius: 3px;
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    text-decoration: none;
+  }
+
+  .overview-handler {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    border-radius: 3px;
+    color: var(--foreground);
+    font-weight: 500;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+  }
+
+  .overview-job-id:hover,
+  .overview-handler:hover {
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--foreground) 40%, transparent);
+    text-underline-offset: 3px;
+  }
+
+  .overview-error {
+    color: var(--state-failed);
+    font-size: 12.5px;
+  }
+
+  .overview-progress {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .overview-progress .sd-progress {
+    width: 72px;
+  }
+
+  .overview-queues {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+
+  /* Compact lists show the relative time; the full time is in its tooltip. */
+  .overview-list--compact .sd-timestamp__separator,
+  .overview-list--compact .sd-timestamp__absolute {
+    display: none;
+  }
+
+  .overview-list--compact .sd-empty--flat {
+    padding: 24px 16px;
+  }
 }

@@ -299,9 +299,20 @@ public sealed class DashboardFormatTests
         DashboardMetricsFormat.Rate(0.04).ShouldBe("<0.1/min");
         DashboardMetricsFormat.Rate(activeWindow.SuccessRatePerMinute).ShouldBe("842.3/min");
         DashboardMetricsFormat.Duration(activeWindow.P95ExecutionDuration).ShouldBe("1.2 s");
-        DashboardMetricsFormat.DurationBarWidthStyle(TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(1200)).ShouldBe("width: 10%");
         DashboardMetricsFormat.AttentionValueClass(activeWindow.SaturatedConcurrencyGroupCount).ShouldBe("metrics-value--attention");
-        DashboardMetricsFormat.SaturatedGroupTitle(activeWindow).ShouldBe("2 saturated groups");
+        DashboardMetricsFormat.AttentionValueClass(0).ShouldBeEmpty();
+        DashboardMetricsFormat.WarningValueClass(0.5).ShouldBe("metrics-value--warning");
+    }
+
+    [Fact]
+    public void MetricsFormat_Period_ReadsAsRunningText()
+    {
+        DashboardMetricsFormat.Period(TimeSpan.FromHours(1)).ShouldBe("hour");
+        DashboardMetricsFormat.Period(TimeSpan.FromHours(24)).ShouldBe("24 hours");
+        DashboardMetricsFormat.Period(TimeSpan.FromMinutes(1)).ShouldBe("minute");
+        DashboardMetricsFormat.Period(TimeSpan.FromMinutes(5)).ShouldBe("5 minutes");
+        DashboardMetricsFormat.Period(TimeSpan.FromMinutes(90)).ShouldBe("90 minutes");
+        DashboardMetricsFormat.Period(TimeSpan.FromSeconds(30)).ShouldBe("30 seconds");
     }
 
     private static JobInspectionSummary CreateJob(
