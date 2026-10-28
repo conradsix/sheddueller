@@ -86,7 +86,7 @@ internal static class JobInvocationDisplayFormatter
         }
     }
 
-    private static string FormatStringLiteral(string value)
+    internal static string FormatStringLiteral(string value)
     {
         var builder = new StringBuilder(value.Length + 2);
         builder.Append('"');

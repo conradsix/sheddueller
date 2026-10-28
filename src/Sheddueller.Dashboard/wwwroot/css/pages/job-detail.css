@@ -42,6 +42,34 @@
     overflow-wrap: anywhere;
   }
 
+  /* The method call under the title: the caller's arguments only, wrapping between arguments with a hanging indent. */
+  .job-detail-call {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 2px;
+    margin-top: 6px;
+  }
+
+  .job-detail-call__code {
+    min-width: 0;
+    border-radius: var(--radius-md);
+    background: var(--code-background);
+    padding: 3px 10px 3px calc(10px + 2ch);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    text-indent: -2ch;
+  }
+
+  .job-detail-call__argument {
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-indent: 0;
+    vertical-align: top;
+  }
+
   .job-detail-meta {
     display: flex;
     flex-wrap: wrap;
@@ -442,6 +470,12 @@
 
   .job-detail-param__head strong {
     font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-param__type {
+    color: var(--muted-foreground);
+    font-size: 12.5px;
     overflow-wrap: anywhere;
   }
 

@@ -1553,6 +1553,17 @@
   .token.operator {
     color: var(--muted-foreground);
   }
+
+  .token.function {
+    color: var(--foreground);
+    font-weight: 600;
+  }
+
+  /* parameter names, and arguments the scheduler supplies (cancellation token, progress, services) */
+  .token.parameter,
+  .token.muted {
+    color: var(--muted-foreground);
+  }
 }
 
 /* ------------------------------------------------------ components (lists) */

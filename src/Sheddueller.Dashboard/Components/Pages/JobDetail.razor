@@ -58,11 +58,31 @@
         var lifecycleEvents = LifecycleEvents;
         var latestFailure = DashboardJobDetailFormat.LatestFailure(_eventLog.Events);
 
-        <PageHeader Title="@DashboardFormat.ShortHandler(job)" Description="@DashboardFormat.FullHandler(job)">
+        var call = _detail.Invocation is { } detailInvocation ? CallFor(detailInvocation) : null;
+
+        <PageHeader Title="@DashboardFormat.ShortHandler(job)" Description="@(call is null ? DashboardFormat.FullHandler(job) : null)">
             <TitleAddon>
                 <StatusBadge State="job.State" />
             </TitleAddon>
             <ChildContent>
+                @if (call is not null)
+                {
+                    <div class="job-detail-call">
+                        <code class="job-detail-call__code" title="@DashboardFormat.FullHandler(job)">
+                            <span class="token function">@call.MethodName</span><span class="token punctuation">(</span>
+                            @for (var index = 0; index < call.HeaderArguments.Count; index++)
+                            {
+                                @if (index > 0)
+                                {
+                                    @(" ")
+                                }
+                                <span class="job-detail-call__argument"><CodeTokens Tokens="call.HeaderArguments[index]" /></span>
+                            }
+                            <span class="token punctuation">)</span>
+                        </code>
+                        <CopyButton Value="@call.HeaderText" Label="method call" />
+                    </div>
+                }
                 <div class="job-detail-meta">
                     <span class="job-detail-meta__id">
                         <span class="sd-mono">@DashboardFormat.JobId(job.JobId)</span>
@@ -87,9 +107,9 @@
                 }
                 <DropdownMenu Label="More job actions" Icon="ellipsis" Variant="ButtonVariant.Outline">
                     <MenuItem Icon="copy" data-sd-copy="@DashboardFormat.JobId(job.JobId)" data-sd-copy-label="job ID">Copy job ID</MenuItem>
-                    @if (_detail.Invocation is { } menuInvocation)
+                    @if (call is not null)
                     {
-                        <MenuItem Icon="copy" data-sd-copy="@menuInvocation.ReconstructedCall" data-sd-copy-label="invocation">Copy invocation</MenuItem>
+                        <MenuItem Icon="copy" data-sd-copy="@call.FullText" data-sd-copy-label="invocation">Copy invocation</MenuItem>
                     }
                     <MenuSeparator />
                     <MenuItem Icon="list-filter" Href="@HandlerJobsHref(job)">Jobs with this handler</MenuItem>
@@ -428,14 +448,14 @@
                         break;
 
                     case DashboardJobDetailTab.Invocation:
-                        @if (_detail.Invocation is { } invocation)
+                        @if (_detail.Invocation is { } invocation && call is not null)
                         {
                             <Card Title="Method call" Class="job-detail-panel-card">
                                 <HeaderActions>
-                                    <CopyButton Value="@invocation.ReconstructedCall" Label="invocation" Size="ButtonSize.Small" />
+                                    <CopyButton Value="@call.FullText" Label="invocation" Size="ButtonSize.Small" />
                                 </HeaderActions>
                                 <ChildContent>
-                                    <pre class="sd-code job-detail-code language-csharp"><code class="language-csharp" @ref="_invocationCodeElement">@invocation.ReconstructedCall</code></pre>
+                                    <pre class="sd-code job-detail-code"><code><CodeTokens Tokens="call.FullCall" /></code></pre>
                                     <dl class="job-detail-invocation-meta">
                                         <div>
                                             <dt>Handler</dt>
@@ -463,21 +483,25 @@
                                 </Alert>
                             }
 
-                            @if (invocation.Parameters.Count > 0)
+                            @if (call.Parameters.Count > 0)
                             {
                                 <Card Title="Parameters" Flush="true" Class="job-detail-panel-card">
                                     <ol class="job-detail-params">
-                                        @foreach (var parameter in invocation.Parameters)
+                                        @foreach (var (argument, value) in call.Parameters)
                                         {
-                                            <li class="job-detail-param" @key="parameter.ParameterIndex">
+                                            <li class="job-detail-param" @key="argument.Index">
                                                 <div class="job-detail-param__head">
-                                                    <span class="sd-muted sd-num">@string.Create(CultureInfo.InvariantCulture, $"#{parameter.ParameterIndex + 1}")</span>
-                                                    <strong class="sd-mono" title="@parameter.ParameterType">@DashboardFormat.ShortTypeName(parameter.ParameterType)</strong>
-                                                    <Badge Variant="BadgeVariant.Secondary">@DashboardFormat.InvocationBinding(parameter)</Badge>
+                                                    <span class="sd-muted sd-num">@string.Create(CultureInfo.InvariantCulture, $"#{argument.Index + 1}")</span>
+                                                    @if (argument.Name is not null)
+                                                    {
+                                                        <strong class="sd-mono">@argument.Name</strong>
+                                                    }
+                                                    <span class="job-detail-param__type sd-mono" title="@argument.ParameterType">@DashboardFormat.ShortTypeName(argument.ParameterType)</span>
+                                                    <Badge Variant="BadgeVariant.Secondary">@DashboardFormat.InvocationBinding(argument)</Badge>
                                                 </div>
-                                                @if (parameter.SerializedValueJson is not null)
+                                                @if (argument.ValueJson is not null)
                                                 {
-                                                    <pre class="sd-code job-detail-code">@parameter.SerializedValueJson</pre>
+                                                    <pre class="sd-code job-detail-code"><code><CodeTokens Tokens="value" /></code></pre>
                                                 }
                                             </li>
                                         }
@@ -645,6 +669,7 @@
     private const int EventPageSize = 500;
     private const int RelatedJobLimit = 50;
     private const int MenuGroupLimit = 3;
+    private const int HeaderValueLength = 60;
 
     private readonly DashboardJobEventLog _eventLog = new(EventPageSize);
 
@@ -657,13 +682,13 @@
           .Min();
     private readonly Dictionary<Guid, JobInspectionSummary?> _relatedJobs = [];
     private readonly List<(string Title, string? Description, AlertTone Tone)> _pendingToasts = [];
-    private ElementReference _invocationCodeElement;
     private JobInspectionDetail? _detail;
+    private JobInvocationInspection? _callSource;
+    private InvocationCall? _call;
     private Guid? _loadedJobId;
     private DashboardJobLogFilter _logFilter = new();
     private string? _error;
     private string? _relatedError;
-    private string? _highlightedInvocationCall;
     private bool _isLoading;
     private bool _isLoadingMoreEvents;
     private bool _isLoadingRelated;
@@ -744,7 +769,6 @@
         this._relatedStale = false;
         this._isLoadingRelated = false;
         this._isLoadingMoreEvents = false;
-        this._highlightedInvocationCall = null;
         this._error = null;
         this._isCancelRunning = false;
         this._cancelDialogOpen = false;
@@ -759,7 +783,6 @@
     {
         _ = firstRender;
 
-        await this.HighlightInvocationAsync();
         await this.FlushToastsAsync();
         await this.ScrollToLatestLogAsync();
 
@@ -804,34 +827,35 @@
         return ValueTask.CompletedTask;
     }
 
-    // The method call is highlighted once per render of the Invocation tab; leaving the tab removes the element.
-    private async Task HighlightInvocationAsync()
+    // The call is rebuilt only when a refresh brings a new invocation, not on every live log line.
+    private InvocationCall CallFor(JobInvocationInspection invocation)
     {
-        if (this.ActiveTab != DashboardJobDetailTab.Invocation)
+        if (this._call is { } cached && ReferenceEquals(this._callSource, invocation))
         {
-            this._highlightedInvocationCall = null;
-            return;
+            return cached;
         }
 
-        if (this._detail?.Invocation is not { } invocation ||
-            string.Equals(this._highlightedInvocationCall, invocation.ReconstructedCall, StringComparison.Ordinal))
-        {
-            return;
-        }
+        var arguments = DashboardInvocationView.Arguments(invocation, DashboardInvocationParameterNames.Resolve(invocation));
+        var valuesAvailable = invocation.SerializedArgumentsStatus == JobSerializedArgumentsInspectionStatus.Displayable;
+        var receiver = DashboardFormat.ShortTypeName(invocation.ServiceType);
+        var fullCall = DashboardInvocationView.CallTokens(
+          receiver,
+          invocation.MethodName,
+          arguments,
+          valuesAvailable,
+          dataOnly: false,
+          maxValueLength: null,
+          oneArgumentPerLine: arguments.Count > 2);
 
-        try
-        {
-            await JsRuntime.InvokeVoidAsync(
-                "ShedduellerDashboard.highlightCode",
-                this._invocationCodeElement);
-            this._highlightedInvocationCall = invocation.ReconstructedCall;
-        }
-        catch (JSDisconnectedException)
-        {
-        }
-        catch (JSException)
-        {
-        }
+        this._callSource = invocation;
+        this._call = new InvocationCall(
+          invocation.MethodName,
+          DashboardInvocationView.ArgumentGroups(arguments, valuesAvailable, dataOnly: true, HeaderValueLength),
+          DashboardInvocationView.CallText(receiver, invocation.MethodName, arguments, valuesAvailable, dataOnly: true),
+          fullCall,
+          DashboardInvocationView.Text(fullCall),
+          [.. arguments.Select(argument => new InvocationParameter(argument, DashboardInvocationView.JsonTokens(argument.ValueJson)))]);
+        return this._call;
     }
 
     // Action results are shown as toasts once the page has rendered (JS interop is available after render).
@@ -1374,4 +1398,17 @@
         string Title,
         string Description,
         IReadOnlyList<Guid> JobIds);
+
+    // The header shows only the caller's data arguments; the Invocation tab shows every argument.
+    private sealed record InvocationCall(
+        string MethodName,
+        IReadOnlyList<IReadOnlyList<CodeToken>> HeaderArguments,
+        string HeaderText,
+        IReadOnlyList<CodeToken> FullCall,
+        string FullText,
+        IReadOnlyList<InvocationParameter> Parameters);
+
+    private sealed record InvocationParameter(
+        DashboardInvocationArgument Argument,
+        IReadOnlyList<CodeToken> Value);
 }
