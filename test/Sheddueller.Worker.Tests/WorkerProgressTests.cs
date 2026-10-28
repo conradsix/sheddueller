@@ -5,7 +5,6 @@ using Microsoft.Extensions.Hosting;
 
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
-using Sheddueller.Worker.Internal;
 
 using Shouldly;
 
@@ -19,11 +18,10 @@ public sealed class WorkerProgressTests
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
         await using var provider = CreateProvider(store, eventSink);
-        var worker = provider.GetServices<IHostedService>().OfType<ShedduellerWorker>().Single();
+        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
 
-        await worker.StartAsync(cancellationTokenSource.Token);
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
-        await worker.StopAsync(cancellationTokenSource.Token);
+        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
 
         var request = eventSink.Requests.ShouldHaveSingleItem();
         request.JobId.ShouldBe(job.JobId);
@@ -41,13 +39,36 @@ public sealed class WorkerProgressTests
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
         await using var provider = CreateProvider(store, eventSink);
-        var worker = provider.GetServices<IHostedService>().OfType<ShedduellerWorker>().Single();
+        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
 
-        await worker.StartAsync(cancellationTokenSource.Token);
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
-        await worker.StopAsync(cancellationTokenSource.Token);
+        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
 
         eventSink.Requests.Select(request => request.ProgressPercent).ShouldBe([100, 0]);
+    }
+
+    // Progress is appended by the job event dispatcher, which flushes what is queued when it stops after the worker.
+    private static async Task<IReadOnlyList<IHostedService>> StartHostedServicesAsync(
+        ServiceProvider provider,
+        CancellationToken cancellationToken)
+    {
+        var hostedServices = provider.GetServices<IHostedService>().ToArray();
+        foreach (var hostedService in hostedServices)
+        {
+            await hostedService.StartAsync(cancellationToken);
+        }
+
+        return hostedServices;
+    }
+
+    private static async Task StopHostedServicesAsync(
+        IEnumerable<IHostedService> hostedServices,
+        CancellationToken cancellationToken)
+    {
+        foreach (var hostedService in hostedServices.Reverse())
+        {
+            await hostedService.StopAsync(cancellationToken);
+        }
     }
 
     private static ServiceProvider CreateProvider(
