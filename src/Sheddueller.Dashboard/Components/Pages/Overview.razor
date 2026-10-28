@@ -35,9 +35,9 @@
                         @for (var row = 0; row < SkeletonRowCount; row++)
                         {
                             <tr>
-                                <td><Skeleton Width="@SkeletonWidth(row, 0)" /></td>
-                                <td><Skeleton Width="@SkeletonWidth(row, 1)" /></td>
-                                <td><Skeleton Width="@SkeletonWidth(row, 2)" /></td>
+                                <td><Skeleton Width="@DashboardTableFormat.SkeletonWidth(row, 0)" /></td>
+                                <td><Skeleton Width="@DashboardTableFormat.SkeletonWidth(row, 1)" /></td>
+                                <td><Skeleton Width="@DashboardTableFormat.SkeletonWidth(row, 2)" /></td>
                             </tr>
                         }
                     </tbody>
@@ -407,9 +407,6 @@
       => string.Create(
         CultureInfo.InvariantCulture,
         $"{StatusBadge.StateLabel(state)}: {DashboardFormat.Count(count)}. Show these jobs");
-
-    private static string SkeletonWidth(int row, int column)
-      => string.Create(CultureInfo.InvariantCulture, $"{45 + ((row * 7 + column * 13) % 45)}%");
 
     // The failure reason recorded with the job, or null when there is none to show.
     private static string? FailureMessage(JobInspectionSummary job)

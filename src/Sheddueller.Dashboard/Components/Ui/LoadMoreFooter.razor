@@ -1,0 +1,49 @@
+<footer class="sd-table__footer">
+    <span class="sd-num">@Text</span>
+    <span class="sd-table__footer-actions">
+        @if (Error is not null)
+        {
+            <span class="sd-field__error" role="alert">Couldn't load more: @Error</span>
+        }
+        @if (CanLoadMore)
+        {
+            <Button Size="ButtonSize.Small" Icon="@(IsLoadingMore ? "loader-circle" : null)"
+                    Disabled="@(IsLoading || IsLoadingMore)" OnClick="() => OnLoadMore.InvokeAsync()">Load more</Button>
+        }
+    </span>
+</footer>
+
+@code {
+    /// <summary>
+    /// How many rows are shown, of how many.
+    /// </summary>
+    [Parameter]
+    public string? Text { get; set; }
+
+    /// <summary>
+    /// Why the last attempt to load more failed; the loaded rows are kept.
+    /// </summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>
+    /// Shows the Load more button: there are rows after the loaded ones.
+    /// </summary>
+    [Parameter]
+    public bool CanLoadMore { get; set; }
+
+    /// <summary>
+    /// A new query is loading, so the button is disabled.
+    /// </summary>
+    [Parameter]
+    public bool IsLoading { get; set; }
+
+    /// <summary>
+    /// The next rows are loading: the button is disabled and shows a spinner.
+    /// </summary>
+    [Parameter]
+    public bool IsLoadingMore { get; set; }
+
+    [Parameter]
+    public EventCallback OnLoadMore { get; set; }
+}

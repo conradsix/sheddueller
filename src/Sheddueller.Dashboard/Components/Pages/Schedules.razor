@@ -18,21 +18,21 @@
         }
     </div>
 
-    @if (_loadError is not null)
+    @if (_schedules.LoadError is not null)
     {
         <Alert Tone="AlertTone.Destructive" Title="Schedules couldn't be loaded">
-            <ChildContent>@_loadError</ChildContent>
+            <ChildContent>@_schedules.LoadError</ChildContent>
             <Actions>
                 <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="LoadAsync">Try again</Button>
             </Actions>
         </Alert>
     }
 
-    @if (_page is not null || _loadError is null)
+    @if (_schedules.HasPage || _schedules.LoadError is null)
     {
-        <Card Flush="true" Class="@TableCardClass">
+        <Card Flush="true" Class="@DashboardTableFormat.CardClass("schedules-table-card", _schedules.IsReloading)">
             <div class="schedules-table-wrap">
-                <table class="sd-table schedules-table" aria-busy="@(_isLoading ? "true" : "false")">
+                <table class="sd-table schedules-table" aria-busy="@(_schedules.IsLoading ? "true" : "false")">
                     <thead>
                         <tr>
                             <th scope="col">Schedule</th>
@@ -45,20 +45,20 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (_page is null)
+                        @if (!_schedules.HasPage)
                         {
                             @for (var row = 0; row < SkeletonRowCount; row++)
                             {
                                 <tr class="schedules-table__skeleton" aria-hidden="true">
                                     @for (var column = 0; column < ColumnCount - 1; column++)
                                     {
-                                        <td class="@SkeletonColumnClasses[column]"><Skeleton Width="@SkeletonWidth(row, column)" /></td>
+                                        <td class="@SkeletonColumnClasses[column]"><Skeleton Width="@DashboardTableFormat.SkeletonWidth(row, column)" /></td>
                                     }
                                     <td class="schedules-table__actions"></td>
                                 </tr>
                             }
                         }
-                        else if (_schedules.Count == 0)
+                        else if (_schedules.Rows.Count == 0)
                         {
                             <tr class="schedules-table__empty">
                                 <td colspan="@ColumnCount">
@@ -76,7 +76,7 @@
                         }
                         else
                         {
-                            @foreach (var schedule in _schedules)
+                            @foreach (var schedule in _schedules.Rows)
                             {
                                 var busy = IsBusy(schedule.ScheduleKey);
                                 var details = ExecutionDetails(schedule);
@@ -139,20 +139,8 @@
                     </tbody>
                 </table>
             </div>
-            <footer class="sd-table__footer">
-                <span class="sd-num">@FooterText</span>
-                <span class="schedules-footer-actions">
-                    @if (_loadMoreError is not null)
-                    {
-                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
-                    }
-                    @if (_page?.ContinuationToken is not null)
-                    {
-                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
-                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
-                    }
-                </span>
-            </footer>
+            <LoadMoreFooter Text="@FooterText" Error="@_schedules.LoadMoreError" CanLoadMore="_schedules.CanLoadMore"
+                            IsLoading="_schedules.IsLoading" IsLoadingMore="_schedules.IsLoadingMore" OnLoadMore="LoadMoreAsync" />
         </Card>
     }
 </div>
@@ -183,17 +171,11 @@
     ];
 
     private readonly DashboardScheduleFilters _filters = new();
-    private readonly List<ScheduleInspectionSummary> _schedules = [];
+    private readonly DashboardPagedList<ScheduleInspectionSummary> _schedules = new();
+    private readonly DashboardDebouncer _filterDebouncer = new(FilterDebounce);
     private readonly HashSet<string> _busyKeys = new(StringComparer.Ordinal);
-    private ScheduleInspectionPage? _page;
-    private CancellationTokenSource? _filterDebounceCts;
     private ScheduleInspectionSummary? _confirmSchedule;
     private ScheduleAction _confirmAction;
-    private string? _loadError;
-    private string? _loadMoreError;
-    private int _queryVersion;
-    private bool _isLoading;
-    private bool _isLoadingMore;
     private bool _confirmDialogOpen;
 
     private enum ScheduleAction
@@ -204,11 +186,6 @@
 
     [Inject]
     private NavigationManager Navigation { get; set; } = null!;
-
-    private string TableCardClass
-      => this._isLoading && this._page is not null
-        ? "sd-table-card schedules-table-card sd-table-card--loading"
-        : "sd-table-card schedules-table-card";
 
     private string EmptyTitle
       => this._filters.HasAppliedFilters ? "No schedules match" : "No recurring schedules yet";
@@ -222,10 +199,10 @@
     {
         get
         {
-            var total = this._page?.TotalCount ?? this._schedules.Count;
+            var total = this._schedules.TotalCount ?? this._schedules.Rows.Count;
             return string.Concat(
               "Showing ",
-              DashboardFormat.Count(this._schedules.Count),
+              DashboardFormat.Count(this._schedules.Rows.Count),
               " of ",
               DashboardFormat.Count(total),
               total == 1 ? " schedule" : " schedules");
@@ -281,7 +258,7 @@
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: false,
-          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._page is null ? null : nowUtc));
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._schedules.HasPage ? nowUtc : null));
 
         await this.LoadAsync();
         this.StartPeriodicRefresh(PageRefreshInterval);
@@ -292,7 +269,7 @@
 
     private protected override ValueTask DisposePageAsync()
     {
-        this.CancelPendingFilterLoad();
+        this._filterDebouncer.Dispose();
         return ValueTask.CompletedTask;
     }
 
@@ -305,7 +282,14 @@
         }
 
         this._filters.ScheduleKey = value;
-        this.ScheduleDebouncedLoad();
+        this._filterDebouncer.Schedule(() => this.InvokeAsync(async () =>
+        {
+            this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: true);
+            var load = this.LoadAsync();
+            this.StateHasChanged();
+            await load;
+            this.StateHasChanged();
+        }));
     }
 
     private async Task SetPauseStateFilterAsync(string value)
@@ -333,7 +317,7 @@
     // Discrete changes push a history entry so Back steps through them.
     private async Task ApplyDiscreteFilterChangeAsync()
     {
-        this.CancelPendingFilterLoad();
+        this._filterDebouncer.Cancel();
         this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: false);
         await this.LoadAsync();
     }
@@ -345,137 +329,51 @@
             return;
         }
 
-        this.CancelPendingFilterLoad();
+        this._filterDebouncer.Cancel();
         await this.LoadAsync();
-    }
-
-    private void ScheduleDebouncedLoad()
-    {
-        this._filterDebounceCts?.Cancel();
-
-        var next = new CancellationTokenSource();
-        this._filterDebounceCts = next;
-        _ = this.RunDebouncedLoadAsync(next);
-    }
-
-    private async Task RunDebouncedLoadAsync(CancellationTokenSource cancellationTokenSource)
-    {
-        try
-        {
-            await Task.Delay(FilterDebounce, cancellationTokenSource.Token);
-            await this.InvokeAsync(async () =>
-            {
-                this.NavigateToLocation(DashboardScheduleFilterQuery.ToHref(this._filters), replace: true);
-                var load = this.LoadAsync();
-                this.StateHasChanged();
-                await load;
-                this.StateHasChanged();
-            });
-        }
-        catch (OperationCanceledException) when (cancellationTokenSource.IsCancellationRequested)
-        {
-        }
-        finally
-        {
-            if (ReferenceEquals(this._filterDebounceCts, cancellationTokenSource))
-            {
-                this._filterDebounceCts = null;
-            }
-
-            cancellationTokenSource.Dispose();
-        }
-    }
-
-    private void CancelPendingFilterLoad()
-    {
-        var cancellationTokenSource = this._filterDebounceCts;
-        this._filterDebounceCts = null;
-        cancellationTokenSource?.Cancel();
     }
 
     private async Task LoadAsync()
     {
-        var queryVersion = ++this._queryVersion;
-        this._loadError = null;
-        this._loadMoreError = null;
         this.LiveRefresh.ClearError();
-        this._isLoading = true;
-
-        try
+        var current = await this._schedules.LoadAsync(
+          () => Reader.SearchSchedulesAsync(this.CreateQuery(DefaultPageSize, continuationToken: null)),
+          page =>
+          {
+              this.ReplaceSchedules(page);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (current)
         {
-            var page = await Reader.SearchSchedulesAsync(this.CreateQuery(DefaultPageSize, continuationToken: null));
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            this.ReplaceSchedules(page);
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._loadError = exception.Message;
-            }
-        }
-        finally
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._isLoading = false;
-                this.NotifyShellRefreshChanged();
-            }
+            this.NotifyShellRefreshChanged();
         }
     }
 
+    // A failure keeps the loaded rows and is shown next to the Load more control.
     private async Task LoadMoreAsync()
     {
-        if (this._page?.ContinuationToken is null || this._isLoading || this._isLoadingMore)
+        var requested = await this._schedules.LoadMoreAsync(
+          continuationToken => Reader.SearchSchedulesAsync(this.CreateQuery(DefaultPageSize, continuationToken)),
+          page =>
+          {
+              this._schedules.Append(page.Schedules, page.ContinuationToken, page.TotalCount);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (requested)
         {
-            return;
-        }
-
-        var queryVersion = this._queryVersion;
-        this._loadMoreError = null;
-        this._isLoadingMore = true;
-
-        try
-        {
-            var page = await Reader.SearchSchedulesAsync(this.CreateQuery(DefaultPageSize, this._page.ContinuationToken));
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            this._schedules.AddRange(page.Schedules);
-            this._page = page;
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            // Keep the loaded rows; the failure is shown next to the Load more control.
-            if (queryVersion == this._queryVersion)
-            {
-                this._loadMoreError = exception.Message;
-            }
-        }
-        finally
-        {
-            this._isLoadingMore = false;
             this.NotifyShellRefreshChanged();
         }
     }
 
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
-        var queryVersion = this._queryVersion;
-        var visiblePageSize = Math.Max(DefaultPageSize, this._schedules.Count);
+        var queryVersion = this._schedules.QueryVersion;
+        var visiblePageSize = Math.Max(DefaultPageSize, this._schedules.Rows.Count);
         var page = await Reader.SearchSchedulesAsync(this.CreateQuery(visiblePageSize, continuationToken: null), cancellationToken);
 
         await this.ApplyPageStateAsync(() =>
         {
-            if (queryVersion == this._queryVersion)
+            if (this._schedules.IsCurrent(queryVersion))
             {
                 this.ReplaceSchedules(page);
             }
@@ -488,13 +386,7 @@
       => this._filters.ToQuery(pageSize, continuationToken);
 
     private void ReplaceSchedules(ScheduleInspectionPage page)
-    {
-        this._schedules.Clear();
-        this._schedules.AddRange(page.Schedules);
-        this._page = page;
-        this._loadError = null;
-        this._loadMoreError = null;
-    }
+      => this._schedules.Replace(page.Schedules, page.ContinuationToken, page.TotalCount);
 
     private bool IsBusy(string scheduleKey)
       => this._busyKeys.Contains(scheduleKey);
@@ -644,7 +536,4 @@
 
     internal static string CreateTriggerSkippedMessage(string scheduleKey)
       => string.Create(CultureInfo.InvariantCulture, $"Schedule {scheduleKey} already has an active occurrence.");
-
-    private static string SkeletonWidth(int row, int column)
-      => string.Create(CultureInfo.InvariantCulture, $"{45 + (((row * 7) + (column * 13)) % 45)}%");
 }

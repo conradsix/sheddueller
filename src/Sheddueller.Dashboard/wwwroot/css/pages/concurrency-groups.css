@@ -103,12 +103,6 @@
     white-space: normal;
   }
 
-  .groups-footer-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
   /* On narrower screens the least important columns go first, so the table keeps fitting without scrolling. */
   .groups-table-card {
     container-type: inline-size;

@@ -239,12 +239,6 @@
     color: var(--muted-foreground);
   }
 
-  .jobs-footer-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
   /* Column sheet */
   .jobs-columns__help,
   .jobs-columns__note {

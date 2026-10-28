@@ -18,7 +18,7 @@
                     }
                     @tile.Label
                 </span>
-                @if (_healthCounts is null && _loadError is null)
+                @if (_healthCounts is null && _nodes.LoadError is null)
                 {
                     <Skeleton Width="48px" Height="30px" />
                 }
@@ -40,12 +40,12 @@
         }
     </div>
 
-    @if (_loadError is not null)
+    @if (_nodes.LoadError is not null)
     {
         <Alert Tone="AlertTone.Destructive" Title="Nodes couldn't be loaded">
-            <ChildContent>@_loadError</ChildContent>
+            <ChildContent>@_nodes.LoadError</ChildContent>
             <Actions>
-                <Button Size="ButtonSize.Small" Icon="@(_isLoading ? "loader-circle" : "refresh-cw")" Disabled="_isLoading"
+                <Button Size="ButtonSize.Small" Icon="@(_nodes.IsLoading ? "loader-circle" : "refresh-cw")" Disabled="_nodes.IsLoading"
                         OnClick="LoadAsync">Try again</Button>
             </Actions>
         </Alert>
@@ -57,13 +57,13 @@
         </Alert>
     }
 
-    @if (_nodePage is not null || _loadError is null)
+    @if (_nodes.HasPage || _nodes.LoadError is null)
     {
         var visibleNodes = FilteredNodes;
 
-        <Card Flush="true" Class="@TableCardClass">
+        <Card Flush="true" Class="@DashboardTableFormat.CardClass("nodes-table-card", _nodes.IsReloading)">
             <div class="nodes-table-wrap">
-                <table class="sd-table nodes-table" aria-busy="@(_isLoading ? "true" : "false")">
+                <table class="sd-table nodes-table" aria-busy="@(_nodes.IsLoading ? "true" : "false")">
                     <colgroup>
                         <col />
                         <col class="nodes-table__col-health" />
@@ -83,7 +83,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (_nodePage is null)
+                        @if (!_nodes.HasPage)
                         {
                             @for (var row = 0; row < SkeletonRowCount; row++)
                             {
@@ -145,20 +145,8 @@
                     </tbody>
                 </table>
             </div>
-            <footer class="sd-table__footer">
-                <span class="sd-num">@FooterText</span>
-                <span class="nodes-footer-actions">
-                    @if (_loadMoreError is not null)
-                    {
-                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
-                    }
-                    @if (_nodePage?.ContinuationToken is not null)
-                    {
-                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
-                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
-                    }
-                </span>
-            </footer>
+            <LoadMoreFooter Text="@FooterText" Error="@_nodes.LoadMoreError" CanLoadMore="_nodes.CanLoadMore"
+                            IsLoading="_nodes.IsLoading" IsLoadingMore="_nodes.IsLoadingMore" OnLoadMore="LoadMoreAsync" />
         </Card>
     }
 </div>
@@ -176,27 +164,21 @@
         new(NodeHealthState.Dead, "Dead", "Stopped heartbeating", "destructive"),
     ];
 
-    private readonly List<NodeInspectionSummary> _nodes = [];
+    private readonly DashboardPagedList<NodeInspectionSummary> _nodes = new();
     private readonly DashboardNodeFilters _filters = new();
-    private NodeInspectionPage? _nodePage;
     private NodeHealthCounts? _healthCounts;
-    private string? _loadError;
-    private string? _loadMoreError;
-    private int _queryVersion;
-    private bool _isLoading;
-    private bool _isLoadingMore;
 
     private IReadOnlyList<NodeInspectionSummary> FilteredNodes
-      => this._filters.ApplyClientFilter(this._nodes);
+      => this._filters.ApplyClientFilter(this._nodes.Rows);
 
     private int ActiveNodeCount
-      => this._healthCounts?.ActiveNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Active);
+      => this._healthCounts?.ActiveNodeCount ?? this._nodes.Rows.Count(node => node.State == NodeHealthState.Active);
 
     private int StaleNodeCount
-      => this._healthCounts?.StaleNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Stale);
+      => this._healthCounts?.StaleNodeCount ?? this._nodes.Rows.Count(node => node.State == NodeHealthState.Stale);
 
     private int DeadNodeCount
-      => this._healthCounts?.DeadNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Dead);
+      => this._healthCounts?.DeadNodeCount ?? this._nodes.Rows.Count(node => node.State == NodeHealthState.Dead);
 
     private int TotalNodeCount
       => this._healthCounts?.TotalNodeCount ?? this.ActiveNodeCount + this.StaleNodeCount + this.DeadNodeCount;
@@ -207,16 +189,11 @@
     private bool HasFilters
       => this._filters.StateFilter is not null || this.HasNodeIdFilter;
 
-    private string TableCardClass
-      => this._isLoading && this._nodePage is not null
-        ? "sd-table-card nodes-table-card sd-table-card--loading"
-        : "sd-table-card nodes-table-card";
-
     private string EmptyTitle
     {
         get
         {
-            if (this._nodes.Count > 0)
+            if (this._nodes.Rows.Count > 0)
             {
                 return string.Concat("No loaded nodes match “", this._filters.NodeId.Trim(), "”");
             }
@@ -231,9 +208,9 @@
     {
         get
         {
-            if (this._nodes.Count > 0)
+            if (this._nodes.Rows.Count > 0)
             {
-                return this._nodePage?.ContinuationToken is not null
+                return this._nodes.CanLoadMore
                   ? "The node ID filter only checks nodes that are loaded. Load more nodes, or reset the filters."
                   : "Try a different node ID, or reset the filters.";
             }
@@ -248,8 +225,8 @@
     {
         get
         {
-            var loadedCount = this._nodes.Count;
-            var totalCount = this._nodePage?.TotalCount ?? loadedCount;
+            var loadedCount = this._nodes.Rows.Count;
+            var totalCount = this._nodes.TotalCount ?? loadedCount;
             if (this.HasNodeIdFilter)
             {
                 return string.Create(
@@ -273,7 +250,7 @@
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: false,
-          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._nodePage is null ? null : nowUtc));
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._nodes.HasPage ? nowUtc : null));
 
         await this.LoadAsync();
         this.StartPeriodicRefresh(PageRefreshInterval);
@@ -312,87 +289,46 @@
     // A newer query (a health filter change) supersedes slower earlier reads: only its results are applied.
     private async Task LoadAsync()
     {
-        var queryVersion = ++this._queryVersion;
-        this._loadError = null;
-        this._loadMoreError = null;
         this.LiveRefresh.ClearError();
-        this._isLoading = true;
-
-        try
+        var current = await this._nodes.LoadAsync(
+          () => this.ReadSnapshotAsync(
+            continuationToken: null,
+            pageSize: DefaultPageSize,
+            CancellationToken.None),
+          snapshot =>
+          {
+              this.ApplySnapshot(snapshot, append: false);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (current)
         {
-            var snapshot = await this.ReadSnapshotAsync(
-              continuationToken: null,
-              pageSize: DefaultPageSize,
-              CancellationToken.None);
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            this.ApplySnapshot(snapshot, append: false);
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._loadError = exception.Message;
-            }
-        }
-        finally
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._isLoading = false;
-                this.NotifyShellRefreshChanged();
-            }
+            this.NotifyShellRefreshChanged();
         }
     }
 
+    // A failure keeps the loaded rows and is shown next to the Load more control.
     private async Task LoadMoreAsync()
     {
-        if (this._nodePage?.ContinuationToken is null || this._isLoading || this._isLoadingMore)
+        var requested = await this._nodes.LoadMoreAsync(
+          continuationToken => this.ReadSnapshotAsync(
+            continuationToken,
+            DefaultPageSize,
+            CancellationToken.None),
+          snapshot =>
+          {
+              this.ApplySnapshot(snapshot, append: true);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (requested)
         {
-            return;
-        }
-
-        var queryVersion = this._queryVersion;
-        this._loadMoreError = null;
-        this._isLoadingMore = true;
-
-        try
-        {
-            var snapshot = await this.ReadSnapshotAsync(
-              this._nodePage.ContinuationToken,
-              DefaultPageSize,
-              CancellationToken.None);
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            this.ApplySnapshot(snapshot, append: true);
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            // Keep the loaded rows; the failure is shown next to the Load more control.
-            if (queryVersion == this._queryVersion)
-            {
-                this._loadMoreError = exception.Message;
-            }
-        }
-        finally
-        {
-            this._isLoadingMore = false;
             this.NotifyShellRefreshChanged();
         }
     }
 
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
-        var queryVersion = this._queryVersion;
-        var visiblePageSize = Math.Max(DefaultPageSize, this._nodes.Count);
+        var queryVersion = this._nodes.QueryVersion;
+        var visiblePageSize = Math.Max(DefaultPageSize, this._nodes.Rows.Count);
         var snapshot = await this.ReadSnapshotAsync(
           continuationToken: null,
           pageSize: visiblePageSize,
@@ -400,14 +336,14 @@
 
         await this.ApplyPageStateAsync(() =>
         {
-            if (queryVersion == this._queryVersion)
+            if (this._nodes.IsCurrent(queryVersion))
             {
                 this.ApplySnapshot(snapshot, append: false);
             }
         });
     }
 
-    private async Task<NodesSnapshot> ReadSnapshotAsync(
+    private async ValueTask<NodesSnapshot> ReadSnapshotAsync(
         string? continuationToken,
         int pageSize,
         CancellationToken cancellationToken)
@@ -446,15 +382,17 @@
         NodesSnapshot snapshot,
         bool append)
     {
-        if (!append)
+        var page = snapshot.Page;
+        if (append)
         {
-            this._nodes.Clear();
+            this._nodes.Append(page.Nodes, page.ContinuationToken, page.TotalCount);
+        }
+        else
+        {
+            this._nodes.Replace(page.Nodes, page.ContinuationToken, page.TotalCount);
         }
 
-        this._nodes.AddRange(snapshot.Page.Nodes);
-        this._nodePage = snapshot.Page;
         this._healthCounts = snapshot.HealthCounts;
-        this._loadError = null;
     }
 
     private bool IsTileSelected(NodeHealthState? state)

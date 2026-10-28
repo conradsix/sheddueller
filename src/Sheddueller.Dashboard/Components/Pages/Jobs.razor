@@ -120,19 +120,19 @@
         </DropdownMenu>
     </div>
 
-    @if (_error is not null)
+    @if (_jobs.LoadError is not null)
     {
         <Alert Tone="AlertTone.Destructive" Title="Jobs couldn't be loaded">
-            <ChildContent>@_error</ChildContent>
+            <ChildContent>@_jobs.LoadError</ChildContent>
             <Actions>
                 <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryAsync">Try again</Button>
             </Actions>
         </Alert>
     }
 
-    @if (_page is not null || _error is null)
+    @if (_jobs.HasPage || _jobs.LoadError is null)
     {
-        <Card Flush="true" Class="@TableCardClass">
+        <Card Flush="true" Class="@DashboardTableFormat.CardClass("jobs-table-card", _jobs.IsReloading)">
             @if (_pendingNewJobCount > 0)
             {
                 <button type="button" class="sd-new-rows" @onclick="ShowPendingJobsAsync">
@@ -141,7 +141,7 @@
                 </button>
             }
             <div class="jobs-table-wrap">
-                <table class="sd-table jobs-table" style="@TableStyle" data-sd-keyboard="true" aria-busy="@(_isLoading ? "true" : "false")">
+                <table class="sd-table jobs-table" style="@TableStyle" data-sd-keyboard="true" aria-busy="@(_jobs.IsLoading ? "true" : "false")">
                     <colgroup>
                         <col class="jobs-table__select-col" />
                         @for (var index = 0; index < _columns.Count; index++)
@@ -156,7 +156,7 @@
                         <tr>
                             <th class="jobs-table__select">
                                 <label class="jobs-table__select-label">
-                                    <input type="checkbox" class="sd-checkbox" checked="@AllLoadedSelected" disabled="@(_jobs.Count == 0)"
+                                    <input type="checkbox" class="sd-checkbox" checked="@AllLoadedSelected" disabled="@(_jobs.Rows.Count == 0)"
                                            aria-label="Select all loaded jobs" @onchange="ToggleAllSelected" />
                                 </label>
                             </th>
@@ -183,7 +183,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (_page is null)
+                        @if (!_jobs.HasPage)
                         {
                             @for (var row = 0; row < SkeletonRowCount; row++)
                             {
@@ -191,14 +191,14 @@
                                     <td class="jobs-table__select"></td>
                                     @for (var index = 0; index < _columns.Count; index++)
                                     {
-                                        <td><Skeleton Width="@SkeletonWidth(row, index)" /></td>
+                                        <td><Skeleton Width="@DashboardTableFormat.SkeletonWidth(row, index)" /></td>
                                     }
                                     <td class="jobs-table__filler"></td>
                                     <td class="jobs-table__actions"></td>
                                 </tr>
                             }
                         }
-                        else if (_jobs.Count == 0)
+                        else if (_jobs.Rows.Count == 0)
                         {
                             <tr class="jobs-table__empty">
                                 <td colspan="@(_columns.Count + 3)">
@@ -220,7 +220,7 @@
                         }
                         else
                         {
-                            @foreach (var job in _jobs)
+                            @foreach (var job in _jobs.Rows)
                             {
                                 var selected = _selected.Contains(job.JobId);
                                 <tr @key="job.JobId" data-href="@DashboardFormat.JobHref(job.JobId)" aria-selected="@(selected ? "true" : "false")">
@@ -316,20 +316,8 @@
                     </tbody>
                 </table>
             </div>
-            <footer class="sd-table__footer">
-                <span class="sd-num">@FooterText</span>
-                <span class="jobs-footer-actions">
-                    @if (_loadMoreError is not null)
-                    {
-                        <span class="sd-field__error" role="alert">Couldn't load more: @_loadMoreError</span>
-                    }
-                    @if (_page?.ContinuationToken is not null)
-                    {
-                        <Button Size="ButtonSize.Small" Icon="@(_isLoadingMore ? "loader-circle" : null)"
-                                Disabled="@(_isLoading || _isLoadingMore)" OnClick="LoadMoreAsync">Load more</Button>
-                    }
-                </span>
-            </footer>
+            <LoadMoreFooter Text="@FooterText" Error="@_jobs.LoadMoreError" CanLoadMore="_jobs.CanLoadMore"
+                            IsLoading="_jobs.IsLoading" IsLoadingMore="_jobs.IsLoadingMore" OnLoadMore="LoadMoreAsync" />
         </Card>
     }
 </div>
@@ -401,27 +389,21 @@
     private static readonly JobInspectionSort[] SortOptions = [JobInspectionSort.Operational, JobInspectionSort.NewestFirst];
 
     private readonly DashboardJobFilters _filters = new();
-    private readonly List<JobInspectionSummary> _jobs = [];
+    private readonly DashboardPagedList<JobInspectionSummary> _jobs = new();
+    private readonly DashboardDebouncer _filterDebouncer = new(FilterDebounce);
     private readonly List<ShedduellerDashboardJobColumn> _columns = [];
     private readonly List<DashboardResolvedJobView> _views = [];
     private readonly List<DashboardStoredJobView> _storedViews = [];
     private readonly HashSet<Guid> _selected = [];
     private DotNetObjectReference<Jobs>? _columnResizeReceiver;
-    private JobInspectionPage? _page;
     private JobInspectionQuery _lastQuery = new(PageSize: DefaultPageSize);
-    private CancellationTokenSource? _filterDebounceCts;
     private DashboardJobListLocation? _initialLocation;
-    private string? _error;
-    private string? _loadMoreError;
     private IReadOnlyList<Guid> _cancelTargets = [];
     private DashboardResolvedJobView? _pendingView;
     private string _selectedViewKey = DashboardJobViews.BuiltInKey;
     private string _preferredViewKey = DashboardJobViews.BuiltInKey;
-    private int _queryVersion;
     private int _take = DefaultPageSize;
     private int _pendingNewJobCount;
-    private bool _isLoading;
-    private bool _isLoadingMore;
     private bool _isClearQueuedRunning;
     private bool _isCancelling;
     private bool _clearQueuedDialogOpen;
@@ -481,19 +463,14 @@
     private Guid? SearchJobId
       => DashboardJobActions.TryParseJobId(this._filters.HandlerContains, out var jobId) ? jobId : null;
 
-    private string TableCardClass
-      => this._isLoading && this._page is not null
-        ? "sd-table-card jobs-table-card sd-table-card--loading"
-        : "sd-table-card jobs-table-card";
-
     private bool AllLoadedSelected
-      => this._jobs.Count > 0 && this._jobs.All(job => this._selected.Contains(job.JobId));
+      => this._jobs.Rows.Count > 0 && this._jobs.Rows.All(job => this._selected.Contains(job.JobId));
 
     private IReadOnlyList<Guid> CancellableSelectedIds
-      => [.. this._jobs.Where(job => this._selected.Contains(job.JobId) && DashboardJobActions.IsCancellable(job)).Select(job => job.JobId)];
+      => [.. this._jobs.Rows.Where(job => this._selected.Contains(job.JobId) && DashboardJobActions.IsCancellable(job)).Select(job => job.JobId)];
 
     private string SelectedJobIdsText
-      => string.Join('\n', this._jobs.Where(job => this._selected.Contains(job.JobId)).Select(job => job.JobId.ToString("D")));
+      => string.Join('\n', this._jobs.Rows.Where(job => this._selected.Contains(job.JobId)).Select(job => job.JobId.ToString("D")));
 
     private string BulkCancelLabel
       => CancellableSelectedIds.Count switch
@@ -545,7 +522,7 @@
     private IReadOnlyList<string> ObservedTagNames
       =>
       [
-          .. this._jobs.SelectMany(job => job.Tags)
+          .. this._jobs.Rows.SelectMany(job => job.Tags)
             .Select(tag => tag.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase),
@@ -565,12 +542,11 @@
     {
         get
         {
-            if (this._page is null)
+            if (this._jobs.TotalCount is not { } total)
             {
-                return this._error is null ? "Loading jobs…" : "Jobs couldn't be loaded.";
+                return this._jobs.LoadError is null ? "Loading jobs…" : "Jobs couldn't be loaded.";
             }
 
-            var total = this._page.TotalCount;
             var jobs = string.Create(CultureInfo.InvariantCulture, $"{DashboardFormat.Count(total)} {(total == 1 ? "job" : "jobs")}");
             return this._filters.HasAppliedFilters
               ? string.Concat(jobs, total == 1 ? " matches the filters" : " match the filters")
@@ -581,7 +557,7 @@
     private string FooterText
       => string.Create(
         CultureInfo.InvariantCulture,
-        $"Showing {DashboardFormat.Count(this._jobs.Count)} of {DashboardFormat.Count(this._page?.TotalCount ?? this._jobs.Count)}");
+        $"Showing {DashboardFormat.Count(this._jobs.Rows.Count)} of {DashboardFormat.Count(this._jobs.TotalCount ?? this._jobs.Rows.Count)}");
 
     private string EmptyTitle
       => this.SearchJobId is not null
@@ -615,7 +591,7 @@
         this.InitializeLiveRefresh(
           this.RefreshCurrentQueryAsync,
           showRefreshing: true,
-          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._page is null ? null : nowUtc),
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._jobs.HasPage ? nowUtc : null),
           queuedRefreshAsync: this.RefreshLiveAsync);
         this.RefreshOnJobEvents(LiveUpdates);
 
@@ -657,7 +633,7 @@
 
     private protected override async ValueTask DisposePageAsync()
     {
-        this.CancelPendingFilterLoad();
+        this._filterDebouncer.Dispose();
         if (this._columnResizingRegistered)
         {
             try
@@ -832,7 +808,7 @@
         bool applyQuery)
     {
         this._initialLocation = null;
-        this.CancelPendingFilterLoad();
+        this._filterDebouncer.Cancel();
         this.SelectView(view);
 
         if (applyQuery)
@@ -1301,7 +1277,7 @@
     private async Task ApplyDiscreteFilterChangeAsync()
     {
         this._initialLocation = null;
-        this.CancelPendingFilterLoad();
+        this._filterDebouncer.Cancel();
         this.UpdateViewDirty();
         this._take = DefaultPageSize;
         this.NavigateToCurrentState(replace: false);
@@ -1327,7 +1303,7 @@
     {
         if (eventArgs.Key == "Enter" && this.SearchJobId is { } jobId)
         {
-            this.CancelPendingFilterLoad();
+            this._filterDebouncer.Cancel();
             Navigation.NavigateTo(DashboardFormat.JobHref(jobId));
         }
     }
@@ -1340,7 +1316,13 @@
         {
             this._initialLocation = null;
             this.UpdateViewDirty();
-            this.ScheduleDebouncedLoad();
+            this._filterDebouncer.Schedule(() => this.InvokeAsync(async () =>
+            {
+                // Typing replaces the current history entry rather than pushing one per keystroke burst.
+                this._take = DefaultPageSize;
+                this.NavigateToCurrentState(replace: true);
+                await this.LoadAsync(this._take);
+            }));
         }
 
         return Task.CompletedTask;
@@ -1394,87 +1376,40 @@
     {
         this._initialLoadDeferred = false;
         var query = this.CreateQuery(DashboardJobListLocation.NormalizeTake(pageSize), continuationToken: null);
-        var queryVersion = ++this._queryVersion;
         this._lastQuery = query;
-        this._error = null;
         this.LiveRefresh.ClearError();
-        this._isLoading = true;
-
-        try
+        var current = await this._jobs.LoadAsync(
+          () => Reader.SearchJobsAsync(query),
+          page =>
+          {
+              this.ReplaceJobs(page);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (current)
         {
-            var page = await Reader.SearchJobsAsync(query);
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            this.ReplaceJobs(page);
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._error = exception.Message;
-            }
-        }
-        finally
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._isLoading = false;
-                this.NotifyShellRefreshChanged();
-            }
+            this.NotifyShellRefreshChanged();
         }
     }
 
+    // A failure keeps the loaded rows and is shown next to the Load more control.
     private async Task LoadMoreAsync()
     {
-        if (this._page?.ContinuationToken is null || this._isLoading || this._isLoadingMore)
+        var requested = await this._jobs.LoadMoreAsync(
+          continuationToken => Reader.SearchJobsAsync(this._lastQuery with
+          {
+              PageSize = DefaultPageSize,
+              ContinuationToken = continuationToken,
+          }),
+          page =>
+          {
+              this._jobs.SetRows(DashboardJobListMerge.Append(this._jobs.Rows, page.Jobs), page.ContinuationToken, page.TotalCount);
+              this._take = DashboardJobListLocation.NormalizeTake(this._jobs.Rows.Count);
+              this.NavigateToCurrentState(replace: true);
+              this.LiveRefresh.MarkUpdated();
+          });
+        if (requested)
         {
-            return;
-        }
-
-        var queryVersion = this._queryVersion;
-        this._loadMoreError = null;
-        this._isLoadingMore = true;
-
-        try
-        {
-            var page = await Reader.SearchJobsAsync(this._lastQuery with
-            {
-                PageSize = DefaultPageSize,
-                ContinuationToken = this._page.ContinuationToken,
-            });
-
-            if (queryVersion != this._queryVersion)
-            {
-                return;
-            }
-
-            var rows = DashboardJobListMerge.Append(this._jobs, page.Jobs);
-            this._jobs.Clear();
-            this._jobs.AddRange(rows);
-            this._page = page;
-            this._take = DashboardJobListLocation.NormalizeTake(this._jobs.Count);
-            this.NavigateToCurrentState(replace: true);
-            this.LiveRefresh.MarkUpdated();
-        }
-        catch (Exception exception)
-        {
-            // Keep the loaded rows; the failure is shown next to the Load More control.
-            if (queryVersion == this._queryVersion)
-            {
-                this._loadMoreError = exception.Message;
-            }
-        }
-        finally
-        {
-            if (queryVersion == this._queryVersion)
-            {
-                this._isLoadingMore = false;
-                this.NotifyShellRefreshChanged();
-            }
+            this.NotifyShellRefreshChanged();
         }
     }
 
@@ -1491,27 +1426,27 @@
         bool mergeIntoDisplayedRows,
         CancellationToken cancellationToken)
     {
-        var queryVersion = this._queryVersion;
+        var queryVersion = this._jobs.QueryVersion;
         if (this._initialLoadDeferred)
         {
             return;
         }
 
-        var visiblePageSize = Math.Max(DefaultPageSize, this._jobs.Count);
+        var visiblePageSize = Math.Max(DefaultPageSize, this._jobs.Rows.Count);
         var page = await Reader.SearchJobsAsync(this._lastQuery with
         {
             PageSize = visiblePageSize,
             ContinuationToken = null,
         }, cancellationToken);
 
-        if (queryVersion != this._queryVersion)
+        if (!this._jobs.IsCurrent(queryVersion))
         {
             return;
         }
 
         await this.ApplyPageStateAsync(() =>
         {
-            if (queryVersion != this._queryVersion)
+            if (!this._jobs.IsCurrent(queryVersion))
             {
                 return;
             }
@@ -1533,62 +1468,17 @@
     private void MergeLiveJobs(JobInspectionPage page)
     {
         // Nothing is on screen when the last load failed or nothing has loaded yet, so there is nothing to keep still.
-        if (this._error is not null || this._page is null || this._jobs.Count == 0)
+        if (this._jobs.LoadError is not null || !this._jobs.HasPage || this._jobs.Rows.Count == 0)
         {
             this.ReplaceJobs(page);
             return;
         }
 
-        var merge = DashboardJobListMerge.Merge(this._jobs, page.Jobs);
-        this._jobs.Clear();
-        this._jobs.AddRange(merge.Rows);
+        // The merged rows keep the loaded depth, so the continuation still follows them.
+        var merge = DashboardJobListMerge.Merge(this._jobs.Rows, page.Jobs);
+        this._jobs.SetRows(merge.Rows, this._jobs.ContinuationToken, page.TotalCount);
         this.PruneSelection();
         this._pendingNewJobCount = merge.NewJobCount;
-        this._page = this._page with { TotalCount = page.TotalCount };
-    }
-
-    private void ScheduleDebouncedLoad()
-    {
-        var previous = this._filterDebounceCts;
-        previous?.Cancel();
-
-        var next = new CancellationTokenSource();
-        this._filterDebounceCts = next;
-        _ = this.RunDebouncedLoadAsync(next);
-    }
-
-    private async Task RunDebouncedLoadAsync(CancellationTokenSource cancellationTokenSource)
-    {
-        try
-        {
-            await Task.Delay(FilterDebounce, cancellationTokenSource.Token);
-            await this.InvokeAsync(async () =>
-            {
-                // Typing replaces the current history entry rather than pushing one per keystroke burst.
-                this._take = DefaultPageSize;
-                this.NavigateToCurrentState(replace: true);
-                await this.LoadAsync(this._take);
-            });
-        }
-        catch (OperationCanceledException) when (cancellationTokenSource.IsCancellationRequested)
-        {
-        }
-        finally
-        {
-            if (ReferenceEquals(this._filterDebounceCts, cancellationTokenSource))
-            {
-                this._filterDebounceCts = null;
-            }
-
-            cancellationTokenSource.Dispose();
-        }
-    }
-
-    private void CancelPendingFilterLoad()
-    {
-        var cancellationTokenSource = this._filterDebounceCts;
-        this._filterDebounceCts = null;
-        cancellationTokenSource?.Cancel();
     }
 
     // Back/Forward, or a filter link on this page: the URL is the source of truth for filters, view, and depth.
@@ -1612,7 +1502,7 @@
         this.UpdateViewDirty();
         if (viewChanged || filtersChanged || takeChanged || this._initialLoadDeferred)
         {
-            this.CancelPendingFilterLoad();
+            this._filterDebouncer.Cancel();
             await this.LoadAsync(this._take);
         }
     }
@@ -1635,20 +1525,16 @@
 
     private void ReplaceJobs(JobInspectionPage page)
     {
-        this._jobs.Clear();
-        this._jobs.AddRange(page.Jobs);
+        this._jobs.Replace(page.Jobs, page.ContinuationToken, page.TotalCount);
         this.PruneSelection();
-        this._page = page;
         this._pendingNewJobCount = 0;
-        this._loadMoreError = null;
-        this._error = null;
     }
 
     private void PruneSelection()
     {
         if (this._selected.Count > 0)
         {
-            this._selected.IntersectWith(this._jobs.Select(job => job.JobId));
+            this._selected.IntersectWith(this._jobs.Rows.Select(job => job.JobId));
         }
     }
 
@@ -1668,7 +1554,7 @@
     {
         if (eventArgs.Value is true)
         {
-            this._selected.UnionWith(this._jobs.Select(job => job.JobId));
+            this._selected.UnionWith(this._jobs.Rows.Select(job => job.JobId));
         }
         else
         {
@@ -1733,9 +1619,6 @@
 
     private Task RetryAsync()
       => this.LoadAsync(this._take);
-
-    private static string SkeletonWidth(int row, int column)
-      => string.Create(CultureInfo.InvariantCulture, $"{45 + ((row * 7 + column * 13) % 45)}%");
 
     internal static string CreateClearQueuedSuccessMessage(int canceledCount)
       => string.Create(CultureInfo.InvariantCulture, $"Canceled {DashboardFormat.Count(canceledCount)} queued job(s).");
