@@ -816,6 +816,11 @@
     copy,
     download,
     navigate,
+    scrollIntoView(element) {
+      if (element instanceof Element) {
+        element.scrollIntoView({ block: "end" });
+      }
+    },
     dialog: {
       show: showDialog,
       close: closeDialog,

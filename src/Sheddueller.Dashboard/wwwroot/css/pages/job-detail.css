@@ -1,3 +1,541 @@
 /* Page-specific layout for the job-detail page. Shared look lives in ../sheddueller.css. */
 @layer pages {
+  /* The page flows in .sd-main (the only scroller); the section tabs stick to its top edge. */
+
+  /* back link */
+  .job-detail-back {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 6px;
+    justify-self: start;
+    border-radius: var(--radius-sm);
+    color: var(--muted-foreground);
+    font-size: 13px;
+    text-decoration: none;
+  }
+
+  .job-detail-back:hover {
+    color: var(--foreground);
+  }
+
+  .job-detail-back .sd-icon {
+    font-size: 14px;
+  }
+
+  .job-detail-back__context {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .job-detail-back__context::before {
+    margin-right: 6px;
+    content: "·";
+  }
+
+  /* header */
+  .job-detail-page .sd-page-header__description {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 16px;
+    margin-top: 8px;
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+
+  .job-detail-meta__id {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 2px;
+    color: var(--foreground);
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-meta .sd-link {
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-loading {
+    display: grid;
+    gap: 12px;
+  }
+
+  /* summary callout */
+  .job-detail-callout .sd-alert__description {
+    display: grid;
+    gap: 8px;
+  }
+
+  .job-detail-callout__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+  }
+
+  .job-detail-callout__meta .sd-timestamp__relative {
+    color: var(--foreground);
+  }
+
+  .job-detail-progress {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+  }
+
+  .job-detail-progress .sd-progress {
+    width: min(320px, 100%);
+    height: 8px;
+  }
+
+  .job-detail-progress__percent {
+    font-weight: 600;
+  }
+
+  .job-detail-progress__message:empty {
+    display: none;
+  }
+
+  .job-detail-failure {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* facts */
+  .job-detail-facts-card {
+    overflow: clip;
+  }
+
+  .job-detail-facts-card dd {
+    display: grid;
+    justify-items: start;
+    gap: 2px;
+  }
+
+  /* tags and groups wrap here rather than truncating, as they would in a table cell */
+  .job-detail-facts-card .sd-tags--nowrap {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .job-detail-facts-card .sd-tags--nowrap .sd-tag {
+    flex: none;
+    max-width: 100%;
+  }
+
+  .job-detail-fact-link {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* sections: sticky tab bar (plus the log toolbar on the Logs tab) */
+  .job-detail-sections {
+    display: grid;
+    min-width: 0;
+    gap: 16px;
+  }
+
+  /* Sticky offsets are measured inside .sd-main's padding, so a negative top (the shell's padding) lets the bar
+     cover the strip above it; the bar's own top padding keeps the tabs off the top bar's border. */
+  .job-detail-sticky {
+    position: sticky;
+    top: -24px;
+    z-index: 5;
+    margin-top: -8px;
+    container-type: scroll-state;
+    container-name: job-detail-sections;
+  }
+
+  .job-detail-sticky__bar {
+    display: grid;
+    background: var(--background);
+    padding-top: 8px;
+    transition: box-shadow 150ms;
+  }
+
+  /* Browsers with scroll-state queries mark the stuck bar so content passing under it reads as separate. */
+  @container job-detail-sections scroll-state(stuck: top) {
+    .job-detail-sticky__bar {
+      box-shadow: 0 1px 0 var(--border), 0 8px 16px -12px oklch(0 0 0 / 0.25);
+    }
+  }
+
+  .job-detail-log-toolbar {
+    padding-top: 12px;
+    padding-bottom: 10px;
+  }
+
+  .job-detail-log-toolbar .job-detail-log-search {
+    width: 260px;
+    max-width: 100%;
+  }
+
+  .job-detail-menu-check {
+    display: inline-grid;
+    width: 16px;
+    flex: none;
+    place-items: center;
+  }
+
+  .job-detail-panel {
+    display: grid;
+    min-width: 0;
+    gap: 16px;
+  }
+
+  .job-detail-panel-card {
+    min-width: 0;
+    overflow: clip;
+  }
+
+  /* log lines */
+  .job-detail-log {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .job-detail-log__row {
+    --tone: var(--muted-foreground);
+    display: grid;
+    grid-template-columns: 92px 44px 56px minmax(0, 1fr);
+    align-items: baseline;
+    column-gap: 12px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    padding: 4px 16px;
+  }
+
+  .job-detail-log__row:last-child {
+    border-bottom: 0;
+  }
+
+  .job-detail-log__head {
+    border-bottom-color: var(--border);
+    color: var(--muted-foreground);
+    padding-top: 8px;
+    padding-bottom: 8px;
+    font-family: var(--font-sans);
+    font-weight: 500;
+  }
+
+  .job-detail-log__time,
+  .job-detail-log__attempt {
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .job-detail-log__level {
+    color: var(--tone);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .job-detail-log__message {
+    min-width: 0;
+  }
+
+  .job-detail-log__text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-log__fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 12px;
+    margin-top: 1px;
+    font-size: 11.5px;
+  }
+
+  .job-detail-log__field {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-log__key {
+    color: var(--muted-foreground);
+  }
+
+  .job-detail-log__row--trace .job-detail-log__text,
+  .job-detail-log__row--debug .job-detail-log__text {
+    color: var(--muted-foreground);
+  }
+
+  .job-detail-log__row--info {
+    --tone: var(--info);
+  }
+
+  .job-detail-log__row--progress {
+    --tone: var(--state-claimed);
+  }
+
+  .job-detail-log__row--warning {
+    --tone: var(--warning);
+    background: color-mix(in oklab, var(--warning) 6%, transparent);
+  }
+
+  .job-detail-log__row--error,
+  .job-detail-log__row--critical {
+    --tone: var(--destructive);
+    background: color-mix(in oklab, var(--destructive) 7%, transparent);
+    box-shadow: inset 2px 0 0 var(--destructive);
+  }
+
+  /* timeline */
+  .job-detail-timeline {
+    margin: 0;
+    padding: 8px 20px;
+    list-style: none;
+  }
+
+  .job-detail-timeline__item {
+    --tone: var(--muted-foreground);
+    position: relative;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: start;
+    column-gap: 12px;
+    padding: 10px 0;
+  }
+
+  /* connector between the dots, from the first dot to the last */
+  .job-detail-timeline__item::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 7.5px;
+    width: 1px;
+    background: var(--border);
+    content: "";
+  }
+
+  .job-detail-timeline__item:first-child::before {
+    top: 20px;
+  }
+
+  .job-detail-timeline__item:last-child::before {
+    bottom: calc(100% - 20px);
+  }
+
+  .job-detail-timeline__dot {
+    position: relative;
+    width: 10px;
+    height: 10px;
+    margin: 6px 3px 0;
+    border-radius: 50%;
+    background: var(--tone);
+    box-shadow: 0 0 0 3px var(--card);
+  }
+
+  .job-detail-timeline__item--queued {
+    --tone: var(--state-queued);
+  }
+
+  .job-detail-timeline__item--claimed {
+    --tone: var(--state-claimed);
+  }
+
+  .job-detail-timeline__item--completed {
+    --tone: var(--state-completed);
+  }
+
+  .job-detail-timeline__item--failed {
+    --tone: var(--state-failed);
+  }
+
+  .job-detail-timeline__item--canceled {
+    --tone: var(--state-canceled);
+  }
+
+  .job-detail-timeline__item--waiting {
+    --tone: var(--state-waiting);
+  }
+
+  .job-detail-timeline__body {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .job-detail-timeline__title {
+    font-weight: 500;
+  }
+
+  .job-detail-timeline__detail {
+    color: var(--state-failed);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* invocation */
+  .job-detail-code {
+    overflow: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-code > code {
+    font: inherit;
+  }
+
+  .job-detail-invocation-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 32px;
+    margin: 16px 0 0;
+  }
+
+  .job-detail-invocation-meta dt {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  .job-detail-invocation-meta dd {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8px;
+    margin: 0;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+
+  .job-detail-params {
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .job-detail-param {
+    display: grid;
+    min-width: 0;
+    gap: 8px;
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+  }
+
+  .job-detail-param__head {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .job-detail-param__head strong {
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+
+  /* related jobs */
+  .job-detail-panel-card .sd-card__header + .sd-table {
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .job-detail-related {
+    table-layout: fixed;
+  }
+
+  .job-detail-related td {
+    height: 44px;
+  }
+
+  .job-detail-related__state {
+    width: 132px;
+  }
+
+  .job-detail-related__id {
+    width: 104px;
+  }
+
+  .job-detail-related__time {
+    width: 240px;
+  }
+
+  .job-detail-related__handler {
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .job-detail-related__time .sd-timestamp {
+    justify-content: flex-end;
+  }
+
+  .job-detail-id-link {
+    border-radius: 3px;
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    text-decoration: none;
+  }
+
+  .job-detail-id-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  @media (max-width: 860px) {
+    .job-detail-sticky {
+      top: -16px;
+    }
+  }
+
+  @media (max-width: 720px) {
+    /* On phones the wrapped log toolbar is too tall to keep on screen; the bar scrolls with the page. */
+    .job-detail-sticky {
+      position: static;
+    }
+
+    .job-detail-log__row {
+      grid-template-columns: auto auto minmax(0, 1fr);
+    }
+
+    .job-detail-log__message {
+      grid-column: 1 / -1;
+    }
+
+    .job-detail-log__head {
+      display: none;
+    }
+
+    .job-detail-timeline__item {
+      grid-template-columns: 16px minmax(0, 1fr);
+    }
+
+    .job-detail-timeline__item > .sd-timestamp {
+      grid-column: 2;
+      align-items: flex-start;
+      margin-top: 2px;
+      text-align: left;
+    }
+
+    .job-detail-related__time {
+      display: none;
+    }
+
+    .job-detail-related__state {
+      width: 112px;
+    }
+  }
 }
