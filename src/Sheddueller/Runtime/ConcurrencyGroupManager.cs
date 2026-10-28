@@ -3,6 +3,7 @@ namespace Sheddueller.Runtime;
 using Microsoft.Extensions.Logging;
 
 using Sheddueller.Enqueueing;
+using Sheddueller.Logging;
 using Sheddueller.Storage;
 
 internal sealed class ConcurrencyGroupManager(

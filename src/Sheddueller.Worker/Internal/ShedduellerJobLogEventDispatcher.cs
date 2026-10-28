@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using Sheddueller.Logging;
 using Sheddueller.Storage;
 
 internal sealed class ShedduellerJobLogEventDispatcher(

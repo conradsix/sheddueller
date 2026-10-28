@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Sheddueller.Enqueueing;
+using Sheddueller.Logging;
 using Sheddueller.Scheduling;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
