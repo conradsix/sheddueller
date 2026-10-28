@@ -323,71 +323,7 @@
 
                     @if (ActiveTab == DashboardJobDetailTab.Logs && logLines.Count > 0)
                     {
-                        <div class="sd-toolbar job-detail-log-toolbar">
-                            <Tabs TValue="DashboardLogLevelFilter" Items="LevelTabItems(logLines)" Value="_logFilter.Level" ValueChanged="SetLogLevel"
-                                  Label="Log level" Small="true" />
-                            @if (LogAttempts is { Count: > 1 } attempts)
-                            {
-                                <DropdownMenu Label="Filter by attempt" Variant="ButtonVariant.Outline" AlignStart="true">
-                                    <TriggerContent>
-                                        <span class="sd-muted">Attempt:</span>
-                                        <span>@(_logFilter.Attempt?.ToString(CultureInfo.InvariantCulture) ?? "All")</span>
-                                    </TriggerContent>
-                                    <ChildContent>
-                                        <MenuLabel>Show lines from</MenuLabel>
-                                        @foreach (var attempt in attempts.Cast<int?>().Prepend(null))
-                                        {
-                                            var selected = attempt == _logFilter.Attempt;
-                                            <button type="button" role="menuitemradio" class="sd-menu__item" aria-checked="@(selected ? "true" : "false")"
-                                                    @key="attempt" @onclick="() => SetLogAttempt(attempt)">
-                                                <span class="job-detail-menu-check" aria-hidden="true">
-                                                    @if (selected)
-                                                    {
-                                                        <Icon Name="check" />
-                                                    }
-                                                </span>
-                                                <span>@(attempt is { } number ? $"Attempt {number}" : "All attempts")</span>
-                                            </button>
-                                        }
-                                    </ChildContent>
-                                </DropdownMenu>
-                            }
-                            <SearchInput Class="job-detail-log-search" Value="@_logFilter.Search" ValueChanged="SetLogSearch"
-                                         Placeholder="Search messages and fields" Label="Search log lines" Shortcut="true" />
-                            <span class="sd-toolbar__spacer"></span>
-                            <DropdownMenu Label="Display options" Variant="ButtonVariant.Ghost">
-                                <TriggerContent>
-                                    <span>Display</span>
-                                </TriggerContent>
-                                <ChildContent>
-                                    <MenuLabel>Show</MenuLabel>
-                                    <button type="button" role="menuitemcheckbox" class="sd-menu__item" data-sd-keep-open="true"
-                                            aria-checked="@(_logFilter.IncludeProgress ? "true" : "false")" @onclick="ToggleProgressLines">
-                                        <span class="sd-menu__check" aria-hidden="true"><Icon Name="check" /></span>
-                                        <span>Progress updates</span>
-                                    </button>
-                                    <button type="button" role="menuitemcheckbox" class="sd-menu__item" data-sd-keep-open="true"
-                                            aria-checked="@(_showLogFields ? "true" : "false")" @onclick="ToggleLogFields">
-                                        <span class="sd-menu__check" aria-hidden="true"><Icon Name="check" /></span>
-                                        <span>Structured fields</span>
-                                    </button>
-                                </ChildContent>
-                            </DropdownMenu>
-                            @if (IsLive(job) && !_logsPaused)
-                            {
-                                <Switch Value="_followLogs" ValueChanged="SetFollowLogs">Follow new lines</Switch>
-                            }
-                            @if (IsLive(job) || _logsPaused)
-                            {
-                                <Button Variant="ButtonVariant.Ghost" Icon="@(_logsPaused ? "play" : "pause")" OnClick="ToggleLogsPaused"
-                                        aria-pressed="@(_logsPaused ? "true" : "false")"
-                                        data-sd-tooltip="@(_logsPaused ? "Show new lines again" : "Stop adding new lines while you read")">
-                                    @(_logsPaused ? "Resume" : "Pause")
-                                </Button>
-                            }
-                            <IconButton Icon="download" Label="Download the lines shown" Disabled="@(visibleLogLines.Count == 0)"
-                                        OnClick="() => DownloadLogAsync(visibleLogLines)" />
-                        </div>
+                        @LogToolbar(job, logLines, visibleLogLines)
                     }
                 </div>
             </div>
@@ -396,251 +332,19 @@
                 @switch (ActiveTab)
                 {
                     case DashboardJobDetailTab.Timeline:
-                        <Card Flush="true" Class="job-detail-panel-card">
-                            @if (lifecycleEvents.Count == 0)
-                            {
-                                <EmptyState Flat="true" Icon="activity" Title="No lifecycle events yet">
-                                    Events appear here as the job is queued, claimed, and finished.
-                                </EmptyState>
-                            }
-                            else
-                            {
-                                <ol class="job-detail-timeline">
-                                    @foreach (var jobEvent in lifecycleEvents)
-                                    {
-                                        var timelineDetail = DashboardJobDetailFormat.TimelineDetail(jobEvent);
-                                        <li class="@($"job-detail-timeline__item job-detail-timeline__item--{DashboardJobDetailFormat.TimelineTone(jobEvent)}")"
-                                            @key="jobEvent.EventId">
-                                            <span class="job-detail-timeline__dot" aria-hidden="true"></span>
-                                            <div class="job-detail-timeline__body">
-                                                <span class="job-detail-timeline__title">@DashboardJobDetailFormat.TimelineTitle(jobEvent)</span>
-                                                @if (timelineDetail is not null)
-                                                {
-                                                    <p class="job-detail-timeline__detail">@timelineDetail</p>
-                                                }
-                                            </div>
-                                            <TimestampBlock BaseClass="sd-timestamp" Value="jobEvent.OccurredAtUtc" AllowFutureRelative="false" AlignEnd />
-                                        </li>
-                                    }
-                                </ol>
-                            }
-                            @if (HasMoreEvents)
-                            {
-                                <footer class="sd-table__footer">
-                                    <span>Older events are loaded first; more may follow.</span>
-                                    <Button Size="ButtonSize.Small" Icon="@(_isLoadingMoreEvents ? "loader-circle" : null)"
-                                            Disabled="_isLoadingMoreEvents" OnClick="LoadMoreEventsAsync">@LoadMoreEventsText</Button>
-                                </footer>
-                            }
-                        </Card>
+                        @TimelinePanel(lifecycleEvents)
                         break;
 
                     case DashboardJobDetailTab.Invocation:
-                        @if (_detail.Invocation is { } invocation && call is not null)
-                        {
-                            <Card Title="Method call" Class="job-detail-panel-card">
-                                <HeaderActions>
-                                    <CopyButton Value="@call.FullText" Label="invocation" Size="ButtonSize.Small" />
-                                </HeaderActions>
-                                <ChildContent>
-                                    <pre class="sd-code job-detail-code"><code><CodeTokens Tokens="call.FullCall" /></code></pre>
-                                    <dl class="job-detail-invocation-meta">
-                                        <div>
-                                            <dt>Handler</dt>
-                                            <dd class="sd-mono" title="@DashboardFormat.FullHandler(job)">@DashboardInvocationView.Handler(invocation)</dd>
-                                        </div>
-                                        <div>
-                                            <dt>Target</dt>
-                                            <dd>@invocation.TargetKind.ToString()</dd>
-                                        </div>
-                                        <div>
-                                            <dt>Arguments</dt>
-                                            <dd>
-                                                <span class="sd-num">@DashboardFormat.Count(invocation.SerializedArgumentsByteCount) bytes</span>
-                                                <span class="sd-muted sd-mono">@invocation.SerializedArgumentsContentType</span>
-                                            </dd>
-                                        </div>
-                                    </dl>
-                                </ChildContent>
-                            </Card>
-
-                            @if (invocation.SerializedArgumentsStatus != JobSerializedArgumentsInspectionStatus.Displayable)
-                            {
-                                <Alert Tone="AlertTone.Warning" Title="Argument values can't be shown">
-                                    @DashboardInvocationView.StatusMessage(invocation)
-                                </Alert>
-                            }
-
-                            @if (call.Parameters.Count > 0)
-                            {
-                                <Card Title="Parameters" Flush="true" Class="job-detail-panel-card">
-                                    <ol class="job-detail-params">
-                                        @foreach (var (argument, value) in call.Parameters)
-                                        {
-                                            <li class="job-detail-param" @key="argument.Index">
-                                                <div class="job-detail-param__head">
-                                                    <span class="sd-muted sd-num">@string.Create(CultureInfo.InvariantCulture, $"#{argument.Index + 1}")</span>
-                                                    @if (argument.Name is not null)
-                                                    {
-                                                        <strong class="sd-mono">@argument.Name</strong>
-                                                    }
-                                                    <span class="job-detail-param__type sd-mono" title="@argument.ParameterType">@DashboardTypeName.Short(argument.ParameterType)</span>
-                                                    <Badge Variant="BadgeVariant.Secondary">@DashboardInvocationView.BindingLabel(argument)</Badge>
-                                                </div>
-                                                @if (argument.ValueJson is not null)
-                                                {
-                                                    <pre class="sd-code job-detail-code"><code><CodeTokens Tokens="value" /></code></pre>
-                                                }
-                                            </li>
-                                        }
-                                    </ol>
-                                </Card>
-                            }
-                        }
-                        else
-                        {
-                            <EmptyState Icon="info" Title="No invocation details">
-                                The store didn't return the method call for this job.
-                            </EmptyState>
-                        }
+                        @InvocationPanel(_detail, call)
                         break;
 
                     case DashboardJobDetailTab.Related:
-                        var relatedSections = RelatedSections(_detail);
-                        @if (_relatedError is not null)
-                        {
-                            <Alert Tone="AlertTone.Destructive" Title="Couldn't load the related jobs">
-                                <ChildContent>@_relatedError</ChildContent>
-                                <Actions>
-                                    <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryRelatedJobs">Try again</Button>
-                                </Actions>
-                            </Alert>
-                        }
-                        @if (relatedSections.Count == 0)
-                        {
-                            <EmptyState Icon="git-fork" Title="No related jobs">
-                                This job has no prerequisites or continuations, and it wasn't retried.
-                            </EmptyState>
-                        }
-                        @foreach (var section in relatedSections)
-                        {
-                            <Card Title="@section.Title" Description="@section.Description" Flush="true" Class="job-detail-panel-card" @key="section.Title">
-                                <ChildContent>
-                                    <table class="sd-table job-detail-related">
-                                        <tbody>
-                                            @foreach (var relatedJobId in section.JobIds.Take(RelatedJobLimit))
-                                            {
-                                                <tr data-href="@DashboardFormat.JobHref(relatedJobId)" @key="relatedJobId">
-                                                    @if (!_relatedJobs.TryGetValue(relatedJobId, out var relatedJob))
-                                                    {
-                                                        <td class="job-detail-related__state"><Skeleton Width="72px" /></td>
-                                                        <td><Skeleton Width="60%" /></td>
-                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardFormat.ShortJobId(relatedJobId)</a></td>
-                                                        <td class="job-detail-related__time"><Skeleton Width="96px" /></td>
-                                                    }
-                                                    else if (relatedJob is null)
-                                                    {
-                                                        <td class="job-detail-related__state"><span class="sd-muted">Not found</span></td>
-                                                        <td><span class="sd-muted">Retention may have removed this job.</span></td>
-                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardFormat.ShortJobId(relatedJobId)</a></td>
-                                                        <td class="job-detail-related__time"></td>
-                                                    }
-                                                    else
-                                                    {
-                                                        <td class="job-detail-related__state"><StatusBadge State="relatedJob.State" /></td>
-                                                        <td class="job-detail-related__handler" title="@DashboardFormat.FullHandler(relatedJob)">@DashboardFormat.ShortHandler(relatedJob)</td>
-                                                        <td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardFormat.ShortJobId(relatedJobId)</a></td>
-                                                        <td class="job-detail-related__time">
-                                                            <TimestampBlock BaseClass="sd-timestamp" Value="relatedJob.EnqueuedAtUtc" AllowFutureRelative="false"
-                                                                            Prefix="enqueued" Inline AlignEnd />
-                                                        </td>
-                                                    }
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                    @if (section.JobIds.Count > RelatedJobLimit)
-                                    {
-                                        <footer class="sd-table__footer">
-                                            <span class="sd-num">@string.Create(CultureInfo.InvariantCulture, $"Showing {RelatedJobLimit} of {DashboardFormat.Count(section.JobIds.Count)}")</span>
-                                        </footer>
-                                    }
-                                </ChildContent>
-                            </Card>
-                        }
+                        @RelatedPanel(_detail)
                         break;
 
                     default:
-                        <Card Flush="true" Class="job-detail-panel-card">
-                            @if (visibleLogLines.Count == 0 && !_logFilter.IsNarrowed)
-                            {
-                                @if (logLines.Count == 0)
-                                {
-                                    <EmptyState Flat="true" Icon="list" Title="No log lines yet">
-                                        Lines appear here when the job writes logs with <span class="sd-mono">ILogger</span>.
-                                    </EmptyState>
-                                }
-                                else
-                                {
-                                    <EmptyState Flat="true" Icon="list" Title="No log lines yet">
-                                        <ChildContent>The job has only reported progress so far.</ChildContent>
-                                        <Actions>
-                                            <Button OnClick="ToggleProgressLines">Show progress updates</Button>
-                                        </Actions>
-                                    </EmptyState>
-                                }
-                            }
-                            else if (visibleLogLines.Count == 0)
-                            {
-                                <EmptyState Flat="true" Icon="search-x" Title="No lines match">
-                                    <ChildContent>Try a different level, attempt, or search.</ChildContent>
-                                    <Actions>
-                                        <Button OnClick="ClearLogFilters">Clear filters</Button>
-                                    </Actions>
-                                </EmptyState>
-                            }
-                            else
-                            {
-                                <div class="job-detail-log">
-                                    <div class="job-detail-log__row job-detail-log__head" aria-hidden="true">
-                                        <span>Time (UTC)</span>
-                                        <span>Level</span>
-                                        <span>Attempt</span>
-                                        <span>Message</span>
-                                    </div>
-                                    @foreach (var line in visibleLogLines)
-                                    {
-                                        <div class="@($"job-detail-log__row job-detail-log__row--{DashboardJobLog.LevelModifier(line)}")" @key="line.EventId">
-                                            <time class="job-detail-log__time" datetime="@line.OccurredAtUtc.ToString("O", CultureInfo.InvariantCulture)"
-                                                  title="@DashboardFormat.Utc(line.OccurredAtUtc)">@DashboardJobLog.Time(line)</time>
-                                            <span class="job-detail-log__level">@DashboardJobLog.LevelLabel(line)</span>
-                                            <span class="job-detail-log__attempt" title="@($"Attempt {line.AttemptNumber}")">@line.AttemptNumber</span>
-                                            <div class="job-detail-log__message">
-                                                <span class="job-detail-log__text">@DashboardJobLog.Message(line)</span>
-                                                @if (_showLogFields && line.Fields is { Count: > 0 })
-                                                {
-                                                    <span class="job-detail-log__fields">
-                                                        @foreach (var field in DashboardJobLog.Fields(line))
-                                                        {
-                                                            <span class="job-detail-log__field"><span class="job-detail-log__key">@field.Key</span>=@field.Value</span>
-                                                        }
-                                                    </span>
-                                                }
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                            <footer class="sd-table__footer">
-                                <span class="sd-num">@LogFooterText(visibleLogLines.Count, logLines.Count)</span>
-                                @if (HasMoreEvents)
-                                {
-                                    <Button Size="ButtonSize.Small" Icon="@(_isLoadingMoreEvents ? "loader-circle" : null)"
-                                            Disabled="_isLoadingMoreEvents" OnClick="LoadMoreEventsAsync">@LoadMoreEventsText</Button>
-                                }
-                            </footer>
-                            <div @ref="_logEnd" aria-hidden="true"></div>
-                        </Card>
+                        @LogsPanel(logLines, visibleLogLines)
                         break;
                 }
             </div>
@@ -654,677 +358,334 @@
 </ConfirmDialog>
 
 @code {
-    private const int EventPageSize = 500;
-    private const int RelatedJobLimit = 50;
-    private const int MenuGroupLimit = 3;
-    private const int HeaderValueLength = 60;
+    // Each tab's markup. The tabs' state and behaviour live in JobDetail.Logs.cs, JobDetail.Events.cs (the event log
+    // behind the logs and timeline), JobDetail.Invocation.cs, and JobDetail.Related.cs.
 
-    private readonly DashboardJobEventLog _eventLog = new(EventPageSize);
-
-    private readonly Dictionary<Guid, JobInspectionSummary?> _relatedJobs = [];
-    private JobInspectionDetail? _detail;
-    private JobInvocationInspection? _callSource;
-    private InvocationCall? _call;
-    private Guid? _loadedJobId;
-    private DashboardJobLogFilter _logFilter = new();
-    private string? _error;
-    private string? _relatedError;
-    private bool _isLoading;
-    private bool _isLoadingMoreEvents;
-    private bool _isLoadingRelated;
-    private bool _relatedStale;
-    private bool _isCancelRunning;
-    private bool _cancelDialogOpen;
-    private bool _logsPaused;
-    private bool _followLogs = true;
-    private bool _scrollToLatestLog;
-    private ElementReference _logEnd;
-    private bool _showLogFields = true;
-
-    [Parameter]
-    public Guid JobId { get; set; }
-
-    /// <summary>
-    /// The open section; the logs when absent.
-    /// </summary>
-    [SupplyParameterFromQuery(Name = DashboardJobDetailFormat.TabParameter)]
-    public string? Tab { get; set; }
-
-    [Inject]
-    private DashboardNavigationState NavigationState { get; set; } = null!;
-
-    private string JobsListHref
-      => this.NavigationState.JobsListHref;
-
-    private string? JobsListContext
-      => DashboardJobDetailFormat.JobsListContext(this.JobsListHref);
-
-    private DashboardJobDetailTab ActiveTab
-      => DashboardJobDetailFormat.ParseTab(this.Tab);
-
-    private bool HasMoreEvents
-      => this._detail is not null && this._eventLog.HasMoreToRead;
-
-    private string LoadMoreEventsText
-      => this._isLoadingMoreEvents
-        ? "Loading events…"
-        : string.Create(CultureInfo.InvariantCulture, $"Load more events ({DashboardFormat.Count(this._eventLog.Events.Count)} loaded)");
-
-    private IReadOnlyList<JobEvent> AllLogLines
-      => [.. this._eventLog.Events.Where(DashboardJobLog.IsLogLine)];
-
-    private IReadOnlyList<JobEvent> LifecycleEvents
-      => [.. this._eventLog.Events.Where(DashboardJobDetailFormat.IsTimelineEvent)];
-
-    private IReadOnlyList<int> LogAttempts
-      => DashboardJobLog.Attempts(this._eventLog.Events);
-
-    private string CancelDialogDescription
-      => this._detail?.Summary.State == JobState.Claimed
-        ? "The running job is asked to stop and ends at its next cancellation check. You can't undo this."
-        : "The job ends as canceled straight away and won't run. You can't undo this.";
-
-    protected override void OnInitialized()
-    {
-        this.InitializeLiveRefresh(
-          this.RefreshDetailAsync,
-          showRefreshing: true,
-          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._detail is null ? null : nowUtc),
-          queuedRefreshAsync: this.RefreshSummaryAsync);
-        this.SubscribeToJobEvents(LiveUpdates, this.OnJobEventPublishedAsync);
-    }
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (this._loadedJobId == this.JobId)
-        {
-            return;
-        }
-
-        this._loadedJobId = this.JobId;
-        this._detail = null;
-        this._eventLog.Clear();
-        this._relatedJobs.Clear();
-        this._relatedError = null;
-        this._relatedStale = false;
-        this._isLoadingRelated = false;
-        this._isLoadingMoreEvents = false;
-        this._error = null;
-        this._isCancelRunning = false;
-        this._cancelDialogOpen = false;
-        this.LiveRefresh.ClearError();
-        this._logsPaused = false;
-        this._logFilter = new DashboardJobLogFilter();
-
-        await this.LoadAsync();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        _ = firstRender;
-
-        await this.FlushToastsAsync();
-        await this.ScrollToLatestLogAsync();
-
-        if (this.NeedsRelatedJobs())
-        {
-            await this.LoadRelatedJobsAsync();
-        }
-    }
-
-    // "Follow new lines" keeps the newest log line in view as live events arrive; the page is the scroll region.
-    private void SetFollowLogs(bool follow)
-    {
-        this._followLogs = follow;
-        this._scrollToLatestLog = follow;
-    }
-
-    private async Task ScrollToLatestLogAsync()
-    {
-        if (!this._scrollToLatestLog)
-        {
-            return;
-        }
-
-        this._scrollToLatestLog = false;
-        if (this.ActiveTab != DashboardJobDetailTab.Logs)
-        {
-            return;
-        }
-
-        try
-        {
-            await JsRuntime.InvokeVoidAsync("sheddueller.scrollIntoView", this._logEnd);
-        }
-        catch (JSException)
-        {
-        }
-    }
-
-    // The call is rebuilt only when a refresh brings a new invocation, not on every live log line.
-    private InvocationCall CallFor(JobInvocationInspection invocation)
-    {
-        if (this._call is { } cached && ReferenceEquals(this._callSource, invocation))
-        {
-            return cached;
-        }
-
-        var arguments = DashboardInvocationView.Arguments(invocation, DashboardInvocationParameterNames.Resolve(invocation));
-        var valuesAvailable = invocation.SerializedArgumentsStatus == JobSerializedArgumentsInspectionStatus.Displayable;
-        var receiver = DashboardTypeName.Short(invocation.ServiceType);
-        var fullCall = DashboardInvocationView.CallTokens(
-          receiver,
-          invocation.MethodName,
-          arguments,
-          valuesAvailable,
-          dataOnly: false,
-          maxValueLength: null,
-          oneArgumentPerLine: arguments.Count > 2);
-
-        this._callSource = invocation;
-        this._call = new InvocationCall(
-          invocation.MethodName,
-          DashboardInvocationView.ArgumentGroups(arguments, valuesAvailable, dataOnly: true, HeaderValueLength),
-          DashboardInvocationView.CallText(receiver, invocation.MethodName, arguments, valuesAvailable, dataOnly: true),
-          fullCall,
-          DashboardInvocationView.Text(fullCall),
-          [.. arguments.Select(argument => new InvocationParameter(argument, DashboardInvocationView.JsonTokens(argument.ValueJson)))]);
-        return this._call;
-    }
-
-    // Paused means no live appends and no list replacement. Resuming catches up on anything missed while paused.
-    private Task ToggleLogsPaused()
-    {
-        this._logsPaused = !this._logsPaused;
-        return this._logsPaused ? Task.CompletedTask : this.LiveRefresh.RefreshNowAsync();
-    }
-
-    private void SetLogLevel(DashboardLogLevelFilter level)
-      => this._logFilter = this._logFilter with { Level = level };
-
-    private void SetLogAttempt(int? attempt)
-      => this._logFilter = this._logFilter with { Attempt = attempt };
-
-    private void SetLogSearch(string search)
-      => this._logFilter = this._logFilter with { Search = search };
-
-    private void ToggleProgressLines()
-      => this._logFilter = this._logFilter with { IncludeProgress = !this._logFilter.IncludeProgress };
-
-    private void ToggleLogFields()
-      => this._showLogFields = !this._showLogFields;
-
-    private void ClearLogFilters()
-      => this._logFilter = new DashboardJobLogFilter(IncludeProgress: this._logFilter.IncludeProgress);
-
-    // From the failure callout: the failed attempt's error lines (or all its lines when it logged no errors).
-    private void ShowAttemptLogs(int attempt, bool errorsOnly)
-    {
-        this._logFilter = this._logFilter with
-        {
-            Level = errorsOnly ? DashboardLogLevelFilter.Errors : DashboardLogLevelFilter.All,
-            Attempt = this.LogAttempts.Count > 1 ? attempt : null,
-            Search = null,
-        };
-
-        if (this.ActiveTab != DashboardJobDetailTab.Logs)
-        {
-            Navigation.NavigateTo(this.TabHref(DashboardJobDetailTab.Logs));
-        }
-    }
-
-    private async Task DownloadLogAsync(IReadOnlyList<JobEvent> lines)
-    {
-        try
-        {
-            await JsRuntime.DownloadAsync(DashboardJobLog.FileName(this.JobId), DashboardJobLog.ToText(lines));
-        }
-        catch (JSException exception)
-        {
-            this.ShowToast("Couldn't download the log", exception.Message, AlertTone.Destructive);
-        }
-    }
-
-    private void OpenCancelDialog()
-      => this._cancelDialogOpen = true;
-
-    private async Task CancelJobAsync()
-    {
-        if (this._isCancelRunning || this._detail?.Summary is not { } job)
-        {
-            return;
-        }
-
-        // The job can move on while the dialog is open.
-        if (!DashboardJobActions.IsCancellable(job))
-        {
-            this.ShowToast("The job can't be canceled now", "It has finished, or a cancellation was already requested.");
-            return;
-        }
-
-        this._isCancelRunning = true;
-
-        try
-        {
-            var result = await JobManager.CancelAsync(this.JobId);
-            var (title, description) = DashboardJobActions.DescribeCancellation([result]);
-            this.ShowToast(
-              title,
-              description,
-              result is JobCancellationResult.Canceled or JobCancellationResult.CancellationRequested ? AlertTone.Success : AlertTone.Neutral);
-            await this.LiveRefresh.RefreshNowAsync();
-        }
-        catch (Exception exception)
-        {
-            this.ShowToast("Couldn't cancel the job", exception.Message, AlertTone.Destructive);
-        }
-        finally
-        {
-            this._isCancelRunning = false;
-        }
-    }
-
-    private async ValueTask OnJobEventPublishedAsync(
-        JobEvent jobEvent,
-        CancellationToken cancellationToken)
-    {
-        _ = cancellationToken;
-
-        if (jobEvent.JobId != this.JobId)
-        {
-            return;
-        }
-
-        await this.ApplyPageStateAsync(() =>
-        {
-            if (jobEvent.JobId != this.JobId)
-            {
-                return;
-            }
-
-            // A paused log stream takes no appends; the summary still reflects the live job.
-            if (!this._logsPaused)
-            {
-                _ = this._eventLog.Append(jobEvent);
-                this._scrollToLatestLog |= this._followLogs;
-            }
-
-            this.ApplyLiveEventToDetail(jobEvent);
-            this.LiveRefresh.MarkLiveActivity(jobEvent.OccurredAtUtc);
-        });
-        this.LiveRefresh.QueueRefresh();
-    }
-
-    private async Task LoadAsync()
-    {
-        var jobId = this.JobId;
-        await this.ApplyPageStateAsync(() =>
-        {
-            if (this._detail is null)
-            {
-                this._isLoading = true;
-            }
-
-            this._error = null;
-            this.LiveRefresh.ClearError();
-        });
-
-        try
-        {
-            var detail = await Reader.GetJobAsync(jobId);
-            var events = detail is null
-              ? []
-              : await this.ReadEventPageAsync(jobId, afterEventSequence: null, CancellationToken.None);
-
-            await this.ApplyPageStateAsync(() =>
-            {
-                if (jobId != this.JobId)
-                {
-                    return;
-                }
-
-                this._detail = detail;
-                if (detail is not null)
-                {
-                    _ = this._eventLog.AppendPage(events);
-                }
-
-                this._isLoading = false;
-                this.LiveRefresh.MarkUpdated();
-            });
-        }
-        catch (Exception exception)
-        {
-            await this.ApplyPageStateAsync(() =>
-            {
-                if (jobId == this.JobId)
-                {
-                    this._error = exception.Message;
-                    this._isLoading = false;
-                }
-            });
-        }
-    }
-
-    // Explicit refresh (manual refresh, resume, auto-refresh re-enabled, after cancel): the job summary plus any
-    // durable events not yet loaded, read incrementally after the loaded run.
-    private Task RefreshDetailAsync(CancellationToken cancellationToken)
-      => this.RefreshAsync(catchUpEvents: true, cancellationToken);
-
-    // Live-event refresh: the pushed event is already in the log, so only the job summary is re-read.
-    private Task RefreshSummaryAsync(CancellationToken cancellationToken)
-      => this.RefreshAsync(catchUpEvents: false, cancellationToken);
-
-    private async Task RefreshAsync(
-        bool catchUpEvents,
-        CancellationToken cancellationToken)
-    {
-        var jobId = this.JobId;
-        long? readThroughSequence = null;
-        var readEvents = false;
-        await this.InvokeAsync(() =>
-        {
-            readThroughSequence = this._eventLog.ReadThroughSequence;
-            readEvents = (catchUpEvents || this._detail is null)
-              && !this._logsPaused
-              && !this._eventLog.HasMoreToRead;
-        });
-
-        var detail = await Reader.GetJobAsync(jobId, cancellationToken);
-        var events = detail is not null && readEvents
-          ? await this.ReadEventPageAsync(jobId, readThroughSequence, cancellationToken)
-          : [];
-
-        await this.ApplyPageStateAsync(() =>
-        {
-            if (jobId != this.JobId)
-            {
-                return;
-            }
-
-            this._detail = detail;
-            if (detail is not null && readEvents && !this._logsPaused)
-            {
-                _ = this._eventLog.AppendPage(events);
-            }
-
-            // An explicit refresh also re-reads the related jobs' states the next time they are shown.
-            if (catchUpEvents)
-            {
-                this._relatedStale = true;
-            }
-        });
-    }
-
-    private async Task LoadMoreEventsAsync()
-    {
-        if (this._isLoadingMoreEvents || !this.HasMoreEvents)
-        {
-            return;
-        }
-
-        var jobId = this.JobId;
-        this._isLoadingMoreEvents = true;
-
-        try
-        {
-            var events = await this.ReadEventPageAsync(jobId, this._eventLog.ReadThroughSequence, CancellationToken.None);
-            if (jobId == this.JobId)
-            {
-                _ = this._eventLog.AppendPage(events);
-            }
-        }
-        catch (Exception exception)
-        {
-            if (jobId == this.JobId)
-            {
-                this.ShowToast("Couldn't load more events", exception.Message, AlertTone.Destructive);
-            }
-        }
-        finally
-        {
-            if (jobId == this.JobId)
-            {
-                this._isLoadingMoreEvents = false;
-            }
-        }
-    }
-
-    private async Task<IReadOnlyList<JobEvent>> ReadEventPageAsync(
-        Guid jobId,
-        long? afterEventSequence,
-        CancellationToken cancellationToken)
-    {
-        var events = new List<JobEvent>();
-        await foreach (var jobEvent in Reader.ReadEventsAsync(
-            jobId,
-            new JobEventReadOptions(afterEventSequence, EventPageSize),
-            cancellationToken))
-        {
-            events.Add(jobEvent);
-        }
-
-        return events;
-    }
-
-    private void ApplyLiveEventToDetail(JobEvent jobEvent)
-    {
-        if (this._detail is null)
-        {
-            return;
-        }
-
-        if (jobEvent.Kind == JobEventKind.Progress)
-        {
-            this._detail = this._detail with
-            {
-                Summary = this._detail.Summary with
-                {
-                    LatestProgress = new JobProgressSnapshot(
-                      jobEvent.ProgressPercent,
-                      jobEvent.Message,
-                      jobEvent.OccurredAtUtc),
-                },
-            };
-            return;
-        }
-
-        if (jobEvent.Kind == JobEventKind.CancelRequested)
-        {
-            this._detail = this._detail with
-            {
-                Summary = this._detail.Summary with
-                {
-                    CancellationRequestedAtUtc = jobEvent.OccurredAtUtc,
-                },
-            };
-        }
-    }
-
-    // Related jobs are read one by one when the Related tab is shown (the reader has no lookup by many IDs), at most
-    // RelatedJobLimit per section. An explicit refresh marks them stale so their states are read again.
-    private bool NeedsRelatedJobs()
-      => this.ActiveTab == DashboardJobDetailTab.Related
-        && this._detail is not null
-        && !this._isLoadingRelated
-        && this._relatedError is null
-        && (this._relatedStale || this.RelatedJobIdsToShow().Any(jobId => !this._relatedJobs.ContainsKey(jobId)));
-
-    private IEnumerable<Guid> RelatedJobIdsToShow()
-      => this._detail is null
-        ? []
-        : RelatedSections(this._detail).SelectMany(section => section.JobIds.Take(RelatedJobLimit)).Distinct();
-
-    private async Task LoadRelatedJobsAsync()
-    {
-        var jobId = this.JobId;
-        IReadOnlyList<Guid> relatedJobIds = this._relatedStale
-          ? [.. this.RelatedJobIdsToShow()]
-          : [.. this.RelatedJobIdsToShow().Where(relatedJobId => !this._relatedJobs.ContainsKey(relatedJobId))];
-        this._relatedStale = false;
-        this._isLoadingRelated = true;
-
-        try
-        {
-            foreach (var relatedJobId in relatedJobIds)
-            {
-                var related = await Reader.GetJobAsync(relatedJobId);
-                if (jobId != this.JobId)
-                {
-                    return;
-                }
-
-                this._relatedJobs[relatedJobId] = related?.Summary;
-            }
-        }
-        catch (Exception exception)
-        {
-            if (jobId == this.JobId)
-            {
-                this._relatedError = exception.Message;
-            }
-        }
-        finally
-        {
-            if (jobId == this.JobId)
-            {
-                this._isLoadingRelated = false;
-            }
-        }
-
-        this.StateHasChanged();
-    }
-
-    private void RetryRelatedJobs()
-      => this._relatedError = null;
-
-    private string TabHref(DashboardJobDetailTab tab)
-      => DashboardJobDetailFormat.TabHref(this.JobId, tab);
-
-    private IReadOnlyList<TabItem<DashboardJobDetailTab>> TabItems(
-        int logLineCount,
-        int lifecycleEventCount)
-    {
-        // Counts are of loaded events, so they are left off while more events remain to be loaded.
-        var exact = !this.HasMoreEvents;
-        var relatedCount = this._detail is null ? 0 : RelatedSections(this._detail).Sum(section => section.JobIds.Count);
-        return
-        [
-            new(DashboardJobDetailTab.Logs, "Logs", exact ? logLineCount : null, Href: this.TabHref(DashboardJobDetailTab.Logs)),
-            new(DashboardJobDetailTab.Timeline, "Timeline", exact ? lifecycleEventCount : null, Href: this.TabHref(DashboardJobDetailTab.Timeline)),
-            new(DashboardJobDetailTab.Invocation, "Invocation", Href: this.TabHref(DashboardJobDetailTab.Invocation)),
-            new(DashboardJobDetailTab.Related, "Related", relatedCount, Href: this.TabHref(DashboardJobDetailTab.Related)),
-        ];
-    }
-
-    private IReadOnlyList<TabItem<DashboardLogLevelFilter>> LevelTabItems(IReadOnlyList<JobEvent> logLines)
-      =>
-      [
-          new(DashboardLogLevelFilter.All, "All", DashboardJobLog.Count(logLines, this._logFilter with { Level = DashboardLogLevelFilter.All })),
-          new(DashboardLogLevelFilter.Warnings, "Warnings", DashboardJobLog.Count(logLines, this._logFilter with { Level = DashboardLogLevelFilter.Warnings })),
-          new(DashboardLogLevelFilter.Errors, "Errors", DashboardJobLog.Count(logLines, this._logFilter with { Level = DashboardLogLevelFilter.Errors }), Attention: true),
-      ];
-
-    private static IReadOnlyList<RelatedSection> RelatedSections(JobInspectionDetail detail)
-    {
-        var sections = new List<RelatedSection>(4);
-        AddRelatedSection(sections, "Prerequisites", "This job waits for these jobs to finish.", detail.PrerequisiteJobIds);
-        AddRelatedSection(sections, "Continuations", "These jobs wait for this one to finish.", detail.DependentJobIds);
-        if (detail.Summary.RetryCloneSourceJobId is { } sourceJobId)
-        {
-            AddRelatedSection(sections, "Retry of", "This job was created to retry a failed job.", [sourceJobId]);
-        }
-
-        AddRelatedSection(sections, "Retried as", "Copies of this job created to retry it.", detail.RetryCloneJobIds);
-        return sections;
-    }
-
-    private static void AddRelatedSection(
-        List<RelatedSection> sections,
-        string title,
-        string description,
-        IReadOnlyList<Guid> jobIds)
-    {
-        if (jobIds.Count > 0)
-        {
-            sections.Add(new RelatedSection(title, description, jobIds));
-        }
-    }
-
-    private static bool IsLive(JobInspectionSummary job)
-      => job.State is JobState.Queued or JobState.Claimed;
-
-    private static string LogFooterText(
-        int visibleCount,
-        int totalCount)
-      => visibleCount == totalCount
-        ? string.Create(CultureInfo.InvariantCulture, $"{DashboardFormat.Count(totalCount)} {(totalCount == 1 ? "line" : "lines")}")
-        : string.Create(CultureInfo.InvariantCulture, $"Showing {DashboardFormat.Count(visibleCount)} of {DashboardFormat.Count(totalCount)} lines");
-
-    private static string FailedTitle(JobInspectionSummary job)
-      => job.AttemptCount > 1
-        ? string.Create(CultureInfo.InvariantCulture, $"Failed after {job.AttemptCount} attempts")
-        : "Failed";
-
-    private static string CanceledText(JobInspectionDetail detail)
-      => detail.ClaimedAtUtc is null
-        ? "The job was canceled before it started."
-        : detail.Summary.CancellationObservedAtUtc is not null
-          ? "The job was canceled while running and stopped at a cancellation check."
-          : "The job was canceled while running.";
-
-    private static AlertTone QueuedTone(JobInspectionSummary job)
-      => job.QueuePosition?.Kind switch
-      {
-          JobQueuePositionKind.Claimable => AlertTone.Info,
-          JobQueuePositionKind.RetryWaiting or JobQueuePositionKind.BlockedByConcurrency => AlertTone.Warning,
-          _ => AlertTone.Neutral,
-      };
-
-    private static string QueuedIcon(JobInspectionSummary job)
-      => job.QueuePosition?.Kind switch
-      {
-          JobQueuePositionKind.Delayed => "calendar-clock",
-          JobQueuePositionKind.RetryWaiting => "rotate-ccw",
-          JobQueuePositionKind.WaitingForDependencies => "git-fork",
-          JobQueuePositionKind.BlockedByConcurrency => "layers",
-          _ => "hourglass",
-      };
-
-    private static string QueuedText(
+    private RenderFragment LogToolbar(
         JobInspectionSummary job,
-        JobEvent? latestFailure)
-    {
-        var reason = job.QueuePosition?.Reason;
-        return job.QueuePosition?.Kind switch
-        {
-            JobQueuePositionKind.RetryWaiting when latestFailure?.Message is { Length: > 0 } message
-              => string.Create(CultureInfo.InvariantCulture, $"Attempt {latestFailure.AttemptNumber} failed: {message}"),
-            _ when !string.IsNullOrWhiteSpace(reason) => reason,
-            JobQueuePositionKind.Claimable => "The next free worker picks it up.",
-            JobQueuePositionKind.Delayed => "The job isn't claimable until its not-before time.",
-            JobQueuePositionKind.RetryWaiting => "The last attempt failed; the job runs again after the retry delay.",
-            JobQueuePositionKind.WaitingForDependencies => "The job runs once all of its prerequisites have finished.",
-            JobQueuePositionKind.BlockedByConcurrency => "Another job holds the only slot in one of its concurrency groups.",
-            _ => "The job is waiting to be claimed.",
-        };
-    }
+        IReadOnlyList<JobEvent> logLines,
+        IReadOnlyList<JobEvent> visibleLogLines)
+      => @<div class="sd-toolbar job-detail-log-toolbar">
+              <Tabs TValue="DashboardLogLevelFilter" Items="LevelTabItems(logLines)" Value="_logFilter.Level" ValueChanged="SetLogLevel"
+                    Label="Log level" Small="true" />
+              @if (LogAttempts is { Count: > 1 } attempts)
+              {
+                  <DropdownMenu Label="Filter by attempt" Variant="ButtonVariant.Outline" AlignStart="true">
+                      <TriggerContent>
+                          <span class="sd-muted">Attempt:</span>
+                          <span>@(_logFilter.Attempt?.ToString(CultureInfo.InvariantCulture) ?? "All")</span>
+                      </TriggerContent>
+                      <ChildContent>
+                          <MenuLabel>Show lines from</MenuLabel>
+                          @foreach (var attempt in attempts.Cast<int?>().Prepend(null))
+                          {
+                              var selected = attempt == _logFilter.Attempt;
+                              <button type="button" role="menuitemradio" class="sd-menu__item" aria-checked="@(selected ? "true" : "false")"
+                                      @key="attempt" @onclick="() => SetLogAttempt(attempt)">
+                                  <span class="job-detail-menu-check" aria-hidden="true">
+                                      @if (selected)
+                                      {
+                                          <Icon Name="check" />
+                                      }
+                                  </span>
+                                  <span>@(attempt is { } number ? $"Attempt {number}" : "All attempts")</span>
+                              </button>
+                          }
+                      </ChildContent>
+                  </DropdownMenu>
+              }
+              <SearchInput Class="job-detail-log-search" Value="@_logFilter.Search" ValueChanged="SetLogSearch"
+                           Placeholder="Search messages and fields" Label="Search log lines" Shortcut="true" />
+              <span class="sd-toolbar__spacer"></span>
+              <DropdownMenu Label="Display options" Variant="ButtonVariant.Ghost">
+                  <TriggerContent>
+                      <span>Display</span>
+                  </TriggerContent>
+                  <ChildContent>
+                      <MenuLabel>Show</MenuLabel>
+                      <button type="button" role="menuitemcheckbox" class="sd-menu__item" data-sd-keep-open="true"
+                              aria-checked="@(_logFilter.IncludeProgress ? "true" : "false")" @onclick="ToggleProgressLines">
+                          <span class="sd-menu__check" aria-hidden="true"><Icon Name="check" /></span>
+                          <span>Progress updates</span>
+                      </button>
+                      <button type="button" role="menuitemcheckbox" class="sd-menu__item" data-sd-keep-open="true"
+                              aria-checked="@(_showLogFields ? "true" : "false")" @onclick="ToggleLogFields">
+                          <span class="sd-menu__check" aria-hidden="true"><Icon Name="check" /></span>
+                          <span>Structured fields</span>
+                      </button>
+                  </ChildContent>
+              </DropdownMenu>
+              @if (IsLive(job) && !_logsPaused)
+              {
+                  <Switch Value="_followLogs" ValueChanged="SetFollowLogs">Follow new lines</Switch>
+              }
+              @if (IsLive(job) || _logsPaused)
+              {
+                  <Button Variant="ButtonVariant.Ghost" Icon="@(_logsPaused ? "play" : "pause")" OnClick="ToggleLogsPaused"
+                          aria-pressed="@(_logsPaused ? "true" : "false")"
+                          data-sd-tooltip="@(_logsPaused ? "Show new lines again" : "Stop adding new lines while you read")">
+                      @(_logsPaused ? "Resume" : "Pause")
+                  </Button>
+              }
+              <IconButton Icon="download" Label="Download the lines shown" Disabled="@(visibleLogLines.Count == 0)"
+                          OnClick="() => DownloadLogAsync(visibleLogLines)" />
+          </div>;
 
-    private sealed record RelatedSection(
-        string Title,
-        string Description,
-        IReadOnlyList<Guid> JobIds);
+    private RenderFragment LogsPanel(
+        IReadOnlyList<JobEvent> logLines,
+        IReadOnlyList<JobEvent> visibleLogLines)
+      => @<Card Flush="true" Class="job-detail-panel-card">
+              @if (visibleLogLines.Count == 0 && !_logFilter.IsNarrowed)
+              {
+                  @if (logLines.Count == 0)
+                  {
+                      <EmptyState Flat="true" Icon="list" Title="No log lines yet">
+                          Lines appear here when the job writes logs with <span class="sd-mono">ILogger</span>.
+                      </EmptyState>
+                  }
+                  else
+                  {
+                      <EmptyState Flat="true" Icon="list" Title="No log lines yet">
+                          <ChildContent>The job has only reported progress so far.</ChildContent>
+                          <Actions>
+                              <Button OnClick="ToggleProgressLines">Show progress updates</Button>
+                          </Actions>
+                      </EmptyState>
+                  }
+              }
+              else if (visibleLogLines.Count == 0)
+              {
+                  <EmptyState Flat="true" Icon="search-x" Title="No lines match">
+                      <ChildContent>Try a different level, attempt, or search.</ChildContent>
+                      <Actions>
+                          <Button OnClick="ClearLogFilters">Clear filters</Button>
+                      </Actions>
+                  </EmptyState>
+              }
+              else
+              {
+                  <div class="job-detail-log">
+                      <div class="job-detail-log__row job-detail-log__head" aria-hidden="true">
+                          <span>Time (UTC)</span>
+                          <span>Level</span>
+                          <span>Attempt</span>
+                          <span>Message</span>
+                      </div>
+                      @foreach (var line in visibleLogLines)
+                      {
+                          <div class="@($"job-detail-log__row job-detail-log__row--{DashboardJobLog.LevelModifier(line)}")" @key="line.EventId">
+                              <time class="job-detail-log__time" datetime="@line.OccurredAtUtc.ToString("O", CultureInfo.InvariantCulture)"
+                                    title="@DashboardFormat.Utc(line.OccurredAtUtc)">@DashboardJobLog.Time(line)</time>
+                              <span class="job-detail-log__level">@DashboardJobLog.LevelLabel(line)</span>
+                              <span class="job-detail-log__attempt" title="@($"Attempt {line.AttemptNumber}")">@line.AttemptNumber</span>
+                              <div class="job-detail-log__message">
+                                  <span class="job-detail-log__text">@DashboardJobLog.Message(line)</span>
+                                  @if (_showLogFields && line.Fields is { Count: > 0 })
+                                  {
+                                      <span class="job-detail-log__fields">
+                                          @foreach (var field in DashboardJobLog.Fields(line))
+                                          {
+                                              <span class="job-detail-log__field"><span class="job-detail-log__key">@field.Key</span>=@field.Value</span>
+                                          }
+                                      </span>
+                                  }
+                              </div>
+                          </div>
+                      }
+                  </div>
+              }
+              <footer class="sd-table__footer">
+                  <span class="sd-num">@LogFooterText(visibleLogLines.Count, logLines.Count)</span>
+                  @if (HasMoreEvents)
+                  {
+                      <Button Size="ButtonSize.Small" Icon="@(_isLoadingMoreEvents ? "loader-circle" : null)"
+                              Disabled="_isLoadingMoreEvents" OnClick="LoadMoreEventsAsync">@LoadMoreEventsText</Button>
+                  }
+              </footer>
+              <div @ref="_logEnd" aria-hidden="true"></div>
+          </Card>;
 
-    // The header shows only the caller's data arguments; the Invocation tab shows every argument.
-    private sealed record InvocationCall(
-        string MethodName,
-        IReadOnlyList<IReadOnlyList<CodeToken>> HeaderArguments,
-        string HeaderText,
-        IReadOnlyList<CodeToken> FullCall,
-        string FullText,
-        IReadOnlyList<InvocationParameter> Parameters);
+    private RenderFragment TimelinePanel(IReadOnlyList<JobEvent> lifecycleEvents)
+      => @<Card Flush="true" Class="job-detail-panel-card">
+              @if (lifecycleEvents.Count == 0)
+              {
+                  <EmptyState Flat="true" Icon="activity" Title="No lifecycle events yet">
+                      Events appear here as the job is queued, claimed, and finished.
+                  </EmptyState>
+              }
+              else
+              {
+                  <ol class="job-detail-timeline">
+                      @foreach (var jobEvent in lifecycleEvents)
+                      {
+                          var timelineDetail = DashboardJobDetailFormat.TimelineDetail(jobEvent);
+                          <li class="@($"job-detail-timeline__item job-detail-timeline__item--{DashboardJobDetailFormat.TimelineTone(jobEvent)}")"
+                              @key="jobEvent.EventId">
+                              <span class="job-detail-timeline__dot" aria-hidden="true"></span>
+                              <div class="job-detail-timeline__body">
+                                  <span class="job-detail-timeline__title">@DashboardJobDetailFormat.TimelineTitle(jobEvent)</span>
+                                  @if (timelineDetail is not null)
+                                  {
+                                      <p class="job-detail-timeline__detail">@timelineDetail</p>
+                                  }
+                              </div>
+                              <TimestampBlock BaseClass="sd-timestamp" Value="jobEvent.OccurredAtUtc" AllowFutureRelative="false" AlignEnd />
+                          </li>
+                      }
+                  </ol>
+              }
+              @if (HasMoreEvents)
+              {
+                  <footer class="sd-table__footer">
+                      <span>Older events are loaded first; more may follow.</span>
+                      <Button Size="ButtonSize.Small" Icon="@(_isLoadingMoreEvents ? "loader-circle" : null)"
+                              Disabled="_isLoadingMoreEvents" OnClick="LoadMoreEventsAsync">@LoadMoreEventsText</Button>
+                  </footer>
+              }
+          </Card>;
 
-    private sealed record InvocationParameter(
-        DashboardInvocationArgument Argument,
-        IReadOnlyList<CodeToken> Value);
+    private RenderFragment InvocationPanel(
+        JobInspectionDetail detail,
+        InvocationCall? call)
+      => __builder =>
+      {
+          var job = detail.Summary;
+          @if (detail.Invocation is { } invocation && call is not null)
+          {
+              <Card Title="Method call" Class="job-detail-panel-card">
+                  <HeaderActions>
+                      <CopyButton Value="@call.FullText" Label="invocation" Size="ButtonSize.Small" />
+                  </HeaderActions>
+                  <ChildContent>
+                      <pre class="sd-code job-detail-code"><code><CodeTokens Tokens="call.FullCall" /></code></pre>
+                      <dl class="job-detail-invocation-meta">
+                          <div>
+                              <dt>Handler</dt>
+                              <dd class="sd-mono" title="@DashboardFormat.FullHandler(job)">@DashboardInvocationView.Handler(invocation)</dd>
+                          </div>
+                          <div>
+                              <dt>Target</dt>
+                              <dd>@invocation.TargetKind.ToString()</dd>
+                          </div>
+                          <div>
+                              <dt>Arguments</dt>
+                              <dd>
+                                  <span class="sd-num">@DashboardFormat.Count(invocation.SerializedArgumentsByteCount) bytes</span>
+                                  <span class="sd-muted sd-mono">@invocation.SerializedArgumentsContentType</span>
+                              </dd>
+                          </div>
+                      </dl>
+                  </ChildContent>
+              </Card>
+
+              @if (invocation.SerializedArgumentsStatus != JobSerializedArgumentsInspectionStatus.Displayable)
+              {
+                  <Alert Tone="AlertTone.Warning" Title="Argument values can't be shown">
+                      @DashboardInvocationView.StatusMessage(invocation)
+                  </Alert>
+              }
+
+              @if (call.Parameters.Count > 0)
+              {
+                  <Card Title="Parameters" Flush="true" Class="job-detail-panel-card">
+                      <ol class="job-detail-params">
+                          @foreach (var (argument, value) in call.Parameters)
+                          {
+                              <li class="job-detail-param" @key="argument.Index">
+                                  <div class="job-detail-param__head">
+                                      <span class="sd-muted sd-num">@string.Create(CultureInfo.InvariantCulture, $"#{argument.Index + 1}")</span>
+                                      @if (argument.Name is not null)
+                                      {
+                                          <strong class="sd-mono">@argument.Name</strong>
+                                      }
+                                      <span class="job-detail-param__type sd-mono" title="@argument.ParameterType">@DashboardTypeName.Short(argument.ParameterType)</span>
+                                      <Badge Variant="BadgeVariant.Secondary">@DashboardInvocationView.BindingLabel(argument)</Badge>
+                                  </div>
+                                  @if (argument.ValueJson is not null)
+                                  {
+                                      <pre class="sd-code job-detail-code"><code><CodeTokens Tokens="value" /></code></pre>
+                                  }
+                              </li>
+                          }
+                      </ol>
+                  </Card>
+              }
+          }
+          else
+          {
+              <EmptyState Icon="info" Title="No invocation details">
+                  The store didn't return the method call for this job.
+              </EmptyState>
+          }
+      };
+
+    private RenderFragment RelatedPanel(JobInspectionDetail detail)
+      => __builder =>
+      {
+          var relatedSections = RelatedSections(detail);
+          @if (_relatedError is not null)
+          {
+              <Alert Tone="AlertTone.Destructive" Title="Couldn't load the related jobs">
+                  <ChildContent>@_relatedError</ChildContent>
+                  <Actions>
+                      <Button Size="ButtonSize.Small" Icon="refresh-cw" OnClick="RetryRelatedJobs">Try again</Button>
+                  </Actions>
+              </Alert>
+          }
+          @if (relatedSections.Count == 0)
+          {
+              <EmptyState Icon="git-fork" Title="No related jobs">
+                  This job has no prerequisites or continuations, and it wasn't retried.
+              </EmptyState>
+          }
+          @foreach (var section in relatedSections)
+          {
+              <Card Title="@section.Title" Description="@section.Description" Flush="true" Class="job-detail-panel-card" @key="section.Title">
+                  <ChildContent>
+                      <table class="sd-table job-detail-related">
+                          <tbody>
+                              @foreach (var relatedJobId in section.JobIds.Take(RelatedJobLimit))
+                              {
+                                  <tr data-href="@DashboardFormat.JobHref(relatedJobId)" @key="relatedJobId">
+                                      @if (!_relatedJobs.TryGetValue(relatedJobId, out var relatedJob))
+                                      {
+                                          <td class="job-detail-related__state"><Skeleton Width="72px" /></td>
+                                          <td><Skeleton Width="60%" /></td>
+                                          @RelatedJobIdCell(relatedJobId)
+                                          <td class="job-detail-related__time"><Skeleton Width="96px" /></td>
+                                      }
+                                      else if (relatedJob is null)
+                                      {
+                                          <td class="job-detail-related__state"><span class="sd-muted">Not found</span></td>
+                                          <td><span class="sd-muted">Retention may have removed this job.</span></td>
+                                          @RelatedJobIdCell(relatedJobId)
+                                          <td class="job-detail-related__time"></td>
+                                      }
+                                      else
+                                      {
+                                          <td class="job-detail-related__state"><StatusBadge State="relatedJob.State" /></td>
+                                          <td class="job-detail-related__handler" title="@DashboardFormat.FullHandler(relatedJob)">@DashboardFormat.ShortHandler(relatedJob)</td>
+                                          @RelatedJobIdCell(relatedJobId)
+                                          <td class="job-detail-related__time">
+                                              <TimestampBlock BaseClass="sd-timestamp" Value="relatedJob.EnqueuedAtUtc" AllowFutureRelative="false"
+                                                              Prefix="enqueued" Inline AlignEnd />
+                                          </td>
+                                      }
+                                  </tr>
+                              }
+                          </tbody>
+                      </table>
+                      @if (section.JobIds.Count > RelatedJobLimit)
+                      {
+                          <footer class="sd-table__footer">
+                              <span class="sd-num">@string.Create(CultureInfo.InvariantCulture, $"Showing {RelatedJobLimit} of {DashboardFormat.Count(section.JobIds.Count)}")</span>
+                          </footer>
+                      }
+                  </ChildContent>
+              </Card>
+          }
+      };
+
+    private static RenderFragment RelatedJobIdCell(Guid relatedJobId)
+      => @<td class="job-detail-related__id"><a class="job-detail-id-link" href="@DashboardFormat.JobHref(relatedJobId)" title="@DashboardFormat.JobId(relatedJobId)">@DashboardFormat.ShortJobId(relatedJobId)</a></td>;
 }
