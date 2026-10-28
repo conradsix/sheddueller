@@ -1,6 +1,7 @@
 namespace Sheddueller.Postgres.Tests;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using Npgsql;
 
@@ -130,6 +131,45 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
 
         (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresMigrationSteps.BaselineVersion + 2);
         await AssertTableExistsAsync(context, "step_marker_2");
+    }
+
+    [Fact]
+    public async Task Migration_TableLockHeldThroughout_GivesUpWithoutChangingTheSchema()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await using var blocker = await HoldJobsLockAsync(context);
+        var migrator = this.CreateMigrator(
+          context.SchemaName,
+          new PostgresMigrationLockPolicy(TimeSpan.FromMilliseconds(100), MaxAttempts: 3, TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(10)),
+          AddJobsColumnStep);
+
+        var exception = await Should.ThrowAsync<InvalidOperationException>(() => migrator.ApplyAsync().AsTask());
+
+        exception.Message.ShouldContain("couldn't lock the tables it changes after 3 attempts");
+        exception.InnerException.ShouldBeOfType<PostgresException>().SqlState.ShouldBe(PostgresErrorCodes.LockNotAvailable);
+        await blocker.RollbackAsync();
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresMigrationSteps.BaselineVersion);
+        (await JobsColumnExistsAsync(context)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Migration_TableLockReleasedWhileRetrying_AppliesTheStep()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        var blocker = await HoldJobsLockAsync(context);
+        var migrator = this.CreateMigrator(
+          context.SchemaName,
+          new PostgresMigrationLockPolicy(TimeSpan.FromMilliseconds(100), MaxAttempts: 100, TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(50)),
+          AddJobsColumnStep);
+
+        var migration = migrator.ApplyAsync().AsTask();
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        migration.IsCompleted.ShouldBeFalse();
+        await blocker.DisposeAsync();
+        await migration;
+
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresMigrationSteps.BaselineVersion + 1);
+        (await JobsColumnExistsAsync(context)).ShouldBeTrue();
     }
 
     [Fact]
@@ -451,8 +491,47 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
         PostgresMigrationSteps.BaselineVersion + stepNumber,
         names => $"create table {names.Schema}.step_marker_{stepNumber} (id integer);");
 
+    // Needs an ACCESS EXCLUSIVE lock on jobs, like any column change on a busy table.
+    private static PostgresMigrationStep AddJobsColumnStep { get; } = new(
+      PostgresMigrationSteps.BaselineVersion + 1,
+      names => $"alter table {names.Jobs} add column step_note text null;");
+
     private PostgresMigrator CreateMigrator(string schemaName, params PostgresMigrationStep[] steps)
-      => new(new ShedduellerPostgresOptions { DataSource = fixture.DataSource, SchemaName = schemaName }, steps);
+      => this.CreateMigrator(schemaName, PostgresMigrationLockPolicy.Default, steps);
+
+    private PostgresMigrator CreateMigrator(string schemaName, PostgresMigrationLockPolicy lockPolicy, params PostgresMigrationStep[] steps)
+      => new(
+        new ShedduellerPostgresOptions { DataSource = fixture.DataSource, SchemaName = schemaName },
+        NullLogger.Instance,
+        steps,
+        lockPolicy);
+
+    // An open transaction that has read the jobs table, as a dashboard query or a worker would.
+    private static async ValueTask<BlockingTransaction> HoldJobsLockAsync(PostgresTestContext context)
+    {
+        var connection = await context.DataSource.OpenConnectionAsync();
+        var transaction = await connection.BeginTransactionAsync();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+#pragma warning disable CA2100 // The test-generated schema identifier is quoted by PostgresTestContext.Table.
+        command.CommandText = $"select count(*) from {context.Table("jobs")};";
+#pragma warning restore CA2100
+        await command.ExecuteScalarAsync();
+        return new BlockingTransaction(connection, transaction);
+    }
+
+    private static async ValueTask<bool> JobsColumnExistsAsync(PostgresTestContext context)
+      => await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = 'jobs'
+                and column_name = 'step_note'
+          );
+          """);
 
     private static async ValueTask<string> ReadJobDataAsync(PostgresTestContext context)
       => await ScalarAsync<string>(context, $"select row_to_json(job)::text from {context.Table("jobs")} job;");
@@ -553,4 +632,16 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
           );
           """,
           command => command.Parameters.AddWithValue("index_name", indexName));
+
+    private sealed class BlockingTransaction(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
+    {
+        public async ValueTask RollbackAsync()
+          => await transaction.RollbackAsync();
+
+        public async ValueTask DisposeAsync()
+        {
+            await transaction.DisposeAsync();
+            await connection.DisposeAsync();
+        }
+    }
 }
