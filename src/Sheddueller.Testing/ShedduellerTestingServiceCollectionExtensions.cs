@@ -24,6 +24,8 @@ public static class ShedduellerTestingServiceCollectionExtensions
 
         services.TryAddSingleton<IJobPayloadSerializer, SystemTextJsonJobPayloadSerializer>();
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<FakeConcurrencyGroupConfigurationReader>();
+        services.Replace(ServiceDescriptor.Singleton<IConcurrencyGroupConfigurationReader>(serviceProvider => serviceProvider.GetRequiredService<FakeConcurrencyGroupConfigurationReader>()));
         services.TryAddSingleton<CapturingJobEnqueuer>();
         services.TryAddSingleton<CapturingRecurringScheduleManager>();
         services.Replace(ServiceDescriptor.Singleton<IJobEnqueuer>(serviceProvider => serviceProvider.GetRequiredService<CapturingJobEnqueuer>()));

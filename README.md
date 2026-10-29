@@ -120,9 +120,13 @@ Reapplying migrations to an already-current schema skips schema updates and data
 
 Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an application needs to share or own a prebuilt `NpgsqlDataSource`; in that mode, the application also owns disposal.
 
-The operational store keeps active jobs plus a bounded searchable terminal window. By default, background retention cleanup keeps completed jobs for 24 hours and failed or canceled jobs for 7 days, then deletes those terminal job rows and their tags, concurrency groups, and events. Configure `ShedduellerOptions.JobRetention` to change the windows, set a state retention to `null` to keep that state indefinitely, or set `Enabled = false` to disable cleanup.
+The operational store keeps active jobs plus a bounded searchable terminal window. By default, background retention cleanup keeps completed jobs for 24 hours and failed or canceled jobs for 7 days, then deletes those terminal job rows and their tags, group references, and events. Configure `ShedduellerOptions.JobRetention` to change the windows, set a state retention to `null` to keep that state indefinitely, or set `Enabled = false` to disable cleanup.
 
 Worker nodes that stop sending heartbeats show as stale and then dead on the dashboard, and are removed from the store 30 minutes after their last heartbeat. Configure `ShedduellerOptions.DeadNodeRetention` to change that, or set it to `null` to keep every node; it must be longer than `DeadNodeThreshold`. A removed node that is still running registers again on its next heartbeat.
+
+Unused, unconfigured concurrency groups are cleaned independently of terminal jobs: by default, once idle for 24 hours, checked hourly in batches of 1,000. Configured limits and rate limits, occupied groups, retained job/schedule references, and outstanding rate cooldowns are preserved. Configure `ShedduellerOptions.ConcurrencyGroupCleanup` or the dashboard's Settings page. Worker and dashboard hosts run one cleanup loop per host; providers coordinate cleanup across hosts. No schema migration or manual cleanup is required for existing PostgreSQL groups.
+
+Applications that use group limits for external work can read `IConcurrencyGroupConfigurationReader.GetConfigurationAsync(...)` without loading job inspection data. It returns the code default, persisted override and effective limit; a missing group reads as limit 1 without creating a row. Scheduler occupancy describes claimed scheduler jobs, not external application reservations.
 
 Concurrency groups independently enforce active-job capacity and an optional smooth job-start rate across the cluster. Capacity limits use a persisted override over a code-defined default over the built-in default of `1`. Rate limits use a persisted override over a code-defined default over a built-in unlimited rate.
 

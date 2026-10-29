@@ -61,6 +61,8 @@ public sealed class ShedduellerOptions
     /// </summary>
     public JobRetentionOptions JobRetention { get; } = new();
 
+    public ConcurrencyGroupCleanupOptions ConcurrencyGroupCleanup { get; } = new();
+
     /// <summary>
     /// Gets the effective stale worker node threshold.
     /// </summary>

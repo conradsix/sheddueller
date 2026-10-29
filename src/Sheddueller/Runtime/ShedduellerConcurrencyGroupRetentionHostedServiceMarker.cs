@@ -1,0 +1,3 @@
+namespace Sheddueller.Runtime;
+
+internal sealed class ShedduellerConcurrencyGroupRetentionHostedServiceMarker;

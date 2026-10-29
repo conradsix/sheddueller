@@ -32,6 +32,7 @@ internal sealed class ShedduellerCommonStartupValidator(
         }
 
         ValidateJobRetentionOptions(value.JobRetention);
+        ConcurrencyGroupCleanupConfiguration.FromOptions(value.ConcurrencyGroupCleanup).Validate();
 
         return ValueTask.CompletedTask;
     }

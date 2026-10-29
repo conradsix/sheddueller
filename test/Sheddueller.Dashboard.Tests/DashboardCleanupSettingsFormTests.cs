@@ -17,6 +17,20 @@ public sealed class DashboardCleanupSettingsFormTests
       new JobEventCleanupConfiguration(TimeSpan.FromDays(7), TimeSpan.FromHours(1)),
       new MetricsCleanupConfiguration(TimeSpan.FromDays(7), TimeSpan.FromHours(1)));
 
+    [Fact]
+    public void Form_GroupCleanupChanges_RoundTripsAndTracksChanges()
+    {
+        var baseline = DashboardCleanupSettingsForm.FromConfiguration(DefaultConfiguration);
+        var form = DashboardCleanupSettingsForm.FromConfiguration(DefaultConfiguration);
+        form.GroupCleanupEnabled = false;
+        form.GroupBatchSize = "25";
+        form.SetDuration(DashboardCleanupSetting.GroupIdleRetention, new("2", DashboardDurationUnit.Days));
+        form.SetDuration(DashboardCleanupSetting.GroupCleanupInterval, new("5", DashboardDurationUnit.Minutes));
+        form.HasChangesFrom(baseline).ShouldBeTrue();
+        form.TryCreateConfiguration(out var config).ShouldBeTrue();
+        config.ConcurrencyGroups.ShouldBe(new(false, TimeSpan.FromDays(2), TimeSpan.FromMinutes(5), 25));
+    }
+
     [Theory]
     [InlineData(7 * 24 * 60 * 60, "7", "Days")]
     [InlineData(36 * 60 * 60, "36", "Hours")]
