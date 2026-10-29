@@ -94,6 +94,23 @@ public sealed class ConcurrencyGroupRetentionTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Cleanup_ConcurrentClaim_PreservesTheJobGroupAndReservation()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await SeedAsync(context, "claimed");
+        var id = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(id, groupKeys: ["claimed"]));
+        var claim = PostgresTestData.ClaimAsync(context.Store).AsTask();
+        var cleanup = context.Provider.GetRequiredService<IConcurrencyGroupRetentionStore>()
+          .CleanupConcurrencyGroupsAsync(TimeSpan.FromDays(1), 1000).AsTask();
+        await Task.WhenAll(claim, cleanup);
+
+        (await claim).JobId.ShouldBe(id);
+        (await cleanup).ShouldBe(0);
+        (await context.ReadConcurrencyGroupAsync("claimed")).ShouldNotBeNull().InUseCount.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Cleanup_ConcurrentHosts_DeleteEachGroupOnce()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
