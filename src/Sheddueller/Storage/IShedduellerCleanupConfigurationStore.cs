@@ -34,6 +34,14 @@ public interface IShedduellerCleanupConfigurationStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets concurrency-group cleanup configuration, or the supplied default when the provider does not persist it.
+    /// </summary>
+    ValueTask<ConcurrencyGroupCleanupConfiguration> GetConcurrencyGroupCleanupConfigurationAsync(
+        ConcurrencyGroupCleanupConfiguration defaultConfiguration,
+        CancellationToken cancellationToken = default)
+      => ValueTask.FromResult(defaultConfiguration);
+
+    /// <summary>
     /// Persists the full cleanup configuration.
     /// </summary>
     ValueTask SetCleanupConfigurationAsync(

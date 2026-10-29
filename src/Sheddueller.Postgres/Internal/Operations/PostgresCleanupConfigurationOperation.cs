@@ -13,6 +13,7 @@ internal static class PostgresCleanupConfigurationOperation
     private const string JobRetentionKey = "cleanup.job_retention";
     private const string JobEventsKey = "cleanup.job_events";
     private const string MetricsKey = "cleanup.metrics";
+    private const string ConcurrencyGroupsKey = "cleanup.concurrency_groups";
 
     // Reads never write: a setting that hasn't been persisted reads as the caller's default, and only SetAsync stores
     // settings.
@@ -23,11 +24,14 @@ internal static class PostgresCleanupConfigurationOperation
     {
         Validate(defaultConfiguration);
 
-        var documents = await ReadDocumentsAsync(context, [JobRetentionKey, JobEventsKey, MetricsKey], cancellationToken).ConfigureAwait(false);
+        var documents = await ReadDocumentsAsync(context, [JobRetentionKey, JobEventsKey, MetricsKey, ConcurrencyGroupsKey], cancellationToken).ConfigureAwait(false);
         return new ShedduellerCleanupConfiguration(
           ToJobRetention(documents, defaultConfiguration.JobRetention),
           ToJobEvents(documents, defaultConfiguration.JobEvents),
-          ToMetrics(documents, defaultConfiguration.Metrics));
+          ToMetrics(documents, defaultConfiguration.Metrics))
+        {
+            ConcurrencyGroups = ToConcurrencyGroups(documents, defaultConfiguration.ConcurrencyGroups),
+        };
     }
 
     public static async ValueTask<JobRetentionCleanupConfiguration> GetJobRetentionAsync(
@@ -63,6 +67,24 @@ internal static class PostgresCleanupConfigurationOperation
         return ToMetrics(documents, defaultConfiguration);
     }
 
+    public static async ValueTask<ConcurrencyGroupCleanupConfiguration> GetConcurrencyGroupsAsync(
+        PostgresOperationContext context,
+        ConcurrencyGroupCleanupConfiguration defaultConfiguration,
+        CancellationToken cancellationToken)
+    {
+        defaultConfiguration.Validate();
+        var documents = await ReadDocumentsAsync(context, [ConcurrencyGroupsKey], cancellationToken).ConfigureAwait(false);
+        return ToConcurrencyGroups(documents, defaultConfiguration);
+    }
+
+    private static ConcurrencyGroupCleanupConfiguration ToConcurrencyGroups(IReadOnlyDictionary<string, string> documents, ConcurrencyGroupCleanupConfiguration defaults)
+    {
+        var config = documents.TryGetValue(ConcurrencyGroupsKey, out var json)
+          ? Deserialize<ConcurrencyGroupSettingsDocument>(ConcurrencyGroupsKey, json).ToConfiguration() : defaults;
+        config.Validate();
+        return config;
+    }
+
     public static async ValueTask SetAsync(
         PostgresOperationContext context,
         ShedduellerCleanupConfiguration configuration,
@@ -77,6 +99,9 @@ internal static class PostgresCleanupConfigurationOperation
         await UpsertAsync(context, connection, transaction, JobEventsKey, ToDocument(configuration.JobEvents), cancellationToken).ConfigureAwait(false);
         await UpsertAsync(context, connection, transaction, MetricsKey, ToDocument(configuration.Metrics), cancellationToken).ConfigureAwait(false);
 
+        var groups = configuration.ConcurrencyGroups;
+        await UpsertAsync(context, connection, transaction, ConcurrencyGroupsKey,
+          new ConcurrencyGroupSettingsDocument(groups.Enabled, groups.IdleRetention.Ticks, groups.CleanupInterval.Ticks, groups.BatchSize), cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -217,6 +242,7 @@ internal static class PostgresCleanupConfigurationOperation
         Validate(configuration.JobRetention);
         Validate(configuration.JobEvents);
         Validate(configuration.Metrics);
+        configuration.ConcurrencyGroups.Validate();
     }
 
     private static void Validate(JobRetentionCleanupConfiguration configuration)
@@ -311,6 +337,12 @@ internal static class PostgresCleanupConfigurationOperation
     {
         public MetricsCleanupConfiguration ToConfiguration()
           => new(TimeSpan.FromTicks(this.RetentionTicks), TimeSpan.FromTicks(this.CleanupIntervalTicks));
+    }
+
+    private sealed record ConcurrencyGroupSettingsDocument(bool Enabled, long IdleRetentionTicks, long CleanupIntervalTicks, int BatchSize)
+    {
+        public ConcurrencyGroupCleanupConfiguration ToConfiguration()
+          => new(this.Enabled, TimeSpan.FromTicks(this.IdleRetentionTicks), TimeSpan.FromTicks(this.CleanupIntervalTicks), this.BatchSize);
     }
 
     private static TimeSpan? ToNullableTimeSpan(long? ticks)

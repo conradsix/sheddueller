@@ -1,1 +1,5 @@
 #nullable enable
+Sheddueller.Testing.FakeConcurrencyGroupConfigurationReader
+Sheddueller.Testing.FakeConcurrencyGroupConfigurationReader.FakeConcurrencyGroupConfigurationReader() -> void
+Sheddueller.Testing.FakeConcurrencyGroupConfigurationReader.GetConfigurationAsync(string! groupKey, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Sheddueller.ConcurrencyGroupConfiguration!>
+Sheddueller.Testing.FakeConcurrencyGroupConfigurationReader.Groups.get -> System.Collections.Generic.Dictionary<string!, Sheddueller.ConcurrencyGroupConfiguration!>!

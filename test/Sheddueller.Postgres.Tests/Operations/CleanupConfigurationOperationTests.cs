@@ -11,6 +11,18 @@ using Shouldly;
 public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture)
 {
     [Fact]
+    public async Task GroupCleanup_SavedConfiguration_PreservesIndependentPolicy()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        var store = context.Provider.GetRequiredService<IShedduellerCleanupConfigurationStore>();
+        var groups = new ConcurrencyGroupCleanupConfiguration(false, TimeSpan.FromDays(3), TimeSpan.FromMinutes(5), 25);
+        var config = CreateConfiguration() with { ConcurrencyGroups = groups };
+        await store.SetCleanupConfigurationAsync(config);
+        (await store.GetConcurrencyGroupCleanupConfigurationAsync(ConcurrencyGroupCleanupConfiguration.Default)).ShouldBe(groups);
+        (await store.GetCleanupConfigurationAsync(CreateConfiguration())).ShouldBe(config);
+    }
+
+    [Fact]
     public async Task GetCleanupConfiguration_MissingSettings_ReturnsDefaultsWithoutWriting()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
@@ -78,7 +90,7 @@ public sealed class CleanupConfigurationOperationTests(PostgresFixture fixture)
           metricsCleanupInterval: TimeSpan.FromHours(1)));
 
         configuration.ShouldBe(updated);
-        (await CountSettingsAsync(context)).ShouldBe(3);
+        (await CountSettingsAsync(context)).ShouldBe(4);
     }
 
     [Fact]

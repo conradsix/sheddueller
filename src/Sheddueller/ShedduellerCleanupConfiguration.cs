@@ -6,4 +6,7 @@ namespace Sheddueller;
 public sealed record ShedduellerCleanupConfiguration(
     JobRetentionCleanupConfiguration JobRetention,
     JobEventCleanupConfiguration JobEvents,
-    MetricsCleanupConfiguration Metrics);
+    MetricsCleanupConfiguration Metrics)
+{
+    public ConcurrencyGroupCleanupConfiguration ConcurrencyGroups { get; init; } = ConcurrencyGroupCleanupConfiguration.Default;
+}

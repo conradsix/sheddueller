@@ -1,1 +1,55 @@
 #nullable enable
+Sheddueller.ConcurrencyGroupCleanupConfiguration
+Sheddueller.ConcurrencyGroupCleanupConfiguration.<Clone>$() -> Sheddueller.ConcurrencyGroupCleanupConfiguration!
+Sheddueller.ConcurrencyGroupCleanupConfiguration.BatchSize.get -> int
+Sheddueller.ConcurrencyGroupCleanupConfiguration.BatchSize.init -> void
+Sheddueller.ConcurrencyGroupCleanupConfiguration.CleanupInterval.get -> System.TimeSpan
+Sheddueller.ConcurrencyGroupCleanupConfiguration.CleanupInterval.init -> void
+Sheddueller.ConcurrencyGroupCleanupConfiguration.ConcurrencyGroupCleanupConfiguration(bool Enabled, System.TimeSpan IdleRetention, System.TimeSpan CleanupInterval, int BatchSize) -> void
+Sheddueller.ConcurrencyGroupCleanupConfiguration.Deconstruct(out bool Enabled, out System.TimeSpan IdleRetention, out System.TimeSpan CleanupInterval, out int BatchSize) -> void
+Sheddueller.ConcurrencyGroupCleanupConfiguration.Enabled.get -> bool
+Sheddueller.ConcurrencyGroupCleanupConfiguration.Enabled.init -> void
+Sheddueller.ConcurrencyGroupCleanupConfiguration.Equals(Sheddueller.ConcurrencyGroupCleanupConfiguration? other) -> bool
+Sheddueller.ConcurrencyGroupCleanupConfiguration.IdleRetention.get -> System.TimeSpan
+Sheddueller.ConcurrencyGroupCleanupConfiguration.IdleRetention.init -> void
+Sheddueller.ConcurrencyGroupCleanupOptions
+Sheddueller.ConcurrencyGroupCleanupOptions.BatchSize.get -> int
+Sheddueller.ConcurrencyGroupCleanupOptions.BatchSize.set -> void
+Sheddueller.ConcurrencyGroupCleanupOptions.CleanupInterval.get -> System.TimeSpan
+Sheddueller.ConcurrencyGroupCleanupOptions.CleanupInterval.set -> void
+Sheddueller.ConcurrencyGroupCleanupOptions.ConcurrencyGroupCleanupOptions() -> void
+Sheddueller.ConcurrencyGroupCleanupOptions.Enabled.get -> bool
+Sheddueller.ConcurrencyGroupCleanupOptions.Enabled.set -> void
+Sheddueller.ConcurrencyGroupCleanupOptions.IdleRetention.get -> System.TimeSpan
+Sheddueller.ConcurrencyGroupCleanupOptions.IdleRetention.set -> void
+Sheddueller.ConcurrencyGroupConfiguration
+Sheddueller.ConcurrencyGroupConfiguration.<Clone>$() -> Sheddueller.ConcurrencyGroupConfiguration!
+Sheddueller.ConcurrencyGroupConfiguration.ConcurrencyGroupConfiguration(int? DefaultLimit, int? OverrideLimit, int EffectiveLimit) -> void
+Sheddueller.ConcurrencyGroupConfiguration.Deconstruct(out int? DefaultLimit, out int? OverrideLimit, out int EffectiveLimit) -> void
+Sheddueller.ConcurrencyGroupConfiguration.DefaultLimit.get -> int?
+Sheddueller.ConcurrencyGroupConfiguration.DefaultLimit.init -> void
+Sheddueller.ConcurrencyGroupConfiguration.EffectiveLimit.get -> int
+Sheddueller.ConcurrencyGroupConfiguration.EffectiveLimit.init -> void
+Sheddueller.ConcurrencyGroupConfiguration.Equals(Sheddueller.ConcurrencyGroupConfiguration? other) -> bool
+Sheddueller.ConcurrencyGroupConfiguration.OverrideLimit.get -> int?
+Sheddueller.ConcurrencyGroupConfiguration.OverrideLimit.init -> void
+Sheddueller.IConcurrencyGroupConfigurationReader
+Sheddueller.IConcurrencyGroupConfigurationReader.GetConfigurationAsync(string! groupKey, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Sheddueller.ConcurrencyGroupConfiguration!>
+Sheddueller.ShedduellerCleanupConfiguration.ConcurrencyGroups.get -> Sheddueller.ConcurrencyGroupCleanupConfiguration!
+Sheddueller.ShedduellerCleanupConfiguration.ConcurrencyGroups.init -> void
+Sheddueller.ShedduellerOptions.ConcurrencyGroupCleanup.get -> Sheddueller.ConcurrencyGroupCleanupOptions!
+Sheddueller.Storage.IConcurrencyGroupRetentionStore
+Sheddueller.Storage.IConcurrencyGroupRetentionStore.CleanupConcurrencyGroupsAsync(System.TimeSpan idleRetention, int batchSize, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>
+Sheddueller.Storage.IShedduellerCleanupConfigurationStore.GetConcurrencyGroupCleanupConfigurationAsync(Sheddueller.ConcurrencyGroupCleanupConfiguration! defaultConfiguration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Sheddueller.ConcurrencyGroupCleanupConfiguration!>
+override Sheddueller.ConcurrencyGroupCleanupConfiguration.Equals(object? obj) -> bool
+override Sheddueller.ConcurrencyGroupCleanupConfiguration.GetHashCode() -> int
+override Sheddueller.ConcurrencyGroupCleanupConfiguration.ToString() -> string!
+override Sheddueller.ConcurrencyGroupConfiguration.Equals(object? obj) -> bool
+override Sheddueller.ConcurrencyGroupConfiguration.GetHashCode() -> int
+override Sheddueller.ConcurrencyGroupConfiguration.ToString() -> string!
+static Sheddueller.ConcurrencyGroupCleanupConfiguration.Default.get -> Sheddueller.ConcurrencyGroupCleanupConfiguration!
+static Sheddueller.ConcurrencyGroupCleanupConfiguration.FromOptions(Sheddueller.ConcurrencyGroupCleanupOptions! options) -> Sheddueller.ConcurrencyGroupCleanupConfiguration!
+static Sheddueller.ConcurrencyGroupCleanupConfiguration.operator !=(Sheddueller.ConcurrencyGroupCleanupConfiguration? left, Sheddueller.ConcurrencyGroupCleanupConfiguration? right) -> bool
+static Sheddueller.ConcurrencyGroupCleanupConfiguration.operator ==(Sheddueller.ConcurrencyGroupCleanupConfiguration? left, Sheddueller.ConcurrencyGroupCleanupConfiguration? right) -> bool
+static Sheddueller.ConcurrencyGroupConfiguration.operator !=(Sheddueller.ConcurrencyGroupConfiguration? left, Sheddueller.ConcurrencyGroupConfiguration? right) -> bool
+static Sheddueller.ConcurrencyGroupConfiguration.operator ==(Sheddueller.ConcurrencyGroupConfiguration? left, Sheddueller.ConcurrencyGroupConfiguration? right) -> bool

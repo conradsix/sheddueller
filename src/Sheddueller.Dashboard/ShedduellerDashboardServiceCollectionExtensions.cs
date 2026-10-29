@@ -46,6 +46,7 @@ public static class ShedduellerDashboardServiceCollectionExtensions
         services.TryAddSingleton<IDashboardMetricsReader>(serviceProvider => serviceProvider.GetRequiredService<DashboardMetricsSnapshotCache>());
         services.Replace(ServiceDescriptor.Singleton<IJobEventNotifier, DashboardJobEventNotifier>());
         ShedduellerHostedServiceRegistration.TryAddStartupValidationHostedService(services);
+        ShedduellerHostedServiceRegistration.TryAddConcurrencyGroupRetentionHostedService(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardThroughputHostedService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardJobEventListenerService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobEventRetentionService>());

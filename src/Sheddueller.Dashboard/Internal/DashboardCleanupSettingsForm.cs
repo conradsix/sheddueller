@@ -17,6 +17,9 @@ internal enum DashboardCleanupSetting
     EventCleanupInterval,
     MetricsRetention,
     MetricsCleanupInterval,
+    GroupIdleRetention,
+    GroupCleanupInterval,
+    GroupBatchSize,
 }
 
 /// <summary>
@@ -48,6 +51,10 @@ internal sealed class DashboardCleanupSettingsForm
 
     public string BatchSize { get; set; } = string.Empty;
 
+    public bool GroupCleanupEnabled { get; set; }
+
+    public string GroupBatchSize { get; set; } = string.Empty;
+
     /// <summary>
     /// Settings whose current value can't be saved.
     /// </summary>
@@ -62,6 +69,8 @@ internal sealed class DashboardCleanupSettingsForm
         var form = new DashboardCleanupSettingsForm
         {
             JobRetentionEnabled = jobRetention.Enabled,
+            GroupCleanupEnabled = configuration.ConcurrencyGroups.Enabled,
+            GroupBatchSize = configuration.ConcurrencyGroups.BatchSize.ToString(CultureInfo.InvariantCulture),
             BatchSize = jobRetention.BatchSize.ToString(CultureInfo.InvariantCulture),
         };
 
@@ -74,6 +83,8 @@ internal sealed class DashboardCleanupSettingsForm
         form.SetDurationValue(DashboardCleanupSetting.MetricsRetention, configuration.Metrics.Retention);
         form.SetDurationValue(DashboardCleanupSetting.MetricsCleanupInterval, configuration.Metrics.CleanupInterval);
 
+        form.SetDurationValue(DashboardCleanupSetting.GroupIdleRetention, configuration.ConcurrencyGroups.IdleRetention);
+        form.SetDurationValue(DashboardCleanupSetting.GroupCleanupInterval, configuration.ConcurrencyGroups.CleanupInterval);
         return form;
     }
 
@@ -119,9 +130,9 @@ internal sealed class DashboardCleanupSettingsForm
     /// </summary>
     public string? Error(DashboardCleanupSetting setting)
     {
-        if (setting == DashboardCleanupSetting.JobBatchSize)
+        if (setting is DashboardCleanupSetting.JobBatchSize or DashboardCleanupSetting.GroupBatchSize)
         {
-            return TryParseBatchSize(this.BatchSize, out _, out var batchSizeError) ? null : batchSizeError;
+            return TryParseBatchSize(setting == DashboardCleanupSetting.JobBatchSize ? this.BatchSize : this.GroupBatchSize, out _, out var batchSizeError) ? null : batchSizeError;
         }
 
         return this.IsKeptForever(setting) || this.Duration(setting).TryGetValue(out _, out var error)
@@ -136,6 +147,9 @@ internal sealed class DashboardCleanupSettingsForm
     {
         configuration = null;
         if (!TryParseBatchSize(this.BatchSize, out var batchSize, out _)
+            || !TryParseBatchSize(this.GroupBatchSize, out var groupBatchSize, out _)
+            || !this.TryGetDuration(DashboardCleanupSetting.GroupIdleRetention, out var groupIdleRetention)
+            || !this.TryGetDuration(DashboardCleanupSetting.GroupCleanupInterval, out var groupCleanupInterval)
             || !this.TryGetRetention(DashboardCleanupSetting.CompletedRetention, out var completedRetention)
             || !this.TryGetRetention(DashboardCleanupSetting.FailedRetention, out var failedRetention)
             || !this.TryGetRetention(DashboardCleanupSetting.CanceledRetention, out var canceledRetention)
@@ -157,7 +171,10 @@ internal sealed class DashboardCleanupSettingsForm
             jobCleanupInterval,
             batchSize),
           new JobEventCleanupConfiguration(eventRetention, eventCleanupInterval),
-          new MetricsCleanupConfiguration(metricsRetention, metricsCleanupInterval));
+          new MetricsCleanupConfiguration(metricsRetention, metricsCleanupInterval))
+        {
+            ConcurrencyGroups = new(this.GroupCleanupEnabled, groupIdleRetention, groupCleanupInterval, groupBatchSize),
+        };
         return true;
     }
 
@@ -170,6 +187,7 @@ internal sealed class DashboardCleanupSettingsForm
         ArgumentNullException.ThrowIfNull(baseline);
 
         return this.JobRetentionEnabled != baseline.JobRetentionEnabled
+          || this.GroupCleanupEnabled != baseline.GroupCleanupEnabled
           || Settings.Any(setting => !this.SettingEquals(baseline, setting));
     }
 
@@ -250,12 +268,14 @@ internal sealed class DashboardCleanupSettingsForm
         DashboardCleanupSettingsForm other,
         DashboardCleanupSetting setting)
     {
-        if (setting == DashboardCleanupSetting.JobBatchSize)
+        if (setting is DashboardCleanupSetting.JobBatchSize or DashboardCleanupSetting.GroupBatchSize)
         {
-            return TryParseBatchSize(this.BatchSize, out var batchSize, out _)
-              && TryParseBatchSize(other.BatchSize, out var otherBatchSize, out _)
+            var text = setting == DashboardCleanupSetting.JobBatchSize ? this.BatchSize : this.GroupBatchSize;
+            var otherText = setting == DashboardCleanupSetting.JobBatchSize ? other.BatchSize : other.GroupBatchSize;
+            return TryParseBatchSize(text, out var batchSize, out _)
+              && TryParseBatchSize(otherText, out var otherBatchSize, out _)
               ? batchSize == otherBatchSize
-              : string.Equals(this.BatchSize.Trim(), other.BatchSize.Trim(), StringComparison.Ordinal);
+              : string.Equals(text.Trim(), otherText.Trim(), StringComparison.Ordinal);
         }
 
         var keptForever = this.IsKeptForever(setting);

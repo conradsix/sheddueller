@@ -22,6 +22,7 @@ internal sealed class PostgresRetentionStore(
     : IJobEventRetentionStore,
     IJobRetentionStore,
     IWorkerNodeRetentionStore,
+    IConcurrencyGroupRetentionStore,
     IShedduellerCleanupConfigurationStore
 {
     public ValueTask<int> CleanupAsync(
@@ -32,6 +33,14 @@ internal sealed class PostgresRetentionStore(
         retention,
         PostgresJobRetentionOperation.JobEventCleanupBatchSize,
         cancellationToken);
+
+    public ValueTask<int> CleanupConcurrencyGroupsAsync(TimeSpan idleRetention, int batchSize, CancellationToken cancellationToken = default)
+      => PostgresConcurrencyGroupRetentionOperation.ExecuteAsync(context, idleRetention, batchSize, cancellationToken);
+
+    public ValueTask<ConcurrencyGroupCleanupConfiguration> GetConcurrencyGroupCleanupConfigurationAsync(
+        ConcurrencyGroupCleanupConfiguration defaultConfiguration,
+        CancellationToken cancellationToken = default)
+      => PostgresCleanupConfigurationOperation.GetConcurrencyGroupsAsync(context, defaultConfiguration, cancellationToken);
 
     public ValueTask<int> CleanupWorkerNodesAsync(
         TimeSpan retention,

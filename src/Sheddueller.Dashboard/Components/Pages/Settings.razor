@@ -85,6 +85,20 @@
             </ChildContent>
         </Card>
 
+        <Card Title="Unused concurrency groups" Flush="true"
+              Description="Configured groups and groups referenced by retained jobs or schedules are preserved.">
+            <HeaderActions>
+                <Switch Value="_form.GroupCleanupEnabled" ValueChanged="value => _form.GroupCleanupEnabled = value" Disabled="_isSaving">Delete unused groups</Switch>
+            </HeaderActions>
+            <ChildContent>
+                <div class="settings-rows">
+                    @DurationRow(DashboardCleanupSetting.GroupIdleRetention, "Keep unused groups for", "Measured from the group's last activity.")
+                    @DurationRow(DashboardCleanupSetting.GroupCleanupInterval, "Run cleanup every", "")
+                    @BatchSizeRow(true)
+                </div>
+            </ChildContent>
+        </Card>
+
         <Card Title="Job events" Flush="true"
               Description="Lifecycle events, logs, and progress updates shown on each job's page.">
             <div class="settings-rows">
@@ -376,11 +390,18 @@
         }
     }
 
-    private void SetBatchSize(ChangeEventArgs args)
+    private void SetBatchSize(ChangeEventArgs args, bool groups)
     {
         if (this._form is not null)
         {
-            this._form.BatchSize = args.Value as string ?? string.Empty;
+            if (groups)
+            {
+                this._form.GroupBatchSize = args.Value as string ?? string.Empty;
+            }
+            else
+            {
+                this._form.BatchSize = args.Value as string ?? string.Empty;
+            }
         }
     }
 
@@ -458,25 +479,25 @@
         </div>;
     }
 
-    private RenderFragment BatchSizeRow()
+    private RenderFragment BatchSizeRow(bool groups = false)
     {
         var form = this._form!;
-        var setting = DashboardCleanupSetting.JobBatchSize;
+        var setting = groups ? DashboardCleanupSetting.GroupBatchSize : DashboardCleanupSetting.JobBatchSize;
         var error = this.VisibleError(setting);
         var id = InputId(setting);
 
         return @<div class="sd-field settings-row" @key="setting">
             <div class="settings-row__text">
                 <label class="settings-row__label" for="@id">Batch size</label>
-                <p class="sd-field__hint" id="@($"{id}-hint")">Most jobs deleted in one transaction. Smaller batches hold locks for less time.</p>
+                <p class="sd-field__hint" id="@($"{id}-hint")">Maximum rows deleted per transaction.</p>
             </div>
             <div class="settings-row__control">
                 <div class="settings-duration">
                     <input id="@id" class="sd-input settings-duration__amount" type="text" inputmode="numeric" autocomplete="off"
-                           spellcheck="false" value="@form.BatchSize" disabled="@_isSaving"
+                           spellcheck="false" value="@(groups ? form.GroupBatchSize : form.BatchSize)" disabled="@_isSaving"
                            aria-invalid="@(error is null ? null : "true")" aria-describedby="@DescribedBy(setting, error)"
-                           @oninput="SetBatchSize" @onchange="() => Touch(setting)" />
-                    <span class="settings-unit">jobs</span>
+                           @oninput="args => SetBatchSize(args, groups)" @onchange="() => Touch(setting)" />
+                    <span class="settings-unit">@(groups ? "groups" : "jobs")</span>
                 </div>
                 @if (error is not null)
                 {
@@ -509,5 +530,8 @@
       => new(
         JobRetentionCleanupConfiguration.FromOptions(ShedduellerOptions.Value.JobRetention),
         new JobEventCleanupConfiguration(DashboardOptions.Value.EventRetention, JobEventCleanupConfiguration.DefaultCleanupInterval),
-        MetricsCleanupConfiguration.Default);
+        MetricsCleanupConfiguration.Default)
+        {
+            ConcurrencyGroups = ConcurrencyGroupCleanupConfiguration.FromOptions(ShedduellerOptions.Value.ConcurrencyGroupCleanup),
+        };
 }

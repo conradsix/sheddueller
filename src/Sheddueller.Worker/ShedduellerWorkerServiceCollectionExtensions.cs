@@ -36,6 +36,7 @@ public static class ShedduellerWorkerServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerJobLogEventDispatcher>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IShedduellerStartupValidator, ShedduellerWorkerStartupValidator>());
         ShedduellerHostedServiceRegistration.TryAddStartupValidationHostedService(services);
+        ShedduellerHostedServiceRegistration.TryAddConcurrencyGroupRetentionHostedService(services);
         if (services.Any(descriptor => descriptor.ServiceType == typeof(IJobRetentionStore)))
         {
             ShedduellerHostedServiceRegistration.TryAddJobRetentionHostedService<ShedduellerJobRetentionService>(services);
