@@ -25,7 +25,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         var image = Environment.GetEnvironmentVariable("SHEDDUELLER_POSTGRES_IMAGE");
         if (string.IsNullOrWhiteSpace(image))
         {
-            image = "postgres:14";
+            image = "postgres:16";
         }
 
         this._container = new PostgreSqlBuilder(image)

@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18
+    image: postgres:19
     container_name: sheddueller-postgres
     environment:
       POSTGRES_DB: sheddueller_sample
