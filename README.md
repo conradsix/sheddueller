@@ -53,6 +53,8 @@ dotnet add package Sheddueller.Postgres
 dotnet add package Sheddueller.Worker
 ```
 
+`Sheddueller.Postgres` supports PostgreSQL 15 and later; CI tests 16, 18 and 19.
+
 For a web dashboard:
 
 ```bash
@@ -325,3 +327,5 @@ dotnet run --project samples/Sheddueller.SampleHost
 ```
 
 Open `http://localhost:5000/` for the launcher and `http://localhost:5000/sheddueller` for the dashboard.
+
+When `docker-compose.yml` moves to a new PostgreSQL major version, the PostgreSQL container won't start on a sample volume created by the previous version. Reset it with `docker compose down -v`, which deletes the sample data.
